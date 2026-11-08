@@ -1,50 +1,115 @@
-name: Superfile desktop builds
+name: Superfile Release Builds
+
 on:
   push:
-  pull_request:
-  workflow_dispatch:
+    tags:
+      - 'v*'
+      - '[0-9]+.*'
+
 permissions:
-  contents: read
+  contents: write
+
 jobs:
   build:
+    name: Build (${{ matrix.platform_name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            platform_name: windows-x86_64
+            arch_label: x86_64
           - os: macos-15
             target: aarch64-apple-darwin
+            platform_name: macos-aarch64
+            arch_label: aarch64
           - os: macos-15-intel
             target: x86_64-apple-darwin
+            platform_name: macos-x86_64
+            arch_label: x86_64
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+            platform_name: linux-x86_64
+            arch_label: x86_64
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-      - name: Linux desktop libraries
+
+      - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y clang cmake libfontconfig-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libxcb-shape0-dev libxcb-xfixes0-dev libssl-dev libvulkan-dev
+
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-      - run: python scripts/check-locales.py
-      - run: python scripts/check-architecture.py
-      - run: cargo build --locked -p superfile --target ${{ matrix.target }}
-      - run: cargo test --locked -p superfile-services --test portable_documents --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
+
+      - name: Validate locales & architecture
+        run: |
+          python scripts/check-locales.py
+          python scripts/check-architecture.py
+
+      - name: Build release binary
+        run: cargo build --release --locked -p superfile --target ${{ matrix.target }}
+
+      - name: Run portable document test
+        run: cargo test --locked -p superfile-services --test portable_documents --target ${{ matrix.target }}
+
+      - name: Package Windows artifacts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: pwsh scripts/package/windows/package-windows.ps1 -Target "${{ matrix.target }}" -Tag "${{ github.ref_name }}"
+
+      - name: Package macOS artifacts
+        if: runner.os == 'macOS'
+        run: bash scripts/package/macos/package-dmg.sh "${{ matrix.target }}" "${{ matrix.arch_label }}" "${{ github.ref_name }}"
+
+      - name: Package Linux artifacts
+        if: runner.os == 'Linux'
+        run: bash scripts/package/linux/package-deb.sh "${{ matrix.target }}" "${{ github.ref_name }}"
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: superfile-${{ matrix.target }}
-          path: |
-            target/${{ matrix.target }}/debug/superfile
-            target/${{ matrix.target }}/debug/superfile.exe
+          name: packages-${{ matrix.platform_name }}
+          path: package-dist/*
           if-no-files-found: error
+
+  release:
+    name: Publish Release to GitHub
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: packages-*
+          merge-multiple: true
+
+      - name: Generate SHA256 Checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create GitHub Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*
+          generate_release_notes: true

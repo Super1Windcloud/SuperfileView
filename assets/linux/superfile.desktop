@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Superfile
+Comment=High-performance desktop file viewer and editor
+GenericName=File Viewer
+Exec=superfile %U
+Icon=superfile
+Terminal=false
+Type=Application
+StartupNotify=true
+Categories=Utility;Viewer;Development;Office;Graphics;
+MimeType=text/plain;text/markdown;application/json;application/pdf;image/png;image/jpeg;image/svg+xml;application/x-sqlite3;
+Keywords=viewer;editor;files;documents;markdown;sqlite;
