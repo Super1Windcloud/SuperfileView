@@ -2,7 +2,7 @@
 ; Cross-platform high-performance desktop file viewer and editor
 
 #ifndef AppVersion
-#define AppVersion "0.1.0"
+#define AppVersion "0.0.1"
 #endif
 
 #ifndef SourceExe

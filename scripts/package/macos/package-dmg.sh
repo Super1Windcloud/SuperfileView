@@ -3,7 +3,7 @@ set -euo pipefail
 
 TARGET="${1:-aarch64-apple-darwin}"
 ARCH_LABEL="${2:-aarch64}"
-TAG="${3:-v0.1.0}"
+TAG="${3:-v0.0.1}"
 CLEAN_VERSION="${TAG#v}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
