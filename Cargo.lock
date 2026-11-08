@@ -7020,12 +7020,14 @@ dependencies = [
  "gpui-kit",
  "log",
  "mermaid-rs-renderer",
+ "rusqlite",
  "serde",
  "serde_json",
  "superfile-core",
  "superfile-services",
  "tempfile",
  "url",
+ "zip",
 ]
 
 [[package]]

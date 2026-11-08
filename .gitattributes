@@ -1,0 +1,15 @@
+* text=auto eol=lf
+*.png binary
+*.icns binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.bmp binary
+*.tiff binary
+*.exr binary
+*.hdr binary
+*.wasm binary
+*.sqlite3 binary
+*.db binary

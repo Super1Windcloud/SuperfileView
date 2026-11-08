@@ -558,28 +558,22 @@ mod tests {
         (dir, path)
     }
     fn epub_fixture() -> (tempfile::TempDir, std::path::PathBuf) {
+        use std::io::Write;
         let dir = tempfile::tempdir().unwrap();
         let entries: HashMap<String, String> = serde_json::from_str(include_str!(
             "../../../../../assets/reader-contracts/book.epub.json"
         ))
         .unwrap();
-        for (name, text) in entries {
-            let path = dir.path().join(name);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, text).unwrap();
-        }
         let path = dir.path().join("fixture.epub");
-        // macOS's archive tool is used only to assemble the test fixture.
-        let result = std::process::Command::new("/usr/bin/zip")
-            .current_dir(dir.path())
-            .args(["-q", "-r", "fixture.epub", "mimetype", "META-INF", "OPS"])
-            .output()
-            .unwrap();
-        assert!(
-            result.status.success(),
-            "{}",
-            String::from_utf8_lossy(&result.stderr)
-        );
+        let file = std::fs::File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for (name, text) in entries {
+            zip.start_file(name, options).unwrap();
+            zip.write_all(text.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap();
         (dir, path)
     }
     fn open(

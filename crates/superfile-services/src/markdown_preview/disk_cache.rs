@@ -162,7 +162,7 @@ impl DiskCache {
         }
         let key = self.key(diagram, edge);
         let path = self.path(&key);
-        let file = match File::open(&path) {
+        let file = match File::options().read(true).write(true).open(&path) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error),
@@ -450,7 +450,9 @@ mod tests {
         let c = diagram("c");
         for (index, diagram) in [&a, &b].into_iter().enumerate() {
             cache.remember(diagram, 32, &image, &cancelled).unwrap();
-            File::open(cache.path(&cache.key(diagram, 32)))
+            File::options()
+                .write(true)
+                .open(cache.path(&cache.key(diagram, 32)))
                 .unwrap()
                 .set_times(
                     FileTimes::new()

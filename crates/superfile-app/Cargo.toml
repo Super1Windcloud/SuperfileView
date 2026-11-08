@@ -31,6 +31,8 @@ serde = { version = "1", features = ["derive"] }
 [dev-dependencies]
 gpui-kit = { workspace = true, features = ["test-support"] }
 tempfile = "3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+rusqlite = { version = "=0.37.0", default-features = false }
 
 # Unsafe is confined to the main-thread native view, context-menu, path-hint and updater bridges.
 [lints.rust]

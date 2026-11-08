@@ -9,42 +9,7 @@ struct Shortcuts {
 }
 impl Render for Shortcuts {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let entries = [
-            ("Open Settings", "⌘,"),
-            ("New window", "⌘⇧N"),
-            ("New file", "⌘N"),
-            ("Open file", "⌘O"),
-            ("Open folder", "⌘⇧O"),
-            ("Add workspace folder", "⌘⌥O"),
-            ("Save file", "⌘S"),
-            ("Refresh", "⌘R"),
-            ("Close current tab; close window when empty", "⌘W"),
-            ("Close workspace window", "⌘⇧W"),
-            ("Quit Superfile", "⌘Q"),
-            ("Search workspace files", "⌘P"),
-            ("Toggle sidebar", "⌘B"),
-            ("Toggle preview / source", "⌘⇧V"),
-            ("Toggle word wrap", "⌥Z"),
-            ("Next tab", "Ctrl+Tab / ⌘⇧]"),
-            ("Previous tab", "Ctrl+Shift+Tab / ⌘⇧["),
-            ("Navigate back / forward", "⌥← / ⌥→"),
-            ("Toggle theme", "⌘⌥T"),
-            ("Keyboard shortcuts", "F1"),
-            ("Copy / cut / paste / select all (editor)", "⌘C / X / V / A"),
-            ("Copy selected text / image / table cell", "⌘C / Ctrl+C"),
-            ("Copy preview text (native preview)", "⌘⇧C"),
-            ("Zoom in / out (native preview)", "⌘+ / ⌘−"),
-            ("Reset zoom / fit (native preview)", "⌘0"),
-            ("Actual image size", "⌘1"),
-            ("Previous / next preview page", "⌥PageUp / ⌥PageDown"),
-            ("Open preview with another app", "⌘⇧E"),
-            ("Recognize image text (native preview)", "⌘⇧I"),
-            ("Undo (editor)", "⌘Z"),
-            ("Redo (editor)", "⌘⇧Z"),
-            ("Find in file", "⌘F"),
-            ("Commit staged contents (commit input)", "⌘Enter"),
-            ("Select / expand / open in file tree", "↑↓ / ←→ / Enter"),
-        ];
+        let entries = platform_shortcuts();
         v_flex()
             .size_full()
             .track_focus(&self.focus)
@@ -149,5 +114,72 @@ pub fn open(cx: &mut App) {
         })
     }) {
         log::error!("Cannot open keyboard shortcuts: {error:#}");
+    }
+}
+
+fn platform_shortcuts() -> Vec<(&'static str, &'static str)> {
+    if cfg!(target_os = "macos") {
+        vec![
+            ("Open Settings", "⌘,"),
+            ("New window", "⌘⇧N"),
+            ("New file", "⌘N"),
+            ("Open file", "⌘O"),
+            ("Open folder", "⌘⇧O"),
+            ("Add workspace folder", "⌘⌥O"),
+            ("Save file", "⌘S"),
+            ("Refresh", "⌘R"),
+            ("Close current tab; close window when empty", "⌘W"),
+            ("Close workspace window", "⌘⇧W"),
+            ("Quit Superfile", "⌘Q"),
+            ("Search workspace files", "⌘P"),
+            ("Toggle sidebar", "⌘B"),
+            ("Toggle preview / source", "⌘⇧V"),
+            ("Toggle word wrap", "⌥Z"),
+            ("Next tab", "Ctrl+Tab / ⌘⇧]"),
+            ("Previous tab", "Ctrl+Shift+Tab / ⌘⇧["),
+            ("Navigate back / forward", "⌥← / ⌥→"),
+            ("Toggle theme", "⌘⌥T"),
+            ("Keyboard shortcuts", "F1"),
+            ("Copy / cut / paste / select all (editor)", "⌘C / X / V / A"),
+            ("Copy selected text / image / table cell", "⌘C / Ctrl+C"),
+            ("Undo (editor)", "⌘Z"),
+            ("Redo (editor)", "⌘⇧Z"),
+            ("Find in file", "⌘F"),
+            ("Commit staged contents (commit input)", "⌘Enter"),
+            ("Select / expand / open in file tree", "↑↓ / ←→ / Enter"),
+        ]
+    } else {
+        vec![
+            ("Open Settings", "Ctrl+,"),
+            ("New window", "Ctrl+Shift+N"),
+            ("New file", "Ctrl+N"),
+            ("Open file", "Ctrl+O"),
+            ("Open folder", "Ctrl+Shift+O"),
+            ("Add workspace folder", "Ctrl+Alt+O"),
+            ("Save file", "Ctrl+S"),
+            ("Refresh", "Ctrl+R"),
+            ("Close current tab; close window when empty", "Ctrl+W"),
+            ("Close workspace window", "Ctrl+Shift+W"),
+            ("Quit Superfile", "Ctrl+Q"),
+            ("Search workspace files", "Ctrl+P"),
+            ("Toggle sidebar", "Ctrl+B"),
+            ("Toggle preview / source", "Ctrl+Shift+V"),
+            ("Toggle word wrap", "Alt+Z"),
+            ("Next tab", "Ctrl+Tab"),
+            ("Previous tab", "Ctrl+Shift+Tab"),
+            ("Navigate back / forward", "Alt+← / Alt+→"),
+            ("Toggle theme", "Ctrl+Alt+T"),
+            ("Keyboard shortcuts", "F1"),
+            (
+                "Copy / cut / paste / select all (editor)",
+                "Ctrl+C / X / V / A",
+            ),
+            ("Copy selected text / image / table cell", "Ctrl+C"),
+            ("Undo (editor)", "Ctrl+Z"),
+            ("Redo (editor)", "Ctrl+Shift+Z / Ctrl+Y"),
+            ("Find in file", "Ctrl+F / F3"),
+            ("Commit staged contents (commit input)", "Ctrl+Enter"),
+            ("Select / expand / open in file tree", "↑↓ / ←→ / Enter"),
+        ]
     }
 }

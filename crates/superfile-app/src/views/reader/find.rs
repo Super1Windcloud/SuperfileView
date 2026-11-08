@@ -162,12 +162,11 @@ impl FindBar {
                     } else {
                         editor.close_search(cx);
                     }
-                    if reveal {
-                        if let Some(index) = self.matcher.current() {
-                            if let Some(range) = self.matcher.matched_ranges().get(index) {
-                                editor.set_selected_range(range.clone(), cx);
-                            }
-                        }
+                    if reveal
+                        && let Some(index) = self.matcher.current()
+                        && let Some(range) = self.matcher.matched_ranges().get(index)
+                    {
+                        editor.set_selected_range(range.clone(), cx);
                     }
                 });
             }
@@ -221,12 +220,12 @@ impl FindBar {
                 } else {
                     self.matcher.next();
                 }
-                if let Some(index) = self.matcher.current() {
-                    if let Some(range) = self.matcher.matched_ranges().get(index) {
-                        editor.update(cx, |editor, cx| {
-                            editor.set_selected_range(range.clone(), cx)
-                        });
-                    }
+                if let Some(index) = self.matcher.current()
+                    && let Some(range) = self.matcher.matched_ranges().get(index)
+                {
+                    editor.update(cx, |editor, cx| {
+                        editor.set_selected_range(range.clone(), cx)
+                    });
                 }
             }
             Target::Preview(_) => {

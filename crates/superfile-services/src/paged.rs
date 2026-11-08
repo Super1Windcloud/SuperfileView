@@ -512,13 +512,16 @@ pub fn save_page_cancellable(
     cancel.copy(std::io::Cursor::new(text.as_bytes()), output.as_file_mut())?;
     source.seek(SeekFrom::Start(page.end))?;
     cancel.copy(&mut source, output.as_file_mut())?;
-    let after = std::fs::metadata(&target)?;
+    drop(source);
+    let check = File::open(&target)?;
+    let after = check.metadata()?;
     ensure!(
         after.len() == before.len()
             && after.modified().ok() == before.modified().ok()
-            && crate::platform::file_identity(&File::open(&target)?)? == page.identity,
+            && crate::platform::file_identity(&check)? == page.identity,
         "File changed while saving; your edits are still open."
     );
+    drop(check);
     output.as_file().set_permissions(before.permissions())?;
     output.as_file().sync_all()?;
     cancel.check()?;

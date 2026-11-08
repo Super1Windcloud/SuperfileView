@@ -153,6 +153,7 @@ fn drawio_decodes_compressed_pages_and_produces_raster_output() -> Result<()> {
 }
 
 #[test]
+#[cfg(target_os = "macos")]
 fn binary_plist_preview_decodes_without_changing_original() -> Result<()> {
     let root = tempfile::tempdir()?;
     let path = root.path().join("fixture.plist");

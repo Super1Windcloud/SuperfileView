@@ -800,19 +800,11 @@ mod tests {
         });
     }
     fn create_database(path: &std::path::Path) {
-        // macOS ships sqlite3; only fixture setup uses the command-line tool.
-        let result = std::process::Command::new("/usr/bin/sqlite3")
-            .arg(path)
-            .arg(include_str!(
-                "../../../../../assets/reader-contracts/sqlite.sql"
-            ))
-            .output()
-            .unwrap();
-        assert!(
-            result.status.success(),
-            "{}",
-            String::from_utf8_lossy(&result.stderr)
-        );
+        let conn = rusqlite::Connection::open(path).unwrap();
+        conn.execute_batch(include_str!(
+            "../../../../../assets/reader-contracts/sqlite.sql"
+        ))
+        .unwrap();
     }
     fn open(
         cx: &mut TestAppContext,

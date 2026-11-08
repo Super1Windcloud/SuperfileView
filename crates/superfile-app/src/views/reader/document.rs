@@ -214,12 +214,12 @@ impl DocumentReader {
         }));
     }
     pub(super) fn show_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.find.is_none() {
-            if let Some(state) = self.state.clone() {
-                self.find = Some(cx.new(|cx| {
-                    super::find::FindBar::new(super::find::Target::Preview(state), window, cx)
-                }));
-            }
+        if self.find.is_none()
+            && let Some(state) = self.state.clone()
+        {
+            self.find = Some(cx.new(|cx| {
+                super::find::FindBar::new(super::find::Target::Preview(state), window, cx)
+            }));
         }
         if let Some(find) = &self.find {
             find.update(cx, |find, cx| find.show(false, window, cx));
@@ -231,10 +231,10 @@ impl Render for DocumentReader {
         if let Some(pdf) = &self.pdf {
             return pdf.clone().into_any_element();
         }
-        if self.table.is_none() {
-            if let Some(path) = self.database.clone() {
-                self.table = Some(cx.new(|cx| super::sqlite::SqliteReader::new(path, window, cx)));
-            }
+        if self.table.is_none()
+            && let Some(path) = self.database.clone()
+        {
+            self.table = Some(cx.new(|cx| super::sqlite::SqliteReader::new(path, window, cx)));
         }
         if let Some(table) = &self.table {
             return table.clone().into_any_element();
