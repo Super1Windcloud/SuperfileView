@@ -1,0 +1,221 @@
+use crate::limits as reader_limits;
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result, ensure};
+use ignore::WalkBuilder;
+use superfile_core::DirectoryEntry;
+
+pub struct FolderSnapshot {
+    pub root: PathBuf,
+    pub entries: Vec<DirectoryEntry>,
+}
+
+pub fn create_folder(path: &Path) -> Result<()> {
+    std::fs::create_dir(path).with_context(|| format!("Cannot create folder {}", path.display()))
+}
+
+pub fn open_folder(path: &Path) -> Result<FolderSnapshot> {
+    open_folder_cancellable(path, &crate::work::Cancellation::default())
+}
+
+pub fn open_folder_cancellable(
+    path: &Path,
+    cancel: &crate::work::Cancellation,
+) -> Result<FolderSnapshot> {
+    cancel.check()?;
+    let root = path
+        .canonicalize()
+        .with_context(|| format!("Cannot open {}", path.display()))?;
+    let entries = list_directory_cancellable(&root, cancel)?;
+    Ok(FolderSnapshot { root, entries })
+}
+
+/// Read only immediate children, including directory links for on-demand expansion.
+/// Recursive walks still do not follow links.
+pub fn list_directory(path: &Path) -> Result<Vec<DirectoryEntry>> {
+    list_directory_cancellable(path, &crate::work::Cancellation::default())
+}
+
+pub fn list_directory_cancellable(
+    path: &Path,
+    cancel: &crate::work::Cancellation,
+) -> Result<Vec<DirectoryEntry>> {
+    cancel.check()?;
+    ensure!(path.is_dir(), "Not a directory: {}", path.display());
+    let mut entries = Vec::new();
+    for entry in WalkBuilder::new(path)
+        .max_depth(Some(1))
+        .standard_filters(false)
+        .follow_links(false)
+        .filter_entry(|entry| entry.file_name() != ".git")
+        .build()
+    {
+        cancel.check()?;
+        let entry = entry.with_context(|| format!("Cannot read {}", path.display()))?;
+        if entry.depth() == 0 {
+            continue;
+        }
+        let Some(kind) = entry.file_type() else {
+            continue;
+        };
+        // Resolve only the entry type; retain the link path so expansion stays
+        // inside the current workspace instead of opening its target as a workspace.
+        let is_dir = kind.is_dir() || (kind.is_symlink() && entry.path().is_dir());
+        let is_document_package = is_dir && crate::preview::is_iwork(entry.path());
+        entries.push(DirectoryEntry {
+            path: entry.into_path(),
+            is_dir: is_dir && !is_document_package,
+            is_symlink: kind.is_symlink(),
+        });
+    }
+    cancel.check()?;
+    entries.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.path.file_name().cmp(&b.path.file_name()))
+    });
+    Ok(entries)
+}
+
+pub struct SearchPage {
+    pub paths: Vec<PathBuf>,
+    pub more: bool,
+}
+pub fn search_files(root: &Path, query: &str) -> Vec<PathBuf> {
+    search_page(
+        &[root.to_path_buf()],
+        query,
+        0,
+        &crate::work::Cancellation::default(),
+    )
+    .map(|page| page.paths)
+    .unwrap_or_default()
+}
+pub fn search_page(
+    roots: &[PathBuf],
+    query: &str,
+    offset: usize,
+    cancel: &crate::work::Cancellation,
+) -> Result<SearchPage> {
+    let query = query.trim().to_lowercase();
+    let mut paths = Vec::new();
+    if query.is_empty() {
+        return Ok(SearchPage { paths, more: false });
+    }
+    let mut roots = roots.to_vec();
+    roots.sort();
+    roots.dedup();
+    let roots: Vec<_> = roots
+        .iter()
+        .filter(|root| {
+            !roots
+                .iter()
+                .any(|other| other != *root && root.starts_with(other))
+        })
+        .collect();
+    let mut skipped = 0;
+    for root in roots {
+        for entry in WalkBuilder::new(root)
+            .standard_filters(false)
+            .follow_links(false)
+            .filter_entry(|entry| entry.file_name() != ".git")
+            .sort_by_file_name(|a, b| a.cmp(b))
+            .build()
+        {
+            cancel.check()?;
+            let Ok(entry) = entry else {
+                continue;
+            };
+            if !entry.file_type().is_some_and(|t| t.is_file()) {
+                continue;
+            }
+            let path = entry.into_path();
+            if !path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .to_lowercase()
+                .contains(&query)
+            {
+                continue;
+            }
+            if skipped < offset {
+                skipped += 1;
+                continue;
+            }
+            if paths.len() == reader_limits::WORKSPACE_SEARCH_RESULTS {
+                return Ok(SearchPage { paths, more: true });
+            }
+            paths.push(path);
+        }
+    }
+    Ok(SearchPage { paths, more: false })
+}
+
+pub fn trash_entry(path: &Path) -> Result<()> {
+    let _guard = crate::files::SAVE_LOCK
+        .lock()
+        .map_err(|_| anyhow::anyhow!("File operation lock unavailable"))?;
+    let path = std::path::absolute(path)?;
+    ensure!(
+        path.parent().is_some() && path.file_name().is_some(),
+        "Cannot trash a filesystem root"
+    );
+    std::fs::symlink_metadata(&path).context("The item no longer exists")?;
+    trash::delete(&path)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn opening_folder_does_not_wait_for_git_or_scan_descendants() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        fs::write(temp.path().join(".git"), "gitdir: /does/not/exist")?;
+        fs::create_dir(temp.path().join("nested"))?;
+        fs::write(temp.path().join("nested/hidden-from-first-level.txt"), "")?;
+        let snapshot = open_folder(temp.path())?;
+        assert_eq!(snapshot.root, temp.path().canonicalize()?);
+        assert_eq!(snapshot.entries.len(), 1);
+        assert_eq!(snapshot.entries[0].path.file_name().unwrap(), "nested");
+        Ok(())
+    }
+
+    #[test]
+    fn lists_one_level_includes_ignored_files_and_keeps_dotfiles() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        fs::create_dir(temp.path().join("src"))?;
+        fs::write(temp.path().join("src/nested.rs"), "")?;
+        fs::create_dir(temp.path().join(".git"))?;
+        fs::write(temp.path().join(".gitignore"), "ignored\n")?;
+        fs::write(temp.path().join("ignored"), "")?;
+        fs::write(temp.path().join("main.rs"), "")?;
+        let entries = list_directory(temp.path())?;
+        let names: Vec<_> = entries
+            .iter()
+            .map(|e| e.path.file_name().unwrap().to_string_lossy())
+            .collect();
+        assert_eq!(names, ["src", ".gitignore", "ignored", "main.rs"]);
+        assert!(entries[0].is_dir);
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn directory_symlinks_do_not_create_recursive_trees() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        std::os::unix::fs::symlink(temp.path(), temp.path().join("loop"))?;
+        let entries = list_directory(temp.path())?;
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].is_symlink);
+        assert!(entries[0].is_dir);
+        assert_eq!(entries[0].path, temp.path().join("loop"));
+        let children = list_directory(&entries[0].path)?;
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].path, temp.path().join("loop/loop"));
+        Ok(())
+    }
+}

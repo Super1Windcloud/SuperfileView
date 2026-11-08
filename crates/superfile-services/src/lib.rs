@@ -1,0 +1,57 @@
+//! Blocking I/O services. Call from a background executor once the UI is running.
+
+pub mod archive;
+pub mod binary;
+pub mod csv;
+pub mod diagnostics;
+pub mod documents;
+pub mod drafts;
+pub mod executables;
+pub mod files;
+pub mod formats;
+mod fragmented_mp4;
+pub mod geo;
+pub mod graph;
+pub mod inline_images;
+pub mod integrations;
+pub mod json;
+pub mod limits;
+pub mod locale;
+pub mod markdown_preview;
+pub mod markup_images;
+mod matroska;
+pub mod media;
+pub mod paged;
+pub mod pdf;
+pub mod platform;
+pub mod preferences;
+pub mod preview;
+mod qoi;
+pub mod remote;
+mod report;
+pub mod resources;
+pub mod rich_documents;
+pub mod safetensors;
+mod snapshot;
+pub mod spreadsheet;
+pub mod sqlite;
+pub mod storage;
+pub mod streamed;
+mod svg_preview;
+pub mod telemetry;
+pub mod text_formats;
+pub mod vector_formats;
+pub mod watch;
+pub mod work;
+pub mod workspace;
+pub mod xmind;
+mod xml;
+
+pub mod books;
+
+pub mod drawio;
+
+pub mod openapi;
+pub mod opml;
+
+pub mod plist;

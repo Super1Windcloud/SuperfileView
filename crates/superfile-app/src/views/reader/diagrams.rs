@@ -1,0 +1,767 @@
+use super::OpenLink;
+use crate::app::reader_jobs::{self, JobClass, Priority};
+use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::{
+    base::{
+        InlineElement, InlineRenderContext, MarkdownExtensions, MarkdownNode, MarkdownParseContext,
+        MarkdownPlugin, TextView, markdown_ast,
+    },
+    component::ActiveTheme,
+    *,
+};
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
+};
+use superfile_services::markdown_preview::{self, Diagram};
+
+#[derive(Clone)]
+enum Preview {
+    Image(Arc<Image>, u32, u32, f32),
+    Error(String),
+    Pending,
+}
+
+/// Alert rendering uses the same prepared diagram snapshot, image base and
+/// link callback as the surrounding document. Replacing these render handles
+/// does not change the parser revision or restart diagram work.
+pub(super) fn with_alerts(
+    extensions: MarkdownExtensions,
+    base: url::Url,
+    open: OpenLink,
+) -> MarkdownExtensions {
+    extensions.clone().plugin(AlertPlugin {
+        nested: extensions,
+        base,
+        open,
+    })
+}
+
+struct AlertPlugin {
+    nested: MarkdownExtensions,
+    base: url::Url,
+    open: OpenLink,
+}
+struct AlertNode {
+    kind: String,
+    body: String,
+}
+impl MarkdownPlugin for AlertPlugin {
+    fn name(&self) -> &str {
+        "superfile-alert"
+    }
+    fn is_block(&self) -> bool {
+        true
+    }
+    fn parse(
+        &self,
+        node: &markdown_ast::Node,
+        cx: &MarkdownParseContext<'_>,
+    ) -> Option<MarkdownNode> {
+        if !matches!(node, markdown_ast::Node::Blockquote(_)) {
+            return None;
+        }
+        let source = cx.node_source(node)?;
+        let lines = source
+            .lines()
+            .map(|line| {
+                let trimmed = line.trim_start();
+                trimmed
+                    .strip_prefix('>')
+                    .map(|line| line.strip_prefix(' ').unwrap_or(line))
+                    .unwrap_or(line)
+            })
+            .collect::<Vec<_>>();
+        let kind = match lines.first()?.trim() {
+            "[!NOTE]" => "提示",
+            "[!TIP]" => "建议",
+            "[!IMPORTANT]" => "重要",
+            "[!WARNING]" => "警告",
+            "[!CAUTION]" => "注意",
+            _ => return None,
+        };
+        let body = lines[1..].join("\n");
+        Some(
+            MarkdownNode::new(
+                self.name().to_owned(),
+                AlertNode {
+                    kind: kind.into(),
+                    body: body.clone(),
+                },
+            )
+            .text(format!("{kind}\n{body}"))
+            .markdown(source.to_owned()),
+        )
+    }
+    fn render(&self, node: &MarkdownNode, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let Some(alert) = node.data::<AlertNode>() else {
+            return div().into_any_element();
+        };
+        let color = match alert.kind.as_str() {
+            "警告" | "注意" => cx.theme().yellow,
+            "建议" => cx.theme().green,
+            "重要" => cx.theme().magenta,
+            _ => cx.theme().blue,
+        };
+        let image_base = self.base.clone();
+        let link_base = self.base.clone();
+        let open = self.open.clone();
+        div()
+            .w_full()
+            .my_2()
+            .pl_3()
+            .border_l_2()
+            .border_color(color)
+            .child(
+                div()
+                    .mb_2()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(color)
+                    .child(alert.kind.clone()),
+            )
+            .child(
+                TextView::markdown(
+                    ("markdown-alert", node.source_range().map_or(0, |r| r.start)),
+                    alert.body.clone(),
+                )
+                .scrollable(false)
+                .w_full()
+                .markdown_extensions(self.nested.clone())
+                .image_source(move |uri| {
+                    image_base
+                        .join(uri.as_ref())
+                        .ok()
+                        .and_then(|url| url.to_file_path().ok())
+                        .map(ImageSource::from)
+                        .unwrap_or_else(|| uri.clone().into())
+                })
+                .on_link_click(move |href, _, window, cx| {
+                    super::markup::follow_link(&link_base, &open, href, window, cx)
+                }),
+            )
+            .into_any_element()
+    }
+}
+type PreviewResource = Arc<superfile_services::resources::ResourceValue<Preview>>;
+type Snapshot = Arc<Mutex<PreviewStore>>;
+static REVISION: AtomicU64 = AtomicU64::new(1);
+struct PreviewEntry {
+    preview: superfile_services::resources::CachedResource<Preview>,
+    encoded: usize,
+    decoded: u64,
+    keys: usize,
+    used: u64,
+}
+#[derive(Default)]
+struct PreviewCache {
+    entries: HashMap<Diagram, PreviewEntry>,
+    clock: u64,
+    encoded: usize,
+    decoded: u64,
+    keys: usize,
+}
+impl PreviewCache {
+    fn lookup(&mut self, diagram: &Diagram) -> Option<PreviewResource> {
+        self.clock = self.clock.wrapping_add(1);
+        if let Some(entry) = self.entries.get_mut(diagram)
+            && let Some(preview) = entry
+                .preview
+                .get(superfile_services::resources::Retention::Background)
+        {
+            entry.used = self.clock;
+            return Some(preview);
+        }
+        self.remove(diagram);
+        None
+    }
+    fn remove(&mut self, diagram: &Diagram) {
+        if let Some(expired) = self.entries.remove(diagram) {
+            self.encoded -= expired.encoded;
+            self.decoded -= expired.decoded;
+            self.keys -= expired.keys;
+        }
+    }
+}
+
+fn shared_previews() -> Arc<Mutex<PreviewCache>> {
+    static CACHE: OnceLock<Arc<Mutex<PreviewCache>>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| Arc::new(Mutex::new(PreviewCache::default())))
+        .clone()
+}
+
+struct PreviewStore {
+    shared: Arc<Mutex<PreviewCache>>,
+    errors: PreviewCache,
+    queue: std::collections::VecDeque<Diagram>,
+    pending: std::collections::HashSet<Diagram>,
+    pending_bytes: usize,
+    revision: u64,
+}
+impl Default for PreviewStore {
+    fn default() -> Self {
+        Self::new(shared_previews())
+    }
+}
+impl PreviewStore {
+    fn new(shared: Arc<Mutex<PreviewCache>>) -> Self {
+        Self {
+            shared,
+            errors: PreviewCache::default(),
+            queue: Default::default(),
+            pending: Default::default(),
+            pending_bytes: 0,
+            revision: 0,
+        }
+    }
+    fn request(&mut self, diagram: &Diagram) -> (Option<PreviewResource>, bool) {
+        let preview = self
+            .shared
+            .lock()
+            .unwrap()
+            .lookup(diagram)
+            .or_else(|| self.errors.lookup(diagram));
+        if let Some(preview) = preview {
+            return (Some(preview), false);
+        }
+        let cost = diagram
+            .source
+            .len()
+            .saturating_add(diagram.kind.len())
+            .saturating_add(std::mem::size_of::<Diagram>())
+            .saturating_mul(2);
+        let mut queued = false;
+        if !self.pending.contains(diagram)
+            && self.pending_bytes.saturating_add(cost) as u64
+                <= superfile_services::limits::IO_CACHE_BYTES
+        {
+            self.pending.insert(diagram.clone());
+            self.queue.push_back(diagram.clone());
+            self.pending_bytes += cost;
+            queued = true;
+        }
+        (None, queued)
+    }
+    fn batch(&mut self) -> Vec<Diagram> {
+        self.queue
+            .drain(..self.queue.len().min(markdown_preview::MAX_DIAGRAMS))
+            .collect()
+    }
+    fn complete(
+        &mut self,
+        diagram: Diagram,
+        result: Result<markdown_preview::DiagramImage, String>,
+    ) {
+        if !self.pending.remove(&diagram) {
+            return;
+        }
+        let kind = match diagram.kind.as_str() {
+            "mermaid" => "mermaid",
+            "dot" | "graphviz" => "graphviz",
+            "d2" => "d2",
+            "plantuml" | "puml" => "plantuml",
+            "pikchr" => "pikchr",
+            "vega" | "vega-lite" => "vega",
+            "wavedrom" => "wavedrom",
+            _ => "other",
+        };
+        superfile_services::telemetry::track(
+            "diagram_render",
+            [
+                ("diagram_kind", superfile_services::telemetry::text(kind)),
+                (
+                    "success",
+                    superfile_services::telemetry::flag(result.is_ok()),
+                ),
+            ],
+        );
+        if let Err(error) = &result {
+            superfile_services::telemetry::operation_failed(
+                "diagram_render",
+                None,
+                &anyhow::anyhow!(error.clone()),
+            );
+        }
+        let cost = diagram
+            .source
+            .len()
+            .saturating_add(diagram.kind.len())
+            .saturating_add(std::mem::size_of::<Diagram>())
+            .saturating_mul(2);
+        self.pending_bytes = self.pending_bytes.saturating_sub(cost);
+        self.revision = self.revision.wrapping_add(1);
+        if result.is_ok() {
+            self.shared.lock().unwrap().remember(diagram, result);
+        } else {
+            // Failures belong to this view so reopening or refreshing can retry.
+            self.errors.remember(diagram, result);
+        }
+    }
+}
+
+impl PreviewCache {
+    fn remember(
+        &mut self,
+        diagram: Diagram,
+        result: Result<markdown_preview::DiagramImage, String>,
+    ) {
+        self.remove(&diagram);
+        let (preview, encoded, decoded, error_bytes) = match result {
+            Ok(image) => {
+                let encoded = image.png.len();
+                let decoded = u64::from(image.width) * u64::from(image.height) * 4;
+                (
+                    Preview::Image(
+                        Arc::new(Image::from_bytes(ImageFormat::Png, image.png)),
+                        image.width,
+                        image.height,
+                        image.baseline,
+                    ),
+                    encoded,
+                    decoded,
+                    0,
+                )
+            }
+            Err(error) => {
+                let bytes = error.len();
+                (Preview::Error(error), 0, 0, bytes)
+            }
+        };
+        let keys = diagram
+            .source
+            .len()
+            .saturating_add(diagram.kind.len())
+            .saturating_add(error_bytes)
+            .saturating_add(std::mem::size_of::<PreviewEntry>());
+        while self.encoded.saturating_add(encoded)
+            > superfile_services::limits::DIAGRAM_AGGREGATE_ENCODED_BYTES
+            || self.decoded.saturating_add(decoded)
+                > superfile_services::limits::DIAGRAM_AGGREGATE_DECODED_BYTES
+            || self.keys.saturating_add(keys) as u64 > superfile_services::limits::IO_CACHE_BYTES
+        {
+            let Some(oldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, entry)| entry.used)
+                .map(|(key, _)| key.clone())
+            else {
+                break;
+            };
+            let old = self.entries.remove(&oldest).unwrap();
+            self.encoded -= old.encoded;
+            self.decoded -= old.decoded;
+            self.keys -= old.keys;
+        }
+        self.clock = self.clock.wrapping_add(1);
+        self.encoded += encoded;
+        self.decoded += decoded;
+        self.keys += keys;
+        self.entries.insert(
+            diagram,
+            PreviewEntry {
+                preview: superfile_services::resources::pool().cache(
+                    preview,
+                    (encoded as u64)
+                        .saturating_add(decoded)
+                        .saturating_add(keys as u64),
+                    superfile_services::resources::Retention::Background,
+                ),
+                encoded,
+                decoded,
+                keys,
+                used: self.clock,
+            },
+        );
+    }
+}
+
+/// Parser nodes retain identities; visible blocks request mutable render resources.
+pub(super) struct DiagramPreview {
+    pub extensions: MarkdownExtensions,
+    snapshot: Snapshot,
+    task: Option<Task<()>>,
+    cancelled: Arc<AtomicBool>,
+    active: bool,
+}
+impl DiagramPreview {
+    pub fn new(cx: &mut Context<Self>) -> Self {
+        let snapshot = Arc::new(Mutex::new(PreviewStore::default()));
+        Self {
+            extensions: extensions(snapshot.clone(), cx.entity().downgrade()),
+            snapshot,
+            task: None,
+            cancelled: Arc::new(AtomicBool::new(false)),
+            active: false,
+        }
+    }
+    pub fn reset(&mut self, cx: &mut Context<Self>) {
+        self.cancelled.store(true, Ordering::Relaxed);
+        self.task = None;
+        self.snapshot = Arc::new(Mutex::new(PreviewStore::default()));
+        self.extensions = extensions(self.snapshot.clone(), cx.entity().downgrade());
+        if self.active {
+            self.start(cx);
+        }
+        cx.notify();
+    }
+    pub fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
+        if self.active == active {
+            return;
+        }
+        self.active = active;
+        if active {
+            self.ensure_work(cx);
+        } else {
+            self.cancelled.store(true, Ordering::Relaxed);
+            self.task = None;
+            let mut snapshot = self.snapshot.lock().unwrap();
+            snapshot.pending.clear();
+            snapshot.queue.clear();
+            snapshot.pending_bytes = 0;
+            snapshot.errors = PreviewCache::default();
+        }
+    }
+    fn ensure_work(&mut self, cx: &mut Context<Self>) {
+        if self.active && self.task.is_none() && !self.snapshot.lock().unwrap().queue.is_empty() {
+            self.start(cx);
+        }
+    }
+    fn start(&mut self, cx: &mut Context<Self>) {
+        self.cancelled = Arc::new(AtomicBool::new(false));
+        let cancelled = self.cancelled.clone();
+        let snapshot = self.snapshot.clone();
+        self.task = Some(cx.spawn(async move |view, cx| {
+            while !cancelled.load(Ordering::Relaxed) {
+                let batch = snapshot.lock().unwrap().batch();
+                if batch.is_empty() {
+                    let _ = view.update(cx, |view, cx| {
+                        view.task = None;
+                        view.ensure_work(cx);
+                    });
+                    return;
+                }
+                let before = snapshot.lock().unwrap().revision;
+                let results = snapshot.clone();
+                let cancel = cancelled.clone();
+                let done = Arc::new(AtomicBool::new(false));
+                let finished = done.clone();
+                let executor = cx.background_executor().clone();
+                let work = executor.clone().spawn(async move {
+                    let token = superfile_services::work::Cancellation::from_flag(cancel.clone());
+                    let outcome = reader_jobs::run(
+                        executor,
+                        JobClass::Diagram,
+                        Priority::Viewport,
+                        token,
+                        move |_cancel| {
+                            let result = markdown_preview::render_batch(
+                                &batch,
+                                &cancel,
+                                |diagram, image| {
+                                    if !cancel.load(Ordering::Relaxed) {
+                                        results.lock().unwrap().complete(diagram, image);
+                                    }
+                                },
+                            );
+                            if let Err(error) = result {
+                                for diagram in batch {
+                                    if cancel.load(Ordering::Relaxed) {
+                                        break;
+                                    }
+                                    results
+                                        .lock()
+                                        .unwrap()
+                                        .complete(diagram, Err(format!("{error:#}")));
+                                }
+                            }
+                            Ok(())
+                        },
+                    )
+                    .await;
+                    finished.store(true, Ordering::Release);
+                    outcome
+                });
+                let mut revision = before;
+                while !done.load(Ordering::Acquire) {
+                    if cancelled.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    let current = snapshot.lock().unwrap().revision;
+                    if current != revision {
+                        revision = current;
+                        if view.update(cx, |_, cx| cx.notify()).is_err() {
+                            return;
+                        }
+                    }
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(100))
+                        .await;
+                }
+                let _ = work.await;
+                if view.update(cx, |_, cx| cx.notify()).is_err() {
+                    return;
+                }
+            }
+        }));
+    }
+}
+impl Drop for DiagramPreview {
+    fn drop(&mut self) {
+        self.cancelled.store(true, Ordering::Relaxed);
+    }
+}
+
+fn extensions(snapshot: Snapshot, owner: WeakEntity<DiagramPreview>) -> MarkdownExtensions {
+    MarkdownExtensions::default()
+        .frontmatter()
+        .parser_revision(REVISION.fetch_add(1, Ordering::Relaxed))
+        .plugin(DiagramPlugin {
+            snapshot: snapshot.clone(),
+            owner: owner.clone(),
+            block: true,
+        })
+        .plugin(DiagramPlugin {
+            snapshot,
+            owner,
+            block: false,
+        })
+}
+struct DiagramPlugin {
+    snapshot: Snapshot,
+    owner: WeakEntity<DiagramPreview>,
+    block: bool,
+}
+struct DiagramNode {
+    diagram: Diagram,
+    inline: bool,
+}
+impl DiagramPlugin {
+    fn preview(&self, diagram: &Diagram, cx: &mut App) -> Option<PreviewResource> {
+        let (preview, queued) = self.snapshot.lock().unwrap().request(diagram);
+        if queued {
+            let owner = self.owner.clone();
+            cx.defer(move |cx| {
+                let _ = owner.update(cx, |view, cx| view.ensure_work(cx));
+            });
+        }
+        preview
+    }
+}
+impl MarkdownPlugin for DiagramPlugin {
+    fn name(&self) -> &str {
+        if self.block {
+            "superfile-diagram"
+        } else {
+            "superfile-formula"
+        }
+    }
+    fn is_block(&self) -> bool {
+        self.block
+    }
+    fn parse(
+        &self,
+        node: &markdown_ast::Node,
+        cx: &MarkdownParseContext<'_>,
+    ) -> Option<MarkdownNode> {
+        let inline = matches!(node, markdown_ast::Node::InlineMath(_));
+        if inline == self.block {
+            return None;
+        }
+        let diagram = markdown_preview::from_node_with_source(node, cx.node_source(node))?;
+        let source = cx.node_source(node).unwrap_or(&diagram.source).to_owned();
+        Some(
+            MarkdownNode::new(
+                self.name().to_owned(),
+                DiagramNode {
+                    diagram: diagram.clone(),
+                    inline,
+                },
+            )
+            .text(diagram.source)
+            .markdown(source),
+        )
+    }
+    fn render(&self, node: &MarkdownNode, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let Some(data) = node.data::<DiagramNode>() else {
+            return div().into_any_element();
+        };
+        let preview = self.preview(&data.diagram, cx);
+        let content = match preview
+            .as_deref()
+            .map(|value| &**value)
+            .unwrap_or(&Preview::Pending)
+        {
+            Preview::Image(image, width, height, _) => {
+                if data.inline {
+                    img(image.clone())
+                        .w(px(*width as f32 / 2.0))
+                        .h(px(*height as f32 / 2.0))
+                        .object_fit(ObjectFit::Contain)
+                        .into_any_element()
+                } else {
+                    let image_source = image.clone();
+                    let resource = preview.clone();
+                    div()
+                        .id(("diagram-image", node.source_range().map_or(0, |r| r.start)))
+                        .cursor_pointer()
+                        .on_click(move |_, window, cx| {
+                            cx.stop_propagation();
+                            super::image_detail::show_pinned(
+                                image_source.clone().into(),
+                                resource.clone(),
+                                window,
+                                cx,
+                            );
+                        })
+                        .w_full()
+                        .py_2()
+                        .child(
+                            div()
+                                .w_full()
+                                .max_w(px(*width as f32 / 2.0))
+                                .aspect_ratio(*width as f32 / *height as f32)
+                                .child(
+                                    img(image.clone())
+                                        .size_full()
+                                        .object_fit(ObjectFit::Contain),
+                                ),
+                        )
+                        .into_any_element()
+                }
+            }
+            Preview::Error(_) if data.inline => div()
+                .text_color(cx.theme().muted_foreground)
+                .child(data.diagram.source.clone())
+                .into_any_element(),
+            Preview::Error(error) => {
+                let mut end = data
+                    .diagram
+                    .source
+                    .len()
+                    .min(superfile_services::limits::TEXT_LAYOUT_RUN_BYTES);
+                while !data.diagram.source.is_char_boundary(end) {
+                    end -= 1;
+                }
+                div()
+                    .w_full()
+                    .p_3()
+                    .bg(cx.theme().muted)
+                    .text_color(cx.theme().muted_foreground)
+                    .child(div().text_sm().child(error.clone()))
+                    .child(div().mt_2().child(data.diagram.source[..end].to_owned()))
+                    .when(end < data.diagram.source.len(), |view| {
+                        view.child(superfile_services::locale::tr(
+                            "Complete source is available in Source view.",
+                        ))
+                    })
+                    .into_any_element()
+            }
+            Preview::Pending if data.inline => div()
+                .text_color(cx.theme().muted_foreground)
+                .child(data.diagram.source.clone())
+                .into_any_element(),
+            Preview::Pending => div()
+                .py_2()
+                .child(crate::views::loading_icon(
+                    (
+                        "diagram-rendering",
+                        node.source_range().map_or(0, |range| range.start),
+                    ),
+                    px(16.),
+                    superfile_services::locale::tr("Rendering diagram…"),
+                    cx,
+                ))
+                .into_any_element(),
+        };
+        PinnedPreview {
+            content,
+            _resource: preview,
+        }
+        .into_any_element()
+    }
+    fn render_inline(
+        &self,
+        node: &MarkdownNode,
+        context: &InlineRenderContext,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<InlineElement> {
+        let data = node.data::<DiagramNode>()?;
+        let preview = self.preview(&data.diagram, cx);
+        if let Some(Preview::Image(image, width, height, baseline)) =
+            preview.as_deref().map(|value| &**value)
+        {
+            let scale = context.font_size() / px(16.0);
+            Some(
+                InlineElement::new(PinnedPreview {
+                    content: img(image.clone())
+                        .w(px(*width as f32 / 2.0) * scale)
+                        .h(px(*height as f32 / 2.0) * scale)
+                        .object_fit(ObjectFit::Contain)
+                        .into_any_element(),
+                    _resource: preview.clone(),
+                })
+                .with_baseline(px(*baseline / 2.0) * scale),
+            )
+        } else {
+            Some(InlineElement::new(self.render(node, window, cx)))
+        }
+    }
+}
+
+// Keep the cache charge pinned for as long as a rendered element owns its image.
+struct PinnedPreview {
+    content: AnyElement,
+    _resource: Option<PreviewResource>,
+}
+impl IntoElement for PinnedPreview {
+    type Element = Self;
+    fn into_element(self) -> Self {
+        self
+    }
+}
+impl Element for PinnedPreview {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        (self.content.request_layout(window, cx), ())
+    }
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.content.prepaint(window, cx);
+    }
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.content.paint(window, cx);
+    }
+}

@@ -1,0 +1,306 @@
+use super::workspace::Workspace;
+use gpui_kit::*;
+use superfile_core::session::WorkspaceSession;
+use superfile_services::preferences::RecentWorkspace;
+
+pub(crate) struct WorkspaceSlot {
+    pub view: Entity<Workspace>,
+    pub workspace: RecentWorkspace,
+}
+
+/// Owns independent reader/editor lifetimes for every workspace in one window.
+pub(crate) struct WorkspaceWindow {
+    pub slots: Vec<WorkspaceSlot>,
+    pub active: usize,
+    pub group: String,
+    pub navigation_scroll: ScrollHandle,
+    closing: bool,
+}
+
+impl WorkspaceWindow {
+    pub fn new(cx: &mut Context<Self>) -> Self {
+        Self {
+            slots: Vec::new(),
+            active: 0,
+            closing: false,
+            navigation_scroll: ScrollHandle::new(),
+            group: format!(
+                "window-{}-{:?}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos(),
+                cx.entity_id()
+            ),
+        }
+    }
+
+    pub fn append(
+        &mut self,
+        path: Option<std::path::PathBuf>,
+        session: Option<WorkspaceSession>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<Workspace> {
+        if let Some(group) = session.as_ref().and_then(|s| s.window_group.clone()) {
+            self.group = group;
+        }
+        if let Some(slot) = self.slots.get_mut(self.active) {
+            slot.workspace = slot.view.read(cx).workspace_descriptor();
+            if slot.workspace.folders.is_empty()
+                && slot.workspace.name.is_none()
+                && slot.view.read(cx).telemetry_tab_count() > 0
+            {
+                slot.workspace.name = Some(superfile_services::locale::tr("Workspace"));
+            }
+            slot.view
+                .update(cx, |view, cx| view.suspend_workspace(window, cx));
+        }
+        let view = cx.new(|cx| Workspace::new(None, window, cx));
+        let host = cx.entity().downgrade();
+        view.update(cx, |view, cx| {
+            view.workspace_window = Some(host.clone());
+            if let Some(session) = session {
+                view.restore_update_session(session, window, cx);
+            } else if let Some(path) = path {
+                view.open_workspace_path(path, window, cx);
+            }
+        });
+        let workspace = view.read(cx).workspace_descriptor();
+        self.slots.push(WorkspaceSlot {
+            view: view.clone(),
+            workspace,
+        });
+        self.active = self.slots.len() - 1;
+        if !cx
+            .try_global::<crate::app::workspace_sessions::SavedWorkspaces>()
+            .is_some_and(|saved| saved.restoring)
+        {
+            self.reveal_navigation();
+        }
+        crate::app::register_workspace(&view, window.window_handle(), cx);
+        let weak = cx.entity().downgrade();
+        window.on_window_should_close(cx, move |window, cx| {
+            if crate::app::updates::intercept_last_window_close(cx) {
+                return false;
+            }
+            let _ = weak.update(cx, |host, cx| host.request_close(window, cx));
+            false
+        });
+        self.remember_window(cx);
+        cx.notify();
+        view
+    }
+
+    pub fn select(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(index) = self.slots.iter().position(|slot| slot.workspace.id == id) else {
+            return;
+        };
+        if self.active != index {
+            self.slots[self.active]
+                .view
+                .update(cx, |view, cx| view.suspend_workspace(window, cx));
+            self.active = index;
+        }
+        self.slots[index]
+            .view
+            .update(cx, |view, cx| view.resume_workspace(window, cx));
+        self.reveal_navigation();
+        self.remember_window(cx);
+        cx.notify();
+    }
+
+    pub(crate) fn restore_selection(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(slot) = self.slots.get(index) else {
+            return;
+        };
+        let id = slot.workspace.id.clone();
+        let view = slot.view.clone();
+        let home = view.read(cx).is_home();
+        self.select(&id, window, cx);
+        if home {
+            view.update(cx, |view, cx| view.show_home(cx));
+        }
+    }
+
+    pub(crate) fn remember_window(&self, cx: &mut App) {
+        if !cx.has_global::<crate::app::workspace_sessions::SavedWorkspaces>() {
+            return;
+        }
+        let sessions = self
+            .slots
+            .iter()
+            .enumerate()
+            .map(|(index, slot)| {
+                let mut session = slot
+                    .view
+                    .read(cx)
+                    .window_session(cx)
+                    .or_else(|| {
+                        cx.try_global::<crate::app::workspace_sessions::SavedWorkspaces>()
+                            .and_then(|saved| saved.windows.get(&self.group))
+                            .and_then(|sessions| {
+                                sessions.iter().find(|session| {
+                                    session.workspace_id.as_deref() == Some(&slot.workspace.id)
+                                })
+                            })
+                            .cloned()
+                    })
+                    .unwrap_or_else(|| {
+                        crate::app::workspace_sessions::restore(slot.workspace.clone(), cx)
+                    });
+                session.name = slot.workspace.name.clone().or(session.name);
+                session.window_group = Some(self.group.clone());
+                session.window_active = index == self.active;
+                session.show_home = slot.view.read(cx).is_home();
+                session
+            })
+            .collect();
+        crate::app::workspace_sessions::remember_window(self.group.clone(), sessions, cx);
+    }
+
+    fn reveal_navigation(&self) {
+        let Some(active) = self.slots.get(self.active) else {
+            return;
+        };
+        if let Some(index) = self
+            .slots
+            .iter()
+            .filter(|slot| !slot.workspace.folders.is_empty() || slot.workspace.name.is_some())
+            .position(|slot| slot.workspace.id == active.workspace.id)
+        {
+            self.navigation_scroll.scroll_to_item(index);
+        }
+    }
+
+    pub fn request_workspace_close(
+        &mut self,
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.closing || crate::app::updates::busy(cx) {
+            return;
+        }
+        let Some(slot) = self.slots.iter().find(|slot| slot.workspace.id == id) else {
+            return;
+        };
+        let view = slot.view.clone();
+        if !view.read(cx).can_begin_quit() {
+            return;
+        }
+        if view.read(cx).has_unsaved() || view.read(cx).is_saving() {
+            self.select(id, window, cx);
+        }
+        view.update(cx, |view, cx| view.confirm_workspace_close(window, cx));
+    }
+
+    pub fn remove_workspace(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(index) = self.slots.iter().position(|slot| slot.workspace.id == id) else {
+            return;
+        };
+        let was_active = self.active == index;
+        let removed = self.slots.remove(index);
+        removed
+            .view
+            .update(cx, |view, cx| view.suspend_workspace(window, cx));
+        if self.slots.is_empty() {
+            self.active = 0;
+            self.append(None, None, window, cx);
+        } else {
+            if index < self.active {
+                self.active -= 1;
+            }
+            self.active = self.active.min(self.slots.len() - 1);
+            if was_active {
+                self.slots[self.active]
+                    .view
+                    .update(cx, |view, cx| view.resume_workspace(window, cx));
+            }
+            self.reveal_navigation();
+        }
+        self.remember_window(cx);
+        cx.notify();
+    }
+
+    pub fn open(
+        &mut self,
+        workspace: RecentWorkspace,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(id) = self
+            .slots
+            .iter()
+            .find(|slot| {
+                slot.workspace.id == workspace.id
+                    || (!superfile_services::remote::is_remote_id(&workspace.id)
+                        && !superfile_services::remote::is_remote_id(&slot.workspace.id)
+                        && slot.workspace.folders == workspace.folders)
+            })
+            .map(|slot| slot.workspace.id.clone())
+        {
+            self.select(&id, window, cx);
+            return;
+        }
+        self.append(
+            None,
+            Some(crate::app::workspace_sessions::restore(workspace, cx)),
+            window,
+            cx,
+        );
+    }
+
+    pub fn request_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if crate::app::updates::intercept_last_window_close(cx) {
+            return;
+        }
+        if !self.closing {
+            for slot in &self.slots {
+                slot.view.update(cx, |view, _| view.reset_quit_approval());
+            }
+            self.closing = true;
+        }
+        let next = self
+            .slots
+            .iter()
+            .find(|slot| !slot.view.read(cx).quit_is_approved())
+            .map(|slot| (slot.workspace.id.clone(), slot.view.clone()));
+        if let Some((id, view)) = next {
+            if view.read(cx).has_unsaved() || view.read(cx).is_saving() {
+                self.select(&id, window, cx);
+            }
+            view.update(cx, |view, cx| {
+                view.confirm_workspace_window_close(window, cx)
+            });
+        } else {
+            for slot in &self.slots {
+                slot.view.update(cx, |view, cx| {
+                    view.remember_session(cx);
+                    view.commit_quit(cx);
+                });
+            }
+            self.remember_window(cx);
+            window.remove_window();
+        }
+    }
+
+    pub fn cancel_close(&mut self, cx: &mut Context<Self>) {
+        self.closing = false;
+        cx.notify();
+    }
+}
+
+impl Render for WorkspaceWindow {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .size_full()
+            .children(self.slots.get(self.active).map(|slot| slot.view.clone()))
+            .child(super::context_menu::render(window, cx))
+    }
+}

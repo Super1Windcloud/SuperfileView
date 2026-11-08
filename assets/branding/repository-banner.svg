@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="360" viewBox="0 0 1280 360" role="img" aria-labelledby="title description">
+<title id="title">Superfile — All-purpose file viewer for Mac</title>
+<desc id="description">Read documents, data, images and code in one workspace. Free and open source for Apple Silicon and Intel Macs. The file cards are a branding illustration, not an application screenshot.</desc>
+<defs>
+  <linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#FAFAFA"/><stop offset="1" stop-color="#EDEFF1"/></linearGradient>
+  <linearGradient id="card" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#F6F7F8"/></linearGradient>
+</defs>
+<rect x="1" y="1" width="1278" height="358" rx="24" fill="url(#background)" stroke="#DDE0E3"/>
+<path d="M755 1V359" stroke="#E1E4E7"/>
+<g fill="none" transform="translate(56 56) scale(.074)"><defs>
+    <linearGradient id="surface" x1="160" y1="100" x2="850" y2="940" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E9F0F2"/>
+    </linearGradient>
+    <linearGradient id="iris" x1="441" y1="432" x2="582" y2="592" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7CE0C9"/>
+      <stop offset="1" stop-color="#29A89F"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="220" fill="url(#surface)"/>
+  <rect x="33" y="33" width="958" height="958" rx="219" stroke="#C7D4D9" stroke-opacity=".65" stroke-width="2"/>
+  <path d="M388 338 214 512 388 686" stroke="#263D48" stroke-width="46" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M636 338 810 512 636 686" stroke="#263D48" stroke-width="46" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="512" cy="512" r="98" fill="url(#iris)"/>
+  <circle cx="512" cy="512" r="40" fill="#152333"/>
+  <circle cx="542" cy="478" r="15" fill="#F1FFFA"/>
+</g>
+
+<g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif">
+  <text x="150" y="112" fill="#202327" font-size="62" font-weight="700" letter-spacing="-2">Superfile</text>
+  <text x="60" y="182" fill="#202327" font-size="37" font-weight="600" letter-spacing="-1">All-purpose file viewer for Mac.</text>
+  <text x="62" y="221" fill="#626870" font-size="20">Documents, data, images and code. One workspace.</text>
+  <g font-size="15" fill="#414850">
+    <rect x="60" y="267" width="186" height="35" rx="8" fill="#FFFFFF" stroke="#DCE0E4"/>
+    <text x="76" y="290">Free &amp; open source</text>
+    <text x="267" y="290">Apple Silicon + Intel</text>
+  </g>
+  <g transform="translate(793 46)">
+    <rect x="0" y="0" width="428" height="266" rx="14" fill="url(#card)" stroke="#D3D8DE"/>
+    <path d="M0 44H428" stroke="#E1E5E9"/>
+    <circle cx="20" cy="22" r="4" fill="#BFC5CC"/>
+    <circle cx="35" cy="22" r="4" fill="#CFD4DA"/>
+    <circle cx="50" cy="22" r="4" fill="#DFE3E7"/>
+    <text x="213" y="27" text-anchor="middle" font-size="12" fill="#7C838B" letter-spacing="1.7">YOUR FILES</text>
+    <g transform="translate(20 64)">
+      <rect width="184" height="78" rx="8" fill="#F1F5FB" stroke="#DFE7F3"/>
+      <text x="14" y="29" font-size="18" font-weight="600" fill="#3769A2">Markdown</text>
+      <path d="M14 46H151M14 57H112" stroke="#B6CAE2" stroke-width="3" stroke-linecap="round"/>
+    </g>
+    <g transform="translate(224 64)">
+      <rect width="184" height="78" rx="8" fill="#F3F4F5" stroke="#E2E4E7"/>
+      <text x="14" y="29" font-size="18" font-weight="600" fill="#4A535F">JSON / CSV</text>
+      <path d="M15 46H154M15 58H154M65 41V63M111 41V63" stroke="#C3CAD2" stroke-width="2"/>
+    </g>
+    <g transform="translate(20 158)">
+      <rect width="184" height="78" rx="8" fill="#F5F1ED" stroke="#EAE1D8"/>
+      <text x="14" y="29" font-size="18" font-weight="600" fill="#8C6D50">PDF / Images</text>
+      <path d="M15 61L43 43L62 55L83 40L110 61Z" fill="#DAC9B9"/>
+      <circle cx="137" cy="47" r="8" fill="#E5D9CD"/>
+    </g>
+    <g transform="translate(224 158)">
+      <rect width="184" height="78" rx="8" fill="#EDF4F2" stroke="#DBE7E2"/>
+      <text x="14" y="29" font-size="18" font-weight="600" fill="#4F7969">Source code</text>
+      <path d="M27 43L17 52L27 61M48 43L58 52L48 61M40 40L34 64" fill="none" stroke="#9AB9AB" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+  </g>
+</g>
+</svg>

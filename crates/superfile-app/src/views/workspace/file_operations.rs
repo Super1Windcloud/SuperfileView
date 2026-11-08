@@ -1,0 +1,233 @@
+use super::Workspace;
+use gpui_kit::*;
+use std::path::{Path, PathBuf};
+
+impl Workspace {
+    pub(super) fn choose_new_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if superfile_services::remote::is_remote_id(&self.recent_id) {
+            return;
+        }
+        if self.picking || crate::app::workspace_editors_locked(cx) || crate::app::updates::busy(cx)
+        {
+            return;
+        }
+        let Some(directory) = self.root.clone() else {
+            return;
+        };
+        self.picking = true;
+        let selection = cx.prompt_for_new_path(
+            &directory,
+            Some(&superfile_services::locale::tr("Untitled Folder")),
+        );
+        self.picker_task = Some(cx.spawn_in(window, async move |view, cx| {
+            let result = match selection.await {
+                Ok(Ok(Some(path))) => {
+                    cx.background_executor()
+                        .spawn(async move { superfile_services::workspace::create_folder(&path) })
+                        .await
+                }
+                Ok(Ok(None)) => Ok(()),
+                other => Err(anyhow::anyhow!("Cannot choose folder: {other:?}")),
+            };
+            let _ = view.update_in(cx, |view, window, cx| {
+                view.picking = false;
+                if let Err(error) = result {
+                    view.error = Some(format!("{error:#}").into());
+                }
+                view.refresh(window, cx);
+                cx.notify();
+            });
+        }));
+    }
+    pub(super) fn choose_new_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if superfile_services::remote::is_remote_id(&self.recent_id) {
+            return;
+        }
+        let directory = self
+            .active_reader()
+            .and_then(|reader| {
+                reader
+                    .document
+                    .draft_directory
+                    .clone()
+                    .or_else(|| reader.document.path.parent().map(Path::to_path_buf))
+            })
+            .or_else(|| self.root.clone())
+            .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+            .unwrap_or_else(|| PathBuf::from("/"));
+        self.choose_new_file_in(directory, window, cx);
+    }
+
+    pub(super) fn choose_new_file_in(
+        &mut self,
+        directory: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if superfile_services::remote::is_remote_id(&self.recent_id) {
+            return;
+        }
+        if self.picking
+            || self.close_request.is_some()
+            || crate::app::updates::busy(cx)
+            || crate::app::workspace_editors_locked(cx)
+        {
+            return;
+        }
+        superfile_services::telemetry::track("draft_created", []);
+        let reader = crate::views::reader::Reader::untitled(directory, window, cx);
+        reader.set_word_wrap(self.word_wrap, window, cx);
+        self.load_task = None;
+        self.loading = false;
+        self.loading_path = None;
+        self.page = super::Page::Document;
+        self.error = None;
+        self.tabs.insert(0, reader);
+        self.active = Some(0);
+        self.tab_scroll.scroll_to_item(0);
+        self.observe_autosave(window, cx);
+        self.tabs[0].focus_source(window, cx);
+        cx.notify();
+    }
+
+    pub(crate) fn has_unsaved_in(&self, path: &Path) -> bool {
+        self.tabs.iter().any(|reader| {
+            reader.document.draft_directory.is_none()
+                && reader.document.path.starts_with(path)
+                && reader.is_dirty()
+        })
+    }
+
+    pub(super) fn confirm_trash(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if superfile_services::remote::is_remote_id(&self.recent_id) {
+            return;
+        }
+        if self.confirm_task.is_some() || crate::app::workspace_editors_locked(cx) {
+            return;
+        }
+        let title = superfile_services::locale::tr("Move to Trash?");
+        let detail = format!(
+            "{}\n\n{}",
+            path.display(),
+            superfile_services::locale::tr(
+                "This item and its contents will be moved to the system trash. You can restore it from your file manager."
+            )
+        );
+        let response = window.prompt(
+            PromptLevel::Warning,
+            &title,
+            Some(&detail),
+            &[
+                superfile_services::locale::tr("Cancel").as_str(),
+                superfile_services::locale::tr("Move to Trash").as_str(),
+            ],
+            cx,
+        );
+        self.confirm_task = Some(cx.spawn_in(window, async move |view, cx| {
+            let accepted = response.await == Ok(1);
+            let _ = view.update_in(cx, |view, window, cx| {
+                view.confirm_task = None;
+                if accepted {
+                    view.trash(path, window, cx);
+                }
+            });
+        }));
+    }
+
+    fn trash(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        // Share the cross-window mutation lock to prevent autosave racing
+        // the move. Recheck after the confirmation dialog.
+        if self.is_saving() {
+            self.error = Some(superfile_services::locale::tr("A file is being saved. Wait for it to finish before moving this item to Trash.").into());
+            cx.notify();
+            return;
+        }
+        if self.has_unsaved_in(&path) {
+            self.error = Some(superfile_services::locale::tr("An open file in this item has unsaved changes. Save it before moving this item to Trash.").into());
+            cx.notify();
+            return;
+        }
+        if let Err(error) = crate::app::lock_workspace_editors(cx.entity().entity_id(), &path, cx) {
+            self.error = Some(error.to_string().into());
+            cx.notify();
+            return;
+        }
+        self.set_editing_locked(true, cx);
+        let target = path.clone();
+        let work = cx.background_executor().spawn(async move {
+            let started = std::time::Instant::now();
+            let result = superfile_services::workspace::trash_entry(&target);
+            superfile_services::telemetry::result("move_to_trash", Some(&target), started, &result);
+            result
+        });
+        self.confirm_task = Some(cx.spawn_in(window, async move |view, cx| {
+            let result = work.await;
+            let _ = view.update_in(cx, |view, window, cx| {
+                view.confirm_task = None;
+                view.set_editing_locked(false, cx);
+                crate::app::finish_trash_operation(
+                    cx.entity().entity_id(),
+                    result.as_ref().ok().map(|_| path.clone()),
+                    cx,
+                );
+                match result {
+                    Ok(()) => {
+                        view.did_trash(&path, window, cx);
+                    }
+                    Err(error) => {
+                        view.error = Some(
+                            format!(
+                                "{}: {error:#}",
+                                superfile_services::locale::tr("Could not move item to Trash")
+                            )
+                            .into(),
+                        );
+                    }
+                }
+                view.unlock_and_refresh(window, cx);
+                cx.notify();
+            });
+        }));
+    }
+
+    pub(crate) fn did_trash(&mut self, path: &Path, window: &mut Window, cx: &mut Context<Self>) {
+        self.incoming_files
+            .retain(|queued| !queued.starts_with(path));
+        self.results.retain(|result| !result.starts_with(path));
+        if !self
+            .tabs
+            .iter()
+            .any(|reader| reader.document.path.starts_with(path))
+            && !self.roots.iter().any(|root| root.starts_with(path))
+        {
+            return;
+        }
+        self.refresh_task = None;
+        self.load_task = None;
+        self.incoming_file_task = None;
+        self.loading = false;
+        self.search_task = None;
+        let targets = self
+            .tabs
+            .iter()
+            .filter(|reader| reader.document.path.starts_with(path))
+            .map(super::header::Target::from_reader)
+            .collect();
+        self.close_tabs_unchecked(targets, window, cx);
+        let roots = self
+            .explorer
+            .as_ref()
+            .map(|e| e.read(cx).root_ids_under(path))
+            .unwrap_or_default();
+        for id in roots {
+            self.remove_folder(id, window, cx);
+        }
+        self.refresh(window, cx);
+        cx.notify();
+    }
+}
