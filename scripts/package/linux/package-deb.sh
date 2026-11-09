@@ -2,7 +2,7 @@
 set -euo pipefail
 
 TARGET="${1:-x86_64-unknown-linux-gnu}"
-TAG="${2:-v0.0.1}"
+TAG="${2:-v0.0.2}"
 CLEAN_VERSION="${TAG#v}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -1,13 +1,13 @@
 param (
     [string]$Target = "x86_64-pc-windows-msvc",
-    [string]$Tag = "v0.0.1"
+    [string]$Tag = "v0.0.2"
 )
 
 $ErrorActionPreference = "Stop"
 
 $cleanVersion = $Tag.TrimStart('v')
 if ([string]::IsNullOrWhiteSpace($cleanVersion)) {
-    $cleanVersion = "0.0.1"
+    $cleanVersion = "0.0.2"
 }
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..\..")

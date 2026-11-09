@@ -3,7 +3,7 @@ set -euo pipefail
 
 TARGET="${1:-aarch64-apple-darwin}"
 ARCH_LABEL="${2:-aarch64}"
-TAG="${3:-v0.0.1}"
+TAG="${3:-v0.0.2}"
 CLEAN_VERSION="${TAG#v}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -55,7 +55,38 @@ rm -f "${DMG_OUTPUT}"
 
 if command -v hdiutil >/dev/null 2>&1; then
   echo "Creating DMG at ${DMG_OUTPUT}..."
-  hdiutil create -volname "Superfile" -srcfolder "${DMG_STAGE}" -ov -format UDZO "${DMG_OUTPUT}"
+  echo "DMG staging $(du -sh "${DMG_STAGE}" | awk '{print $1}'), host free $(df -h / | awk 'NR==2 {print $4}')"
+
+  # macOS 11+ sizes the default APFS `-srcfolder` image too tightly. Copying
+  # the app then fails on GitHub-hosted runners with:
+  #   hdiutil: create failed - No space left on device
+  #   could not access /Volumes/Superfile/.../superfile - No space left on device
+  # even when the host volume still has room. HFS+ keeps the layout hdiutil
+  # estimates correctly (actions/runner-images#4288). Retry because those
+  # runners also race Spotlight/XProtect and return "Resource busy".
+  attempt=1
+  max_attempts=3
+  while true; do
+    if hdiutil create \
+      -volname "Superfile" \
+      -srcfolder "${DMG_STAGE}" \
+      -ov \
+      -fs HFS+ \
+      -format UDZO \
+      "${DMG_OUTPUT}"; then
+      break
+    fi
+    if [ "${attempt}" -ge "${max_attempts}" ]; then
+      echo "Error: hdiutil create failed after ${max_attempts} attempts." >&2
+      df -h / >&2 || true
+      exit 1
+    fi
+    echo "hdiutil create failed (attempt ${attempt}/${max_attempts}); retrying..." >&2
+    hdiutil detach "/Volumes/Superfile" >/dev/null 2>&1 || true
+    rm -f "${DMG_OUTPUT}"
+    attempt=$((attempt + 1))
+    sleep $((attempt * 2))
+  done
 else
   echo "Warning: hdiutil not available, skipping DMG creation."
 fi
