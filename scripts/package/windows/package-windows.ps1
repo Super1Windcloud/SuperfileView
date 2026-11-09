@@ -48,25 +48,70 @@ if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 Write-Host "Creating portable archive: $zipPath"
 Compress-Archive -Path "$stagingDir\*" -DestinationPath $zipPath -Force
 
-# 2. Compile Inno Setup installer if iscc is found
-$isccPath = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-if (-not (Test-Path $isccPath)) {
-    $isccPath = (Get-Command iscc.exe -ErrorAction SilentlyContinue)?.Source
+# 2. Compile the NSIS installer. Missing makensis is a failure: tag releases
+# must publish superfile-<tag>-windows-x86_64-setup.exe next to the zip.
+$makensisPath = $null
+if ($env:NSIS_HOME) {
+    $candidate = Join-Path $env:NSIS_HOME "makensis.exe"
+    if (Test-Path $candidate) { $makensisPath = $candidate }
+}
+if (-not $makensisPath) {
+    foreach ($root in @(${env:ProgramFiles}, ${env:ProgramFiles(x86)})) {
+        if (-not $root) { continue }
+        $candidate = Join-Path $root "NSIS\makensis.exe"
+        if (Test-Path $candidate) {
+            $makensisPath = $candidate
+            break
+        }
+    }
+}
+if (-not $makensisPath) {
+    $makensisPath = (Get-Command makensis.exe -ErrorAction SilentlyContinue)?.Source
+}
+if (-not $makensisPath) {
+    Write-Error "makensis.exe not found. Install NSIS 3 before packaging the Windows setup executable."
 }
 
-if ($isccPath -and (Test-Path $isccPath)) {
-    Write-Host "Compiling Inno Setup installer using $isccPath..."
-    $issFile = Join-Path $PSScriptRoot "installer.iss"
-    $setupBase = "superfile-${Tag}-windows-x86_64-setup"
-    & $isccPath "/DAppVersion=$cleanVersion" "/DSourceExe=$sourceExe" "/DOutputDir=$distDir" "/DOutputFileName=$setupBase" $issFile
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Inno Setup compilation returned exit code $LASTEXITCODE"
-    } else {
-        Write-Host "Inno Setup installer created successfully."
+function Get-VersionQuad([string]$version) {
+    $core = ($version -split '[-+]', 2)[0]
+    $nums = @()
+    foreach ($part in ($core -split '\.')) {
+        if ($part -match '^[0-9]+$') {
+            $nums += [string]([int]$part)
+        } else {
+            break
+        }
     }
-} else {
-    Write-Host "ISCC.exe not found. Skipping .exe installer generation."
+    if ($nums.Count -eq 0) { $nums = @('0') }
+    while ($nums.Count -lt 4) { $nums += '0' }
+    return ($nums[0..3] -join '.')
 }
+
+$versionQuad = Get-VersionQuad $cleanVersion
+$nsiFile = Join-Path $PSScriptRoot "installer.nsi"
+$setupBase = "superfile-${Tag}-windows-x86_64-setup"
+$setupPath = Join-Path $distDir "$setupBase.exe"
+if (Test-Path $setupPath) { Remove-Item $setupPath -Force }
+
+Write-Host "Compiling NSIS installer with $makensisPath"
+& $makensisPath `
+    "/WX" `
+    "/INPUTCHARSET" "UTF8" `
+    "/DAPP_VERSION=$cleanVersion" `
+    "/DAPP_VERSION_QUAD=$versionQuad" `
+    "/DSOURCE_EXE=$sourceExe" `
+    "/DSOURCE_README=$readme" `
+    "/DSOURCE_LICENSE=$license" `
+    "/DOUTPUT_DIR=$distDir" `
+    "/DOUTPUT_FILENAME=$setupBase" `
+    $nsiFile
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "NSIS compilation failed with exit code $LASTEXITCODE"
+}
+if (-not (Test-Path $setupPath)) {
+    Write-Error "NSIS did not create $setupPath"
+}
+Write-Host "NSIS installer created: $setupPath"
 
 Write-Host "Windows packaging completed. Dist files:"
 Get-ChildItem -Path $distDir

@@ -67,6 +67,28 @@ jobs:
       - name: Run portable document test
         run: cargo test --locked -p superfile-services --test portable_documents --target ${{ matrix.target }}
 
+      - name: Install NSIS
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Official SourceForge zip for NSIS 3.13. The hash is the file itself.
+          $version = '3.13'
+          $expected = 'ba63dffc4410ee89193e1cb5a41989991bd77c61068da17e3156d136b7b0b3d8'
+          $zip = Join-Path $env:RUNNER_TEMP "nsis-$version.zip"
+          $dest = Join-Path $env:RUNNER_TEMP 'nsis-extract'
+          $uri = "https://downloads.sourceforge.net/project/nsis/NSIS%203/$version/nsis-$version.zip"
+          Invoke-WebRequest -Uri $uri -OutFile $zip -UseBasicParsing -MaximumRedirection 10 -Headers @{ 'User-Agent' = 'SuperfileView CI' }
+          $actual = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "NSIS $version hash mismatch: $actual" }
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          $nsisHome = Join-Path $dest "nsis-$version"
+          if (-not (Test-Path (Join-Path $nsisHome 'makensis.exe'))) {
+            throw "makensis.exe missing under $nsisHome"
+          }
+          Add-Content -Path $env:GITHUB_ENV -Value "NSIS_HOME=$nsisHome"
+          Add-Content -Path $env:GITHUB_PATH -Value $nsisHome
+
       - name: Package Windows artifacts
         if: runner.os == 'Windows'
         shell: pwsh
