@@ -8,6 +8,53 @@ use std::{
 };
 mod native;
 
+fn application(id: String, cancel: &Cancellation) -> Application {
+    let path = native::application_path(&id);
+    let info = path
+        .as_ref()
+        .and_then(|path| read_info(&path.join("Contents/Info.plist"), cancel).ok());
+    let name = info
+        .as_ref()
+        .and_then(Value::as_dictionary)
+        .and_then(|info| {
+            info.get("CFBundleDisplayName")
+                .or_else(|| info.get("CFBundleName"))
+        })
+        .and_then(Value::as_string)
+        .map(str::to_owned)
+        .unwrap_or_else(|| id.clone());
+    Application {
+        name,
+        identifier: Some(id),
+        path,
+    }
+}
+
+pub(super) fn applications(identifier: &str, cancel: &Cancellation) -> Result<Vec<Application>> {
+    let mut applications = Vec::new();
+    for id in native::handlers(identifier) {
+        cancel.check()?;
+        let app = application(id, cancel);
+        if app.path.as_ref().is_some_and(|path| path.is_dir()) {
+            applications.push(app);
+        }
+    }
+    Ok(applications)
+}
+
+pub(super) fn set_default(identifier: &str, selected: &Application) -> Result<ChangeResult> {
+    let id = selected
+        .identifier
+        .as_deref()
+        .context("Application bundle identifier is missing")?;
+    if native::handler(identifier).as_deref() != Some(id) {
+        native::set_handler(identifier, id)?;
+    }
+    let id = native::handler(identifier)
+        .context("macOS did not return a default handler after the change")?;
+    super::verified(application(id, &Cancellation::default()), selected)
+}
+
 #[derive(Default)]
 struct Declaration {
     description: String,
@@ -132,7 +179,7 @@ fn read_info(path: &Path, cancel: &Cancellation) -> Result<Value> {
         .with_context(|| format!("Cannot read {}", path.display()))
 }
 
-fn applications(
+fn discover_applications(
     root: PathBuf,
     paths: &mut BTreeSet<PathBuf>,
     snapshot: &mut Snapshot,
@@ -195,7 +242,7 @@ pub(super) fn scan(cancel: &Cancellation) -> Result<Snapshot> {
         PathBuf::from("/System/Library/CoreServices/Applications"),
         home.join("Applications"),
     ] {
-        applications(root, &mut paths, &mut snapshot, cancel)?;
+        discover_applications(root, &mut paths, &mut snapshot, cancel)?;
     }
     for application in paths {
         cancel.check()?;

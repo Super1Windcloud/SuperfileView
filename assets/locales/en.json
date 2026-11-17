@@ -762,5 +762,13 @@
   "No recent files yet.": "No recent files yet.",
   "No recent folders yet.": "No recent folders yet.",
   "Remove from Recent Files": "Remove from Recent Files",
-  "Remove from Recent Folders": "Remove from Recent Folders"
+  "Remove from Recent Folders": "Remove from Recent Folders",
+  "Choose the default application": "Choose the default application",
+  "Choose default application": "Choose default application",
+  "Reading compatible applications…": "Reading compatible applications…",
+  "No compatible applications found.": "No compatible applications found.",
+  "Updating default application…": "Updating default application…",
+  "Could not change the default application.": "Could not change the default application.",
+  "Confirm the file type and application in Windows Settings, then refresh.": "Confirm the file type and application in Windows Settings, then refresh.",
+  "Default application updated.": "Default application updated."
 }

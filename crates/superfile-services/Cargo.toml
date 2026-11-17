@@ -71,7 +71,7 @@ roxmltree = "0.21"
 encoding_rs = "0.8"
 rusqlite = { version = "=0.37.0", default-features = false, features = ["hooks", "bundled"] }
 
-# Unsafe is confined to snapshot mapping and native read-only association queries.
+# Unsafe is confined to snapshot mapping and native association APIs.
 [lints.rust]
 unsafe_code = "deny"
 
@@ -85,6 +85,7 @@ sha2 = "0.10"
 [target.'cfg(windows)'.dependencies]
 winapi-util = "0.1"
 windows-registry = "=0.6.1"
+windows = { version = "=0.61.3", default-features = false, features = ["Win32_UI_Shell", "Win32_System_Com", "Win32_Foundation"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 plist-parser = { package = "plist", version = "=1.8.0", default-features = false }

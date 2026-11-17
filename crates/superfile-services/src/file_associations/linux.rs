@@ -6,7 +6,7 @@ use libloading::Library;
 use std::io::Read;
 use std::{
     collections::BTreeMap,
-    ffi::{CStr, c_char, c_void},
+    ffi::{CStr, CString, c_char, c_void},
     path::PathBuf,
     sync::OnceLock,
 };
@@ -16,6 +16,12 @@ struct List {
     data: *mut c_void,
     next: *mut List,
     previous: *mut List,
+}
+#[repr(C)]
+struct GioError {
+    domain: u32,
+    code: i32,
+    message: *mut c_char,
 }
 type Free = unsafe extern "C" fn(*mut c_void);
 struct Gio {
@@ -29,6 +35,9 @@ struct Gio {
     free: Free,
     unref: Free,
     free_list: unsafe extern "C" fn(*mut List, Option<Free>),
+    applications: unsafe extern "C" fn(*const c_char) -> *mut List,
+    set_default: unsafe extern "C" fn(*mut c_void, *const c_char, *mut *mut GioError) -> i32,
+    free_error: unsafe extern "C" fn(*mut GioError),
 }
 impl Gio {
     fn load() -> Result<Self> {
@@ -49,6 +58,9 @@ impl Gio {
                 free: *glib.get(b"g_free\0")?,
                 unref: *object.get(b"g_object_unref\0")?,
                 free_list: *glib.get(b"g_list_free_full\0")?,
+                applications: *gio.get(b"g_app_info_get_all_for_type\0")?,
+                set_default: *gio.get(b"g_app_info_set_as_default_for_type\0")?,
+                free_error: *glib.get(b"g_error_free\0")?,
                 _libraries: [gio, object, glib],
             })
         }
@@ -64,11 +76,11 @@ fn string(value: *const c_char) -> Option<String> {
         })
         .filter(|value| !value.is_empty())
 }
-struct Types<'a>(*mut List, &'a Gio);
+struct Types<'a>(*mut List, &'a Gio, Free);
 impl Drop for Types<'_> {
     fn drop(&mut self) {
         unsafe {
-            (self.1.free_list)(self.0, Some(self.1.free));
+            (self.1.free_list)(self.0, Some(self.2));
         }
     }
 }
@@ -128,15 +140,86 @@ fn extensions(
     Ok(result)
 }
 
-pub(super) fn scan(cancel: &Cancellation) -> Result<Snapshot> {
+fn api() -> Result<&'static Gio> {
     static API: OnceLock<std::result::Result<Gio, String>> = OnceLock::new();
-    let api = API
-        .get_or_init(|| Gio::load().map_err(|error| format!("{error:#}")))
+    API.get_or_init(|| Gio::load().map_err(|error| format!("{error:#}")))
         .as_ref()
-        .map_err(|error| anyhow!("{error}"))?;
+        .map_err(|error| anyhow!("{error}"))
+}
+
+fn describe(api: &Gio, app: *mut c_void) -> Application {
+    let id = string(unsafe { (api.identifier)(app) });
+    Application {
+        name: string(unsafe { (api.name)(app) })
+            .or_else(|| id.clone())
+            .unwrap_or_default(),
+        identifier: id,
+        path: string(unsafe { (api.executable)(app) }).map(PathBuf::from),
+    }
+}
+
+pub(super) fn applications(identifier: &str, cancel: &Cancellation) -> Result<Vec<Application>> {
+    let api = api()?;
+    let mime = CString::new(identifier)?;
+    let apps = Types(unsafe { (api.applications)(mime.as_ptr()) }, api, api.unref);
+    let mut node = apps.0;
+    let mut result = Vec::new();
+    while !node.is_null() {
+        cancel.check()?;
+        let raw = unsafe { (*node).data };
+        node = unsafe { (*node).next };
+        if !raw.is_null() {
+            result.push(describe(api, raw));
+        }
+    }
+    Ok(result)
+}
+
+pub(super) fn set_default(identifier: &str, selected: &Application) -> Result<ChangeResult> {
+    let api = api()?;
+    let mime = CString::new(identifier)?;
+    let apps = Types(unsafe { (api.applications)(mime.as_ptr()) }, api, api.unref);
+    let mut node = apps.0;
+    while !node.is_null() {
+        let raw = unsafe { (*node).data };
+        node = unsafe { (*node).next };
+        if raw.is_null() || !describe(api, raw).same_handler(selected) {
+            continue;
+        }
+        let mut error = std::ptr::null_mut();
+        let success = unsafe { (api.set_default)(raw, mime.as_ptr(), &mut error) };
+        let message = if error.is_null() {
+            None
+        } else {
+            let message = string(unsafe { (*error).message });
+            unsafe {
+                (api.free_error)(error);
+            }
+            message
+        };
+        anyhow::ensure!(
+            success != 0,
+            "{}",
+            message
+                .as_deref()
+                .unwrap_or("GIO rejected the default application change")
+        );
+        let current = unsafe { (api.default)(mime.as_ptr(), 0) };
+        anyhow::ensure!(
+            !current.is_null(),
+            "GIO did not return a default handler after the change"
+        );
+        let current = AppInfo(current, api);
+        return super::verified(describe(api, current.0), selected);
+    }
+    anyhow::bail!("The application is no longer registered for this file type")
+}
+
+pub(super) fn scan(cancel: &Cancellation) -> Result<Snapshot> {
+    let api = api()?;
     let mut snapshot = Snapshot::default();
     let mut extensions = extensions(&mut snapshot, cancel)?;
-    let types = Types(unsafe { (api.types)() }, api);
+    let types = Types(unsafe { (api.types)() }, api, api.free);
     let mut current = types.0;
     while !current.is_null() {
         cancel.check()?;

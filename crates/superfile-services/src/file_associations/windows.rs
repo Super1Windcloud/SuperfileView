@@ -1,9 +1,69 @@
 //! Read registry type names, then ask the Windows Shell for effective user defaults.
 #![allow(unsafe_code)]
 use super::*;
+use ::windows::{
+    Win32::{
+        System::Com::CoTaskMemFree,
+        UI::Shell::{ASSOC_FILTER_NONE, SHAssocEnumHandlers},
+    },
+    core::{PCWSTR, PWSTR},
+};
 use anyhow::{Context, ensure};
 use std::{collections::BTreeSet, path::PathBuf, ptr};
 use windows_registry::{CLASSES_ROOT, CURRENT_USER};
+
+fn owned_string(value: PWSTR) -> Option<String> {
+    if value.is_null() {
+        return None;
+    }
+    let result = unsafe { value.to_string() }
+        .ok()
+        .filter(|value| !value.is_empty());
+    unsafe {
+        CoTaskMemFree(Some(value.0.cast()));
+    }
+    result
+}
+
+pub(super) fn applications(identifier: &str, cancel: &Cancellation) -> Result<Vec<Application>> {
+    let _com = Com::new()?;
+    let identifier = identifier.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
+    let handlers = unsafe { SHAssocEnumHandlers(PCWSTR(identifier.as_ptr()), ASSOC_FILTER_NONE) }
+        .map_err(|error| {
+        anyhow::anyhow!("Cannot enumerate compatible applications: {error}")
+    })?;
+    let mut result = Vec::new();
+    loop {
+        cancel.check()?;
+        let mut next = [None];
+        let mut fetched = 0;
+        unsafe { handlers.Next(&mut next, Some(&mut fetched)) }.map_err(|error| {
+            anyhow::anyhow!("Cannot read the next compatible application: {error}")
+        })?;
+        let Some(handler) = next[0].take().filter(|_| fetched != 0) else {
+            break;
+        };
+        let Some(id) = unsafe { handler.GetName() }.ok().and_then(owned_string) else {
+            continue;
+        };
+        let name = unsafe { handler.GetUIName() }
+            .ok()
+            .and_then(owned_string)
+            .unwrap_or_else(|| id.clone());
+        let path = PathBuf::from(&id);
+        result.push(Application {
+            name,
+            identifier: Some(id),
+            path: path.is_absolute().then_some(path),
+        });
+    }
+    Ok(result)
+}
+
+pub(super) fn set_default(_: &str, _: &Application) -> Result<ChangeResult> {
+    // Windows 8+ reserves default changes for its user-facing system UI.
+    Ok(ChangeResult::SystemSettingsRequired)
+}
 
 #[link(name = "Shlwapi")]
 unsafe extern "system" {

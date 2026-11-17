@@ -444,6 +444,7 @@ pub fn run() -> Result<()> {
             let pending = cx.global_mut::<ExplorerSaveTask>().0.take();
             let workspace = cx.global_mut::<WorkspaceSaveTask>().0.take();
             let recent_paths = recent_paths::take_write(cx);
+            let associations = default_applications::take_write(cx);
             let remote_connections = cx.global_mut::<remote::Connections>().write.take();
             let sessions = cx
                 .global_mut::<workspace_sessions::SavedWorkspaces>()
@@ -472,6 +473,9 @@ pub fn run() -> Result<()> {
                 }
                 if let Some(recent_paths) = recent_paths {
                     recent_paths.await;
+                }
+                if let Some(associations) = associations {
+                    associations.await;
                 }
                 if let Some(connections) = remote_connections {
                     connections.await;

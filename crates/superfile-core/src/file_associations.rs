@@ -1,4 +1,4 @@
-//! Read-only snapshots of file types and the operating system's default handlers.
+//! File types, applications, and the operating system's default handlers.
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -7,6 +7,33 @@ pub struct Application {
     pub name: String,
     pub identifier: Option<String>,
     pub path: Option<PathBuf>,
+}
+
+impl Application {
+    pub fn same_handler(&self, other: &Self) -> bool {
+        if let (Some(left), Some(right)) = (&self.identifier, &other.identifier) {
+            if left == right {
+                return true;
+            }
+            #[cfg(not(windows))]
+            return false;
+        }
+        match (&self.path, &other.path) {
+            (Some(left), Some(right)) => {
+                #[cfg(windows)]
+                {
+                    left.as_os_str()
+                        .to_string_lossy()
+                        .eq_ignore_ascii_case(&right.as_os_str().to_string_lossy())
+                }
+                #[cfg(not(windows))]
+                {
+                    left == right
+                }
+            }
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

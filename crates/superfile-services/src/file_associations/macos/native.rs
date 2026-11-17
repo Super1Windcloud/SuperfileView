@@ -38,6 +38,8 @@ unsafe extern "C" {
     fn UTTypeCopyAllTagsWithClass(identifier: Ref, class: Ref) -> Ref;
     fn UTTypeCopyDescription(identifier: Ref) -> Ref;
     fn LSCopyDefaultRoleHandlerForContentType(identifier: Ref, roles: u32) -> Ref;
+    fn LSCopyAllRoleHandlersForContentType(identifier: Ref, roles: u32) -> Ref;
+    fn LSSetDefaultRoleHandlerForContentType(identifier: Ref, roles: u32, application: Ref) -> i32;
     fn LSCopyApplicationURLsForBundleIdentifier(identifier: Ref, error: *mut Ref) -> Ref;
     fn MDQueryCreate(allocator: Ref, query: Ref, attributes: Ref, sorting: Ref) -> Ref;
     fn MDQueryExecute(query: Ref, flags: usize) -> u8;
@@ -135,6 +137,25 @@ pub(super) fn handler(identifier: &str) -> Option<String> {
     let identifier = cf_string(identifier)?;
     Owned::new(unsafe { LSCopyDefaultRoleHandlerForContentType(identifier.0, u32::MAX) })
         .and_then(|value| string(value.0))
+}
+
+pub(super) fn handlers(identifier: &str) -> Vec<String> {
+    cf_string(identifier)
+        .and_then(|id| Owned::new(unsafe { LSCopyAllRoleHandlersForContentType(id.0, u32::MAX) }))
+        .map(|array| strings(&array))
+        .unwrap_or_default()
+}
+
+pub(super) fn set_handler(identifier: &str, application: &str) -> Result<()> {
+    let identifier = cf_string(identifier).context("Cannot encode file type")?;
+    let application = cf_string(application).context("Cannot encode application identifier")?;
+    let status =
+        unsafe { LSSetDefaultRoleHandlerForContentType(identifier.0, u32::MAX, application.0) };
+    ensure!(
+        status == 0,
+        "macOS rejected the default application change (OSStatus {status})"
+    );
+    Ok(())
 }
 
 pub(super) fn application_path(identifier: &str) -> Option<PathBuf> {

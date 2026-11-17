@@ -7105,6 +7105,7 @@ dependencies = [
  "ureq",
  "url",
  "winapi-util",
+ "windows 0.61.3",
  "windows-registry 0.6.1",
  "xz2",
  "zip",
