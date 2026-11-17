@@ -1,0 +1,10 @@
+{
+  "source_image": "Gemini_Generated_Image_xjs1k1xjs1k1xjs1.jpeg",
+  "source_sha256": "dbd8434561b793bbee2c23598d71d2d0b10ef820f1947a4244172f6bcb6b0fc2",
+  "tool": "built-in image_gen",
+  "mode": "background-extraction",
+  "date": "2026-11-16",
+  "selected_icon": "left",
+  "master": "superfile-source.png",
+  "prompt": "Use case: background-extraction. Edit target: the provided image containing two separate app icons. Extract ONLY the LEFT cyan/teal document-and-magnifier app icon as one standalone square 1024x1024 PNG app icon with genuine alpha transparency outside the tile. Preserve the exact left tile design: dark blue-gray rounded-square beveled tile, three luminous transparent cyan/teal folded document layers and foreground scan/magnifying glass mark, original proportions, colors and fine line details. Fill approximately 90% of the square canvas with the tile, centered, fully visible edges and corners. Remove the entire surrounding grid background and the entire right rune icon. Only background removal, clean isolation and square framing; do not redesign, add text, invent symbols, or change the lighting or the internal artwork. Keep the dark background INSIDE the rounded tile opaque. Outer margin and rounded corners must be fully transparent."
+}

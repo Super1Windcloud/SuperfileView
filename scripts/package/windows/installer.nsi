@@ -20,6 +20,9 @@ SetCompressor /SOLID lzma
 !ifndef SOURCE_LICENSE
   !define SOURCE_LICENSE "..\..\..\LICENSE"
 !endif
+!ifndef SOURCE_ICON
+  !define SOURCE_ICON "..\..\..\assets\windows\Superfile.ico"
+!endif
 !ifndef OUTPUT_DIR
   !define OUTPUT_DIR "..\..\..\package-dist"
 !endif
@@ -60,6 +63,8 @@ VIAddVersionKey /LANG=2052 "ProductVersion" "${APP_VERSION}"
 VIAddVersionKey /LANG=2052 "LegalCopyright" "Superfile Team"
 
 !define MUI_ABORTWARNING
+!define MUI_ICON "${SOURCE_ICON}"
+!define MUI_UNICON "${SOURCE_ICON}"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\superfile.exe"
 
 !insertmacro MUI_PAGE_WELCOME

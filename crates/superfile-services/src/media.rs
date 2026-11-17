@@ -510,6 +510,7 @@ mod tests {
             "assets/branding/superfile.png",
             "assets/branding/superfile.svg",
             "assets/macos/Superfile.icns",
+            "assets/windows/Superfile.ico",
         ] {
             assert!(read_image(&root.join(p))?.png.starts_with(b"\x89PNG"));
         }

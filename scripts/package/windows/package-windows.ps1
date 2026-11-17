@@ -86,6 +86,7 @@ Write-Host "Compiling NSIS installer with $makensisPath"
     "/DSOURCE_EXE=$sourceExe" `
     "/DSOURCE_README=$readme" `
     "/DSOURCE_LICENSE=$license" `
+    "/DSOURCE_ICON=$(Join-Path $repoRoot 'assets\windows\Superfile.ico')" `
     "/DOUTPUT_DIR=$distDir" `
     "/DOUTPUT_FILENAME=$setupBase" `
     $nsiFile

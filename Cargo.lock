@@ -7018,7 +7018,9 @@ name = "superfile"
 version = "0.0.2"
 dependencies = [
  "anyhow",
+ "embed-resource",
  "gpui-kit",
+ "image",
  "log",
  "mermaid-rs-renderer",
  "rusqlite",

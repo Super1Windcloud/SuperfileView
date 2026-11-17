@@ -798,6 +798,11 @@ fn workspace_window_options(cx: &App) -> WindowOptions {
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         window_min_size: Some(size(px(800.), px(480.))),
+        app_id: Some("superfile".into()),
+        #[cfg(target_os = "linux")]
+        icon: image::load_from_memory(include_bytes!("../../../../assets/branding/superfile.png"))
+            .ok()
+            .map(|image| std::sync::Arc::new(image.into_rgba8())),
         titlebar: Some(TitlebarOptions {
             title: Some("Superfile".into()),
             // Center macOS traffic lights in the workspace's 40px title bar.

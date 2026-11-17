@@ -11,6 +11,7 @@ fn main() {
         println!("cargo:rustc-link-arg-bin=superfile=/STACK:8388608");
     }
     embed_build_identity();
+    embed_application_icon();
     println!("cargo:rustc-env=SUPERFILE_BUILD_NUMBER=1");
     println!("cargo:rerun-if-changed=../../assets/reader-limits.json");
     println!("cargo:rerun-if-changed=../../scripts/generate-reader-limits.py");
@@ -23,6 +24,24 @@ fn main() {
             .expect("Generate reader policy")
             .success()
     );
+}
+
+fn embed_application_icon() {
+    println!("cargo:rerun-if-changed=../../assets/windows/Superfile.ico");
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    let icon = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap())
+        .join("../../assets/windows/Superfile.ico");
+    let resource = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("superfile-icon.rc");
+    std::fs::write(
+        &resource,
+        format!("1 ICON \"{}\"\n", icon.to_string_lossy().replace('\\', "/")),
+    )
+    .expect("Write application icon resource");
+    embed_resource::compile(resource, embed_resource::NONE)
+        .manifest_required()
+        .expect("Embed Windows application icon");
 }
 
 fn embed_build_identity() {

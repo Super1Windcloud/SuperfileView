@@ -1,53 +1,65 @@
-// Optional asset generation: install sharp and expose it through NODE_PATH.
-// node scripts/render-icons.mjs
-// Normal builds use the checked-in PNG/ICNS and do not require Node.js.
+// Optional asset generation: expose sharp through NODE_PATH, then run this file.
+// Normal Cargo builds use the checked-in PNG/ICO/ICNS and do not require Node.js.
 import { createRequire } from 'node:module';
-import { mkdir, readFile, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, readFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 const require = createRequire(import.meta.url);
 const sharp = require('sharp');
-const source = await readFile(fileURLToPath(new URL('../assets/branding/superfile.svg', import.meta.url)), 'utf8');
-// Match standard macOS app artwork: an 824px tile in a 1024px canvas.
-const scale = 824 / 960;
-const inset = 100 - 32 * scale;
-const dockSource = source
-  .replace('<path d="M388', '<g transform="translate(512 512) scale(1.22) translate(-512 -512)"><path d="M388')
-  .replace('</svg>', '</g></svg>')
-  .replace(/(<svg[^>]*>)/, `$1<g transform="translate(${inset} ${inset}) scale(${scale})">`)
-  .replace('</svg>', '</g></svg>');
-const directory = await mkdtemp(join(tmpdir(), 'superfile-icons-'));
-try {
-  // Keep the whole rounded tile. GPUI samples straight-alpha PNGs linearly,
-  // so transparent black RGB would bleed into a dark seam when scaling.
-  const welcomeSource = source.replace(/\s*<rect[^>]*stroke="#C7D4D9"[^>]*\/>/, '');
-  if (welcomeSource === source) throw new Error('Welcome icon outline adapter needs review');
-  const surfaceSource = welcomeSource.replace(/<rect[^>]*fill="url\(#surface\)"[^>]*\/>/,
-    '<rect width="1024" height="1024" fill="url(#surface)"/>');
-  if (surfaceSource === welcomeSource) throw new Error('Welcome icon surface adapter needs review');
-  const { data: welcomePixels, info } = await sharp(Buffer.from(welcomeSource))
-    .resize(168, 168).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  const surfacePixels = await sharp(Buffer.from(surfaceSource))
-    .resize(168, 168).ensureAlpha().raw().toBuffer();
-  for (let offset = 0; offset < welcomePixels.length; offset += 4) {
-    if (welcomePixels[offset + 3] === 255) continue;
-    surfacePixels.copy(welcomePixels, offset, offset, offset + 3);
-  }
-  await sharp(welcomePixels, { raw: info }).png()
-    .toFile(fileURLToPath(new URL('../assets/branding/superfile-welcome.png', import.meta.url)));
-  await sharp(Buffer.from(source)).resize(1024, 1024).png().toFile(fileURLToPath(new URL('../assets/branding/superfile.png', import.meta.url)));
-  const iconset = join(directory, 'Superfile.iconset');
-  await mkdir(iconset);
-  for (const size of [16, 32, 128, 256, 512]) {
-    for (const density of [1, 2]) {
-      const suffix = density === 2 ? '@2x' : '';
-      await sharp(Buffer.from(dockSource)).resize(size * density, size * density).png()
-        .toFile(join(iconset, `icon_${size}x${size}${suffix}.png`));
-    }
-  }
-  execFileSync('iconutil', ['-c', 'icns', iconset, '-o', fileURLToPath(new URL('../assets/macos/Superfile.icns', import.meta.url))]);
-} finally {
-  await rm(directory, { recursive: true, force: true });
+const path = (name) => fileURLToPath(new URL(`../assets/${name}`, import.meta.url));
+const transparent = { r: 0, g: 0, b: 0, alpha: 0 };
+// The extracted raster is the source of truth. All platform assets are derivatives.
+const source = await readFile(path('branding/superfile-source.png'));
+const artwork = await sharp(source).trim({ background: transparent }).png().toBuffer();
+async function square(edge, artworkEdge) {
+  const inset = (edge - artworkEdge) / 2;
+  return sharp(artwork).resize(artworkEdge, artworkEdge, { fit: 'contain', background: transparent })
+    .extend({ top: inset, bottom: inset, left: inset, right: inset, background: transparent }).png().toBuffer();
 }
+const master = await square(1024, 924);
+await writeFile(path('branding/superfile.png'), master);
+await sharp(master).resize(168, 168).png().toFile(path('branding/superfile-welcome.png'));
+// Keep the existing SVG consumer compatible with the new raster artwork.
+await writeFile(path('branding/superfile.svg'), `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><title>Superfile</title><desc>Generated raster wrapper; edit superfile-source.png.</desc><image width="1024" height="1024" href="data:image/png;base64,${master.toString('base64')}"/></svg>\n`);
+
+const frames = await Promise.all([16, 24, 32, 48, 64, 128, 256].map(async (edge) => ({
+  edge, png: await sharp(master).resize(edge, edge).png().toBuffer(),
+})));
+const directory = Buffer.alloc(6 + frames.length * 16);
+directory.writeUInt16LE(1, 2);
+directory.writeUInt16LE(frames.length, 4);
+let offset = directory.length;
+for (const [index, frame] of frames.entries()) {
+  const at = 6 + index * 16;
+  directory[at] = frame.edge === 256 ? 0 : frame.edge;
+  directory[at + 1] = directory[at];
+  directory.writeUInt16LE(1, at + 4);
+  directory.writeUInt16LE(32, at + 6);
+  directory.writeUInt32LE(frame.png.length, at + 8);
+  directory.writeUInt32LE(offset, at + 12);
+  offset += frame.png.length;
+}
+await mkdir(path('windows'), { recursive: true });
+await writeFile(path('windows/Superfile.ico'), Buffer.concat([directory, ...frames.map((frame) => frame.png)]));
+
+if (process.platform === 'darwin') {
+  const temporary = await mkdtemp(join(tmpdir(), 'superfile-icons-'));
+  try {
+    const iconset = join(temporary, 'Superfile.iconset');
+    await mkdir(iconset);
+    const dock = await square(1024, 824);
+    for (const edge of [16, 32, 128, 256, 512]) {
+      for (const density of [1, 2]) {
+        const suffix = density === 2 ? '@2x' : '';
+        await sharp(dock).resize(edge * density, edge * density).png()
+          .toFile(join(iconset, `icon_${edge}x${edge}${suffix}.png`));
+      }
+    }
+    execFileSync('iconutil', ['-c', 'icns', iconset, '-o', path('macos/Superfile.icns')]);
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+console.log('Generated Superfile PNG, SVG, Windows ICO, and macOS ICNS assets.');
