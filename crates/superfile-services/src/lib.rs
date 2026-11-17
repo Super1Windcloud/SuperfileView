@@ -7,6 +7,7 @@ pub mod diagnostics;
 pub mod documents;
 pub mod drafts;
 pub mod executables;
+pub mod file_associations;
 pub mod files;
 pub mod formats;
 mod fragmented_mp4;

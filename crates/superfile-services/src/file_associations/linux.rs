@@ -1,0 +1,180 @@
+//! Query GIO's effective defaults; missing native libraries produce a recoverable error.
+#![allow(unsafe_code)]
+use super::*;
+use anyhow::{Context, anyhow};
+use libloading::Library;
+use std::io::Read;
+use std::{
+    collections::BTreeMap,
+    ffi::{CStr, c_char, c_void},
+    path::PathBuf,
+    sync::OnceLock,
+};
+
+#[repr(C)]
+struct List {
+    data: *mut c_void,
+    next: *mut List,
+    previous: *mut List,
+}
+type Free = unsafe extern "C" fn(*mut c_void);
+struct Gio {
+    _libraries: [Library; 3],
+    types: unsafe extern "C" fn() -> *mut List,
+    default: unsafe extern "C" fn(*const c_char, i32) -> *mut c_void,
+    name: unsafe extern "C" fn(*mut c_void) -> *const c_char,
+    identifier: unsafe extern "C" fn(*mut c_void) -> *const c_char,
+    executable: unsafe extern "C" fn(*mut c_void) -> *const c_char,
+    description: unsafe extern "C" fn(*const c_char) -> *mut c_char,
+    free: Free,
+    unref: Free,
+    free_list: unsafe extern "C" fn(*mut List, Option<Free>),
+}
+impl Gio {
+    fn load() -> Result<Self> {
+        // Only system library names are used. Libraries remain loaded for the process lifetime.
+        unsafe {
+            let glib = Library::new("libglib-2.0.so.0")
+                .context("GLib is required to read system file associations")?;
+            let object = Library::new("libgobject-2.0.so.0")?;
+            let gio = Library::new("libgio-2.0.so.0")
+                .context("GIO is required to read system file associations")?;
+            Ok(Self {
+                types: *gio.get(b"g_content_types_get_registered\0")?,
+                default: *gio.get(b"g_app_info_get_default_for_type\0")?,
+                name: *gio.get(b"g_app_info_get_display_name\0")?,
+                identifier: *gio.get(b"g_app_info_get_id\0")?,
+                executable: *gio.get(b"g_app_info_get_executable\0")?,
+                description: *gio.get(b"g_content_type_get_description\0")?,
+                free: *glib.get(b"g_free\0")?,
+                unref: *object.get(b"g_object_unref\0")?,
+                free_list: *glib.get(b"g_list_free_full\0")?,
+                _libraries: [gio, object, glib],
+            })
+        }
+    }
+}
+
+fn string(value: *const c_char) -> Option<String> {
+    (!value.is_null())
+        .then(|| {
+            unsafe { CStr::from_ptr(value) }
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|value| !value.is_empty())
+}
+struct Types<'a>(*mut List, &'a Gio);
+impl Drop for Types<'_> {
+    fn drop(&mut self) {
+        unsafe {
+            (self.1.free_list)(self.0, Some(self.1.free));
+        }
+    }
+}
+struct AppInfo<'a>(*mut c_void, &'a Gio);
+impl Drop for AppInfo<'_> {
+    fn drop(&mut self) {
+        unsafe {
+            (self.1.unref)(self.0);
+        }
+    }
+}
+
+fn extensions(
+    snapshot: &mut Snapshot,
+    cancel: &Cancellation,
+) -> Result<BTreeMap<String, Vec<String>>> {
+    let mut directories = dirs::data_local_dir().into_iter().collect::<Vec<_>>();
+    let system = std::env::var_os("XDG_DATA_DIRS")
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "/usr/local/share:/usr/share".into());
+    directories.extend(std::env::split_paths(&system).filter(|path| path.is_absolute()));
+    let mut result: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for directory in directories {
+        cancel.check()?;
+        let path = directory.join("mime/globs2");
+        let file = match std::fs::File::open(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                super::warning(snapshot, format!("{}: {error}", path.display()));
+                continue;
+            }
+        };
+        let mut reader = crate::work::Reader {
+            inner: file.take(16 * 1024 * 1024 + 1),
+            cancel: cancel.clone(),
+        };
+        let mut text = String::new();
+        if let Err(error) = reader.read_to_string(&mut text) {
+            cancel.check()?;
+            super::warning(snapshot, format!("{}: {error}", path.display()));
+            continue;
+        }
+        if text.len() > 16 * 1024 * 1024 {
+            super::warning(
+                snapshot,
+                format!("{}: MIME suffix metadata exceeds 16 MiB", path.display()),
+            );
+            continue;
+        }
+        super::globs::parse(&text, &mut result, cancel)?;
+    }
+    for extensions in result.values_mut() {
+        extensions.sort();
+        extensions.dedup();
+    }
+    Ok(result)
+}
+
+pub(super) fn scan(cancel: &Cancellation) -> Result<Snapshot> {
+    static API: OnceLock<std::result::Result<Gio, String>> = OnceLock::new();
+    let api = API
+        .get_or_init(|| Gio::load().map_err(|error| format!("{error:#}")))
+        .as_ref()
+        .map_err(|error| anyhow!("{error}"))?;
+    let mut snapshot = Snapshot::default();
+    let mut extensions = extensions(&mut snapshot, cancel)?;
+    let types = Types(unsafe { (api.types)() }, api);
+    let mut current = types.0;
+    while !current.is_null() {
+        cancel.check()?;
+        // Nodes and their strings are owned by `types`, which outlives this iteration.
+        let raw = unsafe { (*current).data.cast::<c_char>() };
+        current = unsafe { (*current).next };
+        let Some(identifier) = string(raw) else {
+            continue;
+        };
+        if identifier.starts_with("x-scheme-handler/") {
+            continue;
+        }
+        let description_ptr = unsafe { (api.description)(raw) };
+        let description = string(description_ptr).unwrap_or_default();
+        unsafe {
+            (api.free)(description_ptr.cast());
+        }
+        let app = unsafe { (api.default)(raw, 0) };
+        let application = if app.is_null() {
+            None
+        } else {
+            let app = AppInfo(app, api);
+            let id = string(unsafe { (api.identifier)(app.0) });
+            Some(Application {
+                name: string(unsafe { (api.name)(app.0) })
+                    .or_else(|| id.clone())
+                    .unwrap_or_default(),
+                identifier: id,
+                path: string(unsafe { (api.executable)(app.0) }).map(PathBuf::from),
+            })
+        };
+        snapshot.associations.push(Association {
+            extensions: extensions.remove(&identifier).unwrap_or_default(),
+            identifier,
+            description,
+            application,
+            issue: None,
+        });
+    }
+    Ok(snapshot)
+}

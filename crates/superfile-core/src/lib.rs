@@ -2,6 +2,7 @@
 
 pub mod books;
 mod document;
+pub mod file_associations;
 pub mod formats;
 pub mod graph;
 pub mod outline;

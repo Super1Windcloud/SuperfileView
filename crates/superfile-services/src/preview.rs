@@ -87,12 +87,3 @@ pub fn prepare_matroska_file(source: &Path, destination: &Path) -> Result<()> {
         .map_err(|error| error.error)?;
     Ok(())
 }
-
-pub fn open_associations(_cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Result<()> {
-    #[cfg(windows)]
-    return crate::platform::open("ms-settings:defaultapps");
-    #[cfg(target_os = "macos")]
-    return crate::platform::open("x-apple.systempreferences:com.apple.preference.general");
-    #[cfg(target_os = "linux")]
-    crate::platform::open(crate::platform::home()?)
-}

@@ -2,6 +2,7 @@ mod about;
 pub mod actions;
 mod askpass;
 mod assets;
+mod default_applications;
 pub(crate) mod diagram_engine;
 pub(crate) mod document_session;
 pub(crate) mod edit_session;
@@ -44,10 +45,6 @@ pub struct ReaderPreferences {
     pub preview_save_task: Option<Task<()>>,
 }
 impl Global for ReaderPreferences {}
-
-#[derive(Default)]
-struct DefaultApplicationsTask(Option<Task<()>>);
-impl Global for DefaultApplicationsTask {}
 
 #[derive(Default)]
 struct AppearanceSaveTask(Option<Task<()>>);
@@ -267,37 +264,6 @@ fn apply_appearance(appearance: superfile_services::preferences::Appearance, cx:
         }
     }
     theme::apply(cx);
-}
-
-fn open_default_applications(cx: &mut App) {
-    if cx.global::<DefaultApplicationsTask>().0.is_some() {
-        return;
-    }
-    let work = cx.background_executor().spawn(async {
-        superfile_services::preview::open_associations(std::sync::Arc::new(
-            std::sync::atomic::AtomicBool::new(false),
-        ))
-    });
-    let task = cx.spawn(async move |cx| {
-        let result = work.await;
-        cx.update(|cx| {
-            cx.global_mut::<DefaultApplicationsTask>().0 = None;
-            if let Err(error) = result
-                && let Some((_, handle)) = cx.global::<OpenWorkspaces>().0.last().cloned()
-            {
-                let _ = handle.update(cx, |_, window, cx| {
-                    drop(window.prompt(
-                        PromptLevel::Warning,
-                        &superfile_services::locale::tr("Default applications"),
-                        Some(&format!("{error:#}")),
-                        &[superfile_services::locale::tr("OK").as_str()],
-                        cx,
-                    ));
-                });
-            }
-        });
-    });
-    cx.global_mut::<DefaultApplicationsTask>().0 = Some(task);
 }
 
 fn show_settings(cx: &mut App) {
@@ -528,7 +494,6 @@ pub fn run() -> Result<()> {
         remote::monitor_status(cx);
         cx.set_global(QuitSession::default());
         recovery::init(cx);
-        cx.set_global(DefaultApplicationsTask::default());
         updates::init(cx);
         *context.borrow_mut() = Some(cx.to_async());
         gpui_kit::component::Theme::set_scrollbar_mode(
@@ -552,7 +517,7 @@ pub fn run() -> Result<()> {
                 open_workspace(None, cx);
             }
         });
-        cx.on_action(|_: &DefaultApplications, cx| open_default_applications(cx));
+        cx.on_action(|_: &DefaultApplications, cx| default_applications::open(cx));
         cx.on_action(|_: &ToggleDarkMode, cx| toggle_dark_mode(cx));
         cx.on_action(|_: &About, cx| show_about(cx));
         cx.on_action(|_: &OpenSettings, cx| show_settings(cx));

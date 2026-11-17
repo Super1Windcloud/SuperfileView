@@ -34,6 +34,8 @@ The application does not use Swift, Quick Look, or WebView-based readers. Markdo
 
 Windows builds and basic startup have been verified locally. Build workflows are configured for Windows, macOS ARM/Intel, and Linux; macOS and Linux native execution have not yet been verified.
 
+Settings → Default File Types opens a searchable dialog showing system file types, descriptions, and their current default applications. Discovery runs in the background, supports refresh/cancellation, and reports incomplete reads. The view is read-only and also works during development. See [system association discovery](docs/file-associations.md).
+
 This is not a completed port or a published release. PDF text search/selection, image-only and complex Office documents, legacy Office/iWork formats, font previews, full audio/video playback, OCR, and remaining format/platform gaps still require implementation or acceptance. The format catalog lists candidate routes, not a guarantee of complete support. See [feature status](docs/support.md) for details.
 
 ## Build and run

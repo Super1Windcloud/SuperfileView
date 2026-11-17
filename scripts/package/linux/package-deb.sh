@@ -44,7 +44,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Maintainer: Superfile maintainers
-Depends: ${DEPENDS}
+Depends: ${DEPENDS}, libglib2.0-0 | libglib2.0-0t64
 Description: Desktop file viewer and editor
  A cross-platform file viewer and editor built with Rust and gpui-kit.
 EOF

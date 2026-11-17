@@ -152,7 +152,7 @@ impl Workspace {
                 .disabled(crate::app::updates::busy(cx))
                 .label(superfile_services::locale::tr(label))
         };
-        let associations = action_button("settings-file-types", "Manage…")
+        let associations = action_button("settings-file-types", "View…")
             .accessibility_label(superfile_services::locale::tr("Default File Types…"))
             .on_click(|_, window, cx| window.dispatch_action(Box::new(DefaultApplications), cx))
             .into_any_element();
@@ -260,7 +260,7 @@ impl Workspace {
                             group()
                                 .child(row(
                                     "Default File Types…",
-                                    "Choose which file types open in Superfile.",
+                                    "View the default application for each registered file type.",
                                     associations,
                                 ))
                                 .child(divider())

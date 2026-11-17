@@ -15,7 +15,7 @@ mod file_icons;
 pub(crate) mod integrations;
 
 /// Update translated hints without changing input contents or notifying every frame.
-fn sync_input_placeholder(
+pub(crate) fn sync_input_placeholder(
     input: &gpui_kit::Entity<gpui_kit::component::input::InputState>,
     placeholder: String,
     window: &mut gpui_kit::Window,
