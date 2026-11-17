@@ -1,6 +1,6 @@
 use crate::app::actions::{CloseWindow, CloseWorkspace};
 use gpui_kit::{
-    component::{TitleBar, h_flex, v_flex},
+    component::{ActiveTheme, TitleBar, h_flex, v_flex},
     *,
 };
 
@@ -75,7 +75,17 @@ impl Render for About {
                                     .child("Superfile"),
                             ),
                     )
-                    .child(env!("CARGO_PKG_VERSION")),
+                    .child(env!("CARGO_PKG_VERSION"))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!(
+                                "{}: {}",
+                                superfile_services::locale::tr("Author"),
+                                env!("CARGO_PKG_AUTHORS")
+                            )),
+                    ),
             )
     }
 }

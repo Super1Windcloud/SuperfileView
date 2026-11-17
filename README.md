@@ -6,6 +6,8 @@ A document workspace built with Rust and shared gpui-kit components, targeting W
 
 Superfile brings files, source code, documents, images, and structured data into one workspace. It is under active development; the implementation and platform acceptance are tracked in [PLAN.md](PLAN.md) and the [current feature status](docs/support.md).
 
+Author: **superwindcloud**.
+
 ## Design
 
 - Shared GPUI readers and controls across desktop platforms.

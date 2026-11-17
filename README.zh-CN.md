@@ -6,6 +6,8 @@
 
 Superfile 将文件、源码、文档、图片和结构化数据放在同一个工作区中。项目仍在开发，实施进度和平台验收范围见 [PLAN.md](PLAN.md) 与[当前功能状态](docs/support.md)。
 
+作者：**superwindcloud**。
+
 ## 设计
 
 - 各桌面平台共用 GPUI 阅读器和交互组件。
