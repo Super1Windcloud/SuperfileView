@@ -39,6 +39,17 @@ Every implementation must run natively and reliably on Windows, macOS, and Linux
    - Use `format_shortcut_for_display` and `Shortcut::modifier_symbol` to show `Ctrl` / `Alt` / `Shift` on Windows & Linux, and `⌘` / `⌥` / `⇧` on macOS.
 5. **Line Endings & Text Fixtures**:
    - Enforce `.gitattributes` (`* text=auto eol=lf`) to ensure multi-line test fixtures (CSV, JSON, Markdown) behave identically across Windows CRLF and Unix LF.
+6. **Persistent Theme Paths Across Platforms and Build Profiles**:
+   - Downloaded theme packages belong in the user's home-relative `.superfile/themes/` directory on Windows, macOS, and Linux. Debug builds, Release builds, direct Cargo launches, and packaged installations must share this location.
+   - Never derive persistent theme storage from the working directory, executable location, `target/`, build profile, or disposable cache directory. Resolve the home directory through the shared platform service.
+   - An explicit absolute `SUPERFILE_DATA_DIR` override places packages in its `themes/` subdirectory for every build profile. Never silently set a development-only override during normal startup verification.
+   - Keep theme IDs and saved selections stable during migration. Validate package identity and size, publish atomically without overwriting existing destination files, and retain original packages. Verify repeated migration, concurrent publication, cancellation, and failure recovery.
+7. **Framework Migration Cleanup**:
+   - Audit manifests, the lockfile, `cargo tree --locked --target all`, source references, generated files, and architecture comments after a UI migration. Remove obsolete generation paths and unused direct declarations.
+   - Trace dependency chains and inspect build scripts before deleting packages reported by an unused-dependency scanner. Current GPUI Kit dependencies and native platform bridges are not migration leftovers merely because their names or versions differ.
+8. **Internationalized Retained Views**:
+   - Keep English and Simplified Chinese catalogs aligned. Language changes must update retained input placeholders as well as freshly rendered labels, without clearing queries, edits, selection, or navigation state.
+   - Preserve language preferences across launches and test locale fallback and live updates without changing global locale state in parallel tests.
 
 ---
 
@@ -88,6 +99,17 @@ cargo test --workspace --locked
 python scripts/check-locales.py
 python scripts/check-architecture.py
 ```
+
+Before completing **every task in this repository**, automatically launch the application from the existing workspace after the required checks:
+
+```sh
+cargo run --locked -p superfile
+```
+
+- This launch is part of delivery, including documentation and configuration tasks; do not merely suggest the command to the user.
+- Use the user's current path configuration. Do not inject isolated data/cache paths for this normal launch, since that would conceal storage differences between Debug and Release. Explicit user requests for isolation or for skipping startup take precedence.
+- Keep the launched application available for review. If a previous instance started by this task must be replaced, close only that instance gracefully; never kill unrelated or user-started processes.
+- Verify compilation and startup, inspect startup failures, and report the result accurately. A running process alone does not establish visual or Windows/Linux runtime acceptance. If startup cannot complete, report the blocker instead of silently omitting the launch.
 
 ---
 

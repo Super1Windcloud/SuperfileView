@@ -35,6 +35,8 @@ pub(crate) struct CommunityThemes {
     cached: bool,
     error: Option<String>,
     load_task: Option<Task<()>>,
+    directory: Option<PathBuf>,
+    directory_task: Option<Task<()>>,
     installing: Option<String>,
     install_task: Option<Task<()>>,
     previews: HashMap<String, Preview>,
@@ -62,6 +64,8 @@ impl CommunityThemes {
             cached: false,
             error: None,
             load_task: None,
+            directory: themes::package_directory().ok(),
+            directory_task: None,
             installing: None,
             install_task: None,
             previews: HashMap::new(),
@@ -109,6 +113,39 @@ impl CommunityThemes {
                         view.entries = catalog.themes;
                         view.cached = catalog.cached;
                         view.merge_installed();
+                    }
+                    Err(error) => view.error = Some(format!("{error:#}")),
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    fn open_directory(&mut self, cx: &mut Context<Self>) {
+        if self.directory_task.is_some() {
+            return;
+        }
+        self.error = None;
+        let (cancel, guard) = Cancellation::task();
+        self.directory_task = Some(cx.spawn(async move |view, cx| {
+            let _guard = guard;
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let directory = themes::prepare_directory(&cancel)?;
+                    let url = url::Url::from_directory_path(&directory).map_err(|_| {
+                        anyhow::anyhow!("Cannot open theme directory {}", directory.display())
+                    })?;
+                    Ok::<_, anyhow::Error>((directory, url))
+                })
+                .await;
+            let _ = view.update(cx, |view, cx| {
+                view.directory_task = None;
+                match result {
+                    Ok((directory, url)) => {
+                        cx.open_url(url.as_str());
+                        view.directory = Some(directory);
                     }
                     Err(error) => view.error = Some(format!("{error:#}")),
                 }
@@ -459,6 +496,10 @@ impl Render for CommunityThemes {
             .error
             .clone()
             .or_else(|| crate::app::theme::load_error(cx).map(str::to_owned));
+        let directory = self
+            .directory
+            .as_ref()
+            .map(|path| path.display().to_string());
         v_flex().size_full().min_w_0().min_h_0().p_6().gap_4()
             .child(h_flex().gap_2().child(super::icon_button("themes-back", IconName::ArrowLeft, tr("Settings"))
                 .on_click(|_, window, cx| window.dispatch_action(Box::new(crate::app::actions::OpenSettings), cx)))
@@ -468,6 +509,9 @@ impl Render for CommunityThemes {
                 .child(Switch::new("themes-installed").checked(self.only_installed).label(tr("Installed only"))
                     .on_click(cx.listener(|view, checked, _, cx| { view.only_installed = *checked; view.scroll.scroll_to_item(0, ScrollStrategy::Top); cx.notify(); })))
                 .child(div().flex_1())
+                .child(super::icon_button("themes-open-directory", IconName::Folder, tr("Open themes folder"))
+                    .loading(self.directory_task.is_some()).disabled(self.directory_task.is_some())
+                    .on_click(cx.listener(|view, _, _, cx| view.open_directory(cx))))
                 .child(super::icon_button("themes-refresh", IconName::RotateCw, tr("Refresh")).loading(self.loading).disabled(self.loading)
                     .on_click(cx.listener(|view, _, _, cx| view.reload(cx)))))
             .child(h_flex().w_full().gap_3().text_xs().text_color(cx.theme().muted_foreground)
@@ -477,6 +521,12 @@ impl Render for CommunityThemes {
                 .when(self.installing.is_some(), |row| row.child(Button::new("cancel-theme-download").small().label(tr("Cancel download"))
                     .on_click(cx.listener(|view, _, _, cx| { view.install_task = None; view.installing = None; cx.notify(); })))))
             .when_some(error, |column, error| column.child(div().id("themes-error").text_xs().text_color(cx.theme().danger).child(error)))
+            .when_some(directory, |column, path| {
+                let label = format!("{}: {path}", tr("Theme folder"));
+                column.child(div().id("themes-directory").w_full().min_w_0().truncate().text_xs().text_color(cx.theme().muted_foreground)
+                    .tooltip(move |window, cx| Tooltip::new(path.clone()).build(window, cx))
+                    .child(label))
+            })
             .child(div().text_xs().text_color(cx.theme().muted_foreground)
                 .child(tr("Applies Obsidian color variables. Layout and plugin styles are not applied; unsupported colors use the default palette.")))
             .child(canvas(move |bounds, window, cx| {

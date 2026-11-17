@@ -8,7 +8,7 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf};
 
-pub use store::{catalog, install, installed, load, preview};
+pub use store::{catalog, install, installed, load, prepare_directory, preview};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub struct CssColor(pub [f32; 4]);
@@ -176,7 +176,10 @@ pub fn default_scheme() -> Scheme {
 }
 
 pub fn package_directory() -> Result<PathBuf> {
-    Ok(crate::platform::data_directory()?.join("themes"))
+    if std::env::var_os("SUPERFILE_DATA_DIR").is_some() {
+        return Ok(crate::platform::data_directory()?.join("themes"));
+    }
+    Ok(crate::platform::home()?.join(".superfile").join("themes"))
 }
 
 pub(super) fn read_limited(path: &std::path::Path, max: u64) -> Result<Vec<u8>> {

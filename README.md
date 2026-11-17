@@ -61,6 +61,8 @@ cargo run --locked -p superfile -- 'C:\Users\name\Documents'
 
 Build artifacts are stored in the project's `target/` directory. User data and caches use platform directories under `Superfile`. For isolated development or validation, set `SUPERFILE_DATA_DIR` and `SUPERFILE_CACHE_DIR` to absolute paths.
 
+Downloaded themes use the same home-relative `.superfile/themes/` directory on Windows, macOS, and Linux, shared by Debug and Release builds. The theme browser shows the path and can open the folder. An explicit `SUPERFILE_DATA_DIR` override places themes in its `themes/` subdirectory. See [theme storage and migration](docs/themes.md).
+
 Application artwork comes from `assets/branding/superfile-source.png`, the left document/magnifier icon in the supplied reference. Its [source and extraction prompt](assets/branding/icon-source.json) are recorded alongside it. Run `NODE_PATH=/path/to/node_modules node scripts/render-icons.mjs` with the optional `sharp` package to generate PNG, SVG, and Windows ICO assets; macOS also generates ICNS. Normal builds use the committed resources directly.
 On macOS, startup sets the Dock icon from the embedded ICNS, including direct `cargo run` launches without an `.app` bundle.
 

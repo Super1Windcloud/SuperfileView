@@ -118,14 +118,94 @@ fn package_path(root: &Path, id: &str) -> Result<PathBuf> {
     Ok(root.join(format!("{id}.json")))
 }
 
-fn load_at(root: &Path, id: &str, cancel: &Cancellation) -> Result<InstalledTheme> {
-    cancel.check()?;
-    let package: Package =
-        serde_json::from_slice(&read_limited(&package_path(root, id)?, 24 * 1024 * 1024)?)?;
+fn decode_package(bytes: &[u8], id: &str) -> Result<Package> {
+    let package: Package = serde_json::from_slice(bytes)?;
     ensure!(
         package.entry.id() == id,
         "Installed theme identity does not match its package"
     );
+    package.entry.validate()?;
+    ensure!(
+        package.css.len() as u64 <= CSS_LIMIT,
+        "Theme stylesheet exceeds 16 MiB"
+    );
+    Ok(package)
+}
+
+fn migrate_at(legacy: &Path, root: &Path, cancel: &Cancellation) -> Result<()> {
+    cancel.check()?;
+    if legacy == root {
+        return Ok(());
+    }
+    let files = match std::fs::read_dir(legacy) {
+        Ok(files) => files,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    for file in files {
+        cancel.check()?;
+        let file = file?;
+        let source = file.path();
+        if !file.file_type()?.is_file() || source.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        let Some(id) = source.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        let Ok(destination) = package_path(root, id) else {
+            continue;
+        };
+        match std::fs::symlink_metadata(&destination) {
+            Ok(_) => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        let bytes = match read_limited(&source, 24 * 1024 * 1024).and_then(|bytes| {
+            decode_package(&bytes, id)?;
+            Ok(bytes)
+        }) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                log::warn!("Cannot migrate installed theme {id}: {error:#}");
+                continue;
+            }
+        };
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .private_mode(0o700)
+            .create(root)?;
+        let mut file = tempfile::NamedTempFile::new_in(root)?;
+        file.write_all(&bytes)?;
+        file.as_file().sync_all()?;
+        cancel.check()?;
+        // Keep the original package and never replace a package published by another process.
+        match file.persist_noclobber(&destination) {
+            Ok(_) => {}
+            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.error.into()),
+        }
+    }
+    Ok(())
+}
+
+pub fn prepare_directory(cancel: &Cancellation) -> Result<PathBuf> {
+    let root = package_directory()?;
+    let legacy = crate::platform::data_directory()?.join("themes");
+    migrate_at(&legacy, &root, cancel)?;
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .private_mode(0o700)
+        .create(&root)?;
+    cancel.check()?;
+    Ok(root)
+}
+
+fn load_at(root: &Path, id: &str, cancel: &Cancellation) -> Result<InstalledTheme> {
+    cancel.check()?;
+    let package = decode_package(
+        &read_limited(&package_path(root, id)?, 24 * 1024 * 1024)?,
+        id,
+    )?;
     let scheme = compile(&package.entry, &package.css, cancel)?;
     Ok(InstalledTheme {
         entry: package.entry,
@@ -134,11 +214,15 @@ fn load_at(root: &Path, id: &str, cancel: &Cancellation) -> Result<InstalledThem
 }
 
 pub fn load(id: &str, cancel: &Cancellation) -> Result<InstalledTheme> {
-    load_at(&package_directory()?, id, cancel)
+    let root = package_directory()?;
+    if !package_path(&root, id)?.try_exists()? {
+        prepare_directory(cancel)?;
+    }
+    load_at(&root, id, cancel)
 }
 
 pub fn installed(cancel: &Cancellation) -> Result<Vec<InstalledTheme>> {
-    let root = package_directory()?;
+    let root = prepare_directory(cancel)?;
     let files = match std::fs::read_dir(&root) {
         Ok(files) => files,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -195,7 +279,7 @@ pub fn install(entry: &CommunityTheme, cancel: &Cancellation) -> Result<Installe
         css,
     };
     write_atomic(
-        &package_path(&package_directory()?, &entry.id())?,
+        &package_path(&prepare_directory(cancel)?, &entry.id())?,
         &serde_json::to_vec(&package)?,
     )?;
     Ok(InstalledTheme {
@@ -303,5 +387,110 @@ mod tests {
         package.entry.repo = "other/theme".into();
         write_atomic(&path, &serde_json::to_vec(&package).unwrap()).unwrap();
         assert!(load_at(root.path(), &entry.id(), &Cancellation::default()).is_err());
+    }
+
+    #[test]
+    fn migration_preserves_originals_and_never_overwrites_the_shared_package() {
+        let directory = tempfile::tempdir().unwrap();
+        let legacy = directory.path().join("platform-data/themes");
+        let root = directory.path().join("home/.superfile/themes");
+        let entry = entry();
+        let source = package_path(&legacy, &entry.id()).unwrap();
+        let destination = package_path(&root, &entry.id()).unwrap();
+        let mut package = Package {
+            entry: entry.clone(),
+            css: ".theme-dark { --background-primary: #123456; }".into(),
+        };
+        let original = serde_json::to_vec(&package).unwrap();
+        write_atomic(&source, &original).unwrap();
+        let cancel = Cancellation::default();
+        migrate_at(&legacy, &root, &cancel).unwrap();
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(std::fs::read(&destination).unwrap(), original);
+        let reopened = load_at(&root, &entry.id(), &cancel).unwrap();
+        assert_eq!(reopened.entry.id(), entry.id());
+        super::super::assert_rgb(reopened.scheme.dark.get("--background-primary"), 0x123456);
+        package.css = ".theme-dark { --background-primary: #654321; }".into();
+        let updated = serde_json::to_vec(&package).unwrap();
+        write_atomic(&destination, &updated).unwrap();
+        migrate_at(&legacy, &root, &cancel).unwrap();
+        assert_eq!(std::fs::read(&destination).unwrap(), updated);
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        migrate_at(&root, &root, &cancel).unwrap();
+        assert_eq!(std::fs::read(&destination).unwrap(), updated);
+    }
+
+    #[test]
+    fn migration_rejects_invalid_packages_and_preserves_sources_on_cancellation_or_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let legacy = directory.path().join("legacy");
+        let root = directory.path().join("shared");
+        let entry = entry();
+        let source = package_path(&legacy, &entry.id()).unwrap();
+        let package = Package {
+            entry: entry.clone(),
+            css: ".theme-dark { --background-primary: #123456; }".into(),
+        };
+        let original = serde_json::to_vec(&package).unwrap();
+        write_atomic(&source, &original).unwrap();
+        let (cancel, guard) = Cancellation::task();
+        drop(guard);
+        assert!(migrate_at(&legacy, &root, &cancel).is_err());
+        assert!(!root.exists());
+        std::fs::write(&root, b"keep this file").unwrap();
+        assert!(migrate_at(&legacy, &root, &Cancellation::default()).is_err());
+        assert_eq!(std::fs::read(&root).unwrap(), b"keep this file");
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let invalid_root = directory.path().join("invalid-packages");
+        let empty_root = directory.path().join("not-created");
+        write_atomic(
+            &package_path(&invalid_root, &entry.id()).unwrap(),
+            b"{broken",
+        )
+        .unwrap();
+        write_atomic(
+            &package_path(&invalid_root, &"0".repeat(64)).unwrap(),
+            &original,
+        )
+        .unwrap();
+        write_atomic(&invalid_root.join("settings.json"), &original).unwrap();
+        migrate_at(&invalid_root, &empty_root, &Cancellation::default()).unwrap();
+        assert!(!empty_root.exists());
+        migrate_at(
+            &directory.path().join("missing"),
+            &empty_root,
+            &Cancellation::default(),
+        )
+        .unwrap();
+        assert!(!empty_root.exists());
+    }
+
+    #[test]
+    fn concurrent_migrations_publish_one_complete_package() {
+        let directory = tempfile::tempdir().unwrap();
+        let legacy = directory.path().join("legacy");
+        let root = directory.path().join("shared");
+        let entry = entry();
+        let package = Package {
+            entry: entry.clone(),
+            css: ".theme-dark { --background-primary: #123456; }".into(),
+        };
+        let original = serde_json::to_vec(&package).unwrap();
+        write_atomic(&package_path(&legacy, &entry.id()).unwrap(), &original).unwrap();
+        let barrier = std::sync::Barrier::new(4);
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                scope.spawn(|| {
+                    barrier.wait();
+                    migrate_at(&legacy, &root, &Cancellation::default()).unwrap();
+                });
+            }
+        });
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+        assert_eq!(
+            std::fs::read(package_path(&root, &entry.id()).unwrap()).unwrap(),
+            original
+        );
+        load_at(&root, &entry.id(), &Cancellation::default()).unwrap();
     }
 }
