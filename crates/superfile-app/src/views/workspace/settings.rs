@@ -31,7 +31,7 @@ fn preference_picker(
         .h(px(30.))
         .border_1()
         .border_color(cx.theme().border)
-        .rounded(px(8.))
+        .rounded(px(5.))
         .disabled(crate::app::updates::busy(cx))
         .accessibility_label(format!(
             "{}: {}",
@@ -101,7 +101,7 @@ impl Workspace {
                 .h(px(30.))
                 .border_1()
                 .border_color(cx.theme().border)
-                .rounded(px(8.))
+                .rounded(px(5.))
                 .disabled(crate::app::updates::busy(cx))
                 .label(superfile_services::locale::tr(label))
         };
@@ -141,13 +141,8 @@ impl Workspace {
                 .child(text)
                 .child(div().flex_shrink_0().child(control))
         };
-        let group = || {
-            v_flex().w_full().px_4().rounded(px(12.)).bg(cx
-                .theme()
-                .background
-                .blend(cx.theme().foreground.opacity(0.035)))
-        };
-        let divider = || div().w_full().h(px(1.)).bg(cx.theme().border);
+        let group = || v_flex().w_full();
+        let divider = || div().w_full().h(px(1.)).bg(cx.theme().border.opacity(0.6));
         let heading = |label: &'static str| {
             div()
                 .text_xs()

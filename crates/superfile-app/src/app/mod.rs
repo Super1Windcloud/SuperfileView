@@ -784,8 +784,8 @@ fn workspace_window_options(cx: &App) -> WindowOptions {
         window_min_size: Some(size(px(800.), px(480.))),
         titlebar: Some(TitlebarOptions {
             title: Some("Superfile".into()),
-            // Center macOS traffic lights in the workspace's 48px title bar.
-            traffic_light_position: Some(point(px(9.), px(17.))),
+            // Center macOS traffic lights in the workspace's 40px title bar.
+            traffic_light_position: Some(point(px(9.), px(13.))),
             ..gpui_kit::component::TitleBar::title_bar_options()
         }),
         ..gpui_kit::component::TitleBar::window_options()

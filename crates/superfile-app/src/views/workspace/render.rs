@@ -10,10 +10,10 @@ use crate::{
 use gpui_kit::{
     base::InteractiveElementExt as _,
     component::{
-        ActiveTheme, Disableable, Icon, Sizable,
+        ActiveTheme, Icon, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
-        menu::{ContextMenuExt, PopupMenuItem},
+        menu::{ContextMenuExt, DropdownMenu, PopupMenuItem},
         resizable::{h_resizable, resizable_panel},
         v_flex,
     },
@@ -161,11 +161,6 @@ impl Render for Workspace {
             .size_full()
             .min_w_0()
             .overflow_hidden()
-            .when(!self.file_fullscreen, |view| {
-                view.rounded(px(10.))
-                    .border_1()
-                    .border_color(cx.theme().border)
-            })
             .bg(cx.theme().background)
             .when(
                 self.page == Page::Document
@@ -209,7 +204,7 @@ impl Render for Workspace {
             .as_ref()
             .map(|v| v.clone().into_any_element())
             .unwrap_or_else(|| div().into_any_element());
-        let nav_height = 34.;
+        let nav_height = 32.;
         let navigation = |id: &'static str, icon, label: &'static str, selected: bool| {
             let background = if selected {
                 crate::views::selection_background(cx)
@@ -232,14 +227,14 @@ impl Render for Workspace {
                 })
                 .w_full()
                 .h(px(nav_height))
-                .rounded(px(8.))
+                .rounded(px(5.))
                 .justify_start()
                 .accessibility_label(superfile_services::locale::tr(label))
                 .child(
                     h_flex()
                         .w_full()
-                        .gap_3()
-                        .child(Icon::new(icon).size(px(17.)))
+                        .gap_2()
+                        .child(Icon::new(icon).size(px(16.)))
                         .child(superfile_services::locale::tr(label)),
                 )
         };
@@ -249,16 +244,14 @@ impl Render for Workspace {
             "Start",
             self.page == Page::Start,
         );
-        let workspace_action_style = ButtonCustomVariant::new(cx)
-            .foreground(cx.theme().muted_foreground)
-            .hover(cx.theme().foreground.opacity(0.04))
-            .active(cx.theme().foreground.opacity(0.08));
         let sidebar = v_flex()
             .size_full()
-            .px_4()
-            .pb_1()
+            .px_2()
+            .py_2()
             .gap_1()
             .bg(cx.theme().sidebar)
+            .border_r_1()
+            .border_color(cx.theme().border.opacity(0.6))
             .child(start.on_click(cx.listener(|view, _, _, cx| {
                 view.show_home(cx);
                 cx.notify();
@@ -268,8 +261,8 @@ impl Render for Workspace {
                 h_flex()
                     .w_full()
                     .min_w_0()
-                    .pt_3()
-                    .pb_2()
+                    .pt_2()
+                    .pb_1()
                     .pl_3()
                     .gap_1()
                     .child(
@@ -281,46 +274,7 @@ impl Render for Workspace {
                             .text_color(cx.theme().muted_foreground)
                             .child(superfile_services::locale::tr("Workspace")),
                     )
-                    .child(
-                        Button::new("workspace-new-file")
-                            .disabled(superfile_services::remote::is_remote_id(&self.recent_id))
-                            .custom(workspace_action_style)
-                            .small()
-                            .icon(gpui_kit::assets::IconName::FilePlus)
-                            .tooltip(superfile_services::locale::tr("New File"))
-                            .accessibility_label(superfile_services::locale::tr("New File"))
-                            .on_click(
-                                cx.listener(|view, _, window, cx| view.choose_new_file(window, cx)),
-                            ),
-                    )
-                    .child(
-                        Button::new("workspace-new-folder")
-                            .custom(workspace_action_style)
-                            .small()
-                            .icon(gpui_kit::assets::IconName::FolderPlus)
-                            .disabled(
-                                self.roots.is_empty()
-                                    || superfile_services::remote::is_remote_id(&self.recent_id),
-                            )
-                            .tooltip(superfile_services::locale::tr("New Folder…"))
-                            .accessibility_label(superfile_services::locale::tr("New Folder…"))
-                            .on_click(cx.listener(|view, _, window, cx| {
-                                view.choose_new_folder(window, cx)
-                            })),
-                    )
-                    .child(
-                        Button::new("workspace-add-folder")
-                            .custom(workspace_action_style)
-                            .small()
-                            .icon(gpui_kit::assets::IconName::Folders)
-                            .tooltip(superfile_services::locale::tr("Add Folder to Workspace…"))
-                            .accessibility_label(superfile_services::locale::tr(
-                                "Add Folder to Workspace…",
-                            ))
-                            .on_click(cx.listener(|view, _, window, cx| {
-                                view.choose_add_folder(window, cx)
-                            })),
-                    ),
+                    .child(self.workspace_actions_button(cx)),
             )
             .child(div().flex_1().min_h_0().w_full().child(panel_content))
             .id("workspace-sidebar");
@@ -352,50 +306,6 @@ impl Render for Workspace {
                 .flex_1()
                 .min_h_0()
                 .w_full()
-                .pr(px(2.))
-                .pb(px(2.))
-                .when(!self.sidebar_visible, |view| {
-                    view.child(
-                        v_flex()
-                            .id("collapsed-sidebar")
-                            .w(px(44.))
-                            .h_full()
-                            .flex_shrink_0()
-                            .items_center()
-                            .pt_2()
-                            .gap_2()
-                            .bg(cx.theme().sidebar)
-                            .child(
-                                Button::new("collapsed-home")
-                                    .ghost()
-                                    .w(px(32.))
-                                    .h(px(32.))
-                                    .icon(gpui_kit::assets::IconName::House)
-                                    .tooltip(superfile_services::locale::tr("Start"))
-                                    .accessibility_label(superfile_services::locale::tr("Start"))
-                                    .on_click(cx.listener(|view, _, _, cx| {
-                                        view.show_home(cx);
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                Button::new("expand-file-list")
-                                    .ghost()
-                                    .w(px(32.))
-                                    .h(px(32.))
-                                    .icon(gpui_kit::assets::IconName::FolderOpen)
-                                    .tooltip(superfile_services::locale::tr("Show File List"))
-                                    .accessibility_label(superfile_services::locale::tr(
-                                        "Show File List",
-                                    ))
-                                    .on_click(cx.listener(|view, _, _, cx| {
-                                        view.sidebar_visible = true;
-                                        view.sidebar_window_width = 0.;
-                                        cx.notify();
-                                    })),
-                            ),
-                    )
-                })
                 .child(
                     div().flex_1().min_w_0().h_full().child(
                         h_resizable("workspace-panels")
@@ -663,5 +573,58 @@ impl Render for Workspace {
                     .with_priority(2),
                 )
             })
+    }
+}
+
+impl Workspace {
+    fn workspace_actions_button(&self, cx: &mut Context<Self>) -> AnyElement {
+        Button::new("workspace-actions")
+            .custom(
+                ButtonCustomVariant::new(cx)
+                    .foreground(cx.theme().muted_foreground)
+                    .hover(cx.theme().foreground.opacity(0.04))
+                    .active(cx.theme().foreground.opacity(0.08)),
+            )
+            .small()
+            .icon(gpui_kit::assets::IconName::Plus)
+            .tooltip(superfile_services::locale::tr("Workspace"))
+            .accessibility_label(superfile_services::locale::tr("Workspace"))
+            .dropdown_menu({
+                let remote = superfile_services::remote::is_remote_id(&self.recent_id);
+                let has_roots = !self.roots.is_empty();
+                let owner = cx.entity().downgrade();
+                move |menu, _, _| {
+                    let file_owner = owner.clone();
+                    let folder_owner = owner.clone();
+                    let add_owner = owner.clone();
+                    menu.item(
+                        PopupMenuItem::new(superfile_services::locale::tr("New File"))
+                            .disabled(remote)
+                            .on_click(move |_, window, cx| {
+                                let _ = file_owner
+                                    .update(cx, |view, cx| view.choose_new_file(window, cx));
+                            }),
+                    )
+                    .item(
+                        PopupMenuItem::new(superfile_services::locale::tr("New Folder…"))
+                            .disabled(remote || !has_roots)
+                            .on_click(move |_, window, cx| {
+                                let _ = folder_owner
+                                    .update(cx, |view, cx| view.choose_new_folder(window, cx));
+                            }),
+                    )
+                    .separator()
+                    .item(
+                        PopupMenuItem::new(superfile_services::locale::tr(
+                            "Add Folder to Workspace…",
+                        ))
+                        .on_click(move |_, window, cx| {
+                            let _ =
+                                add_owner.update(cx, |view, cx| view.choose_add_folder(window, cx));
+                        }),
+                    )
+                }
+            })
+            .into_any_element()
     }
 }

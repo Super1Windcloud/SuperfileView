@@ -42,13 +42,13 @@ fn icon_button(
         .accessibility_label(label)
 }
 
-/// Opaque selection fill shared by sidebar navigation and file-tree rows.
+/// Neutral selection fill shared by sidebar navigation and file-tree rows.
 fn selection_background(cx: &gpui_kit::App) -> gpui_kit::Hsla {
     use gpui_kit::component::ActiveTheme;
-    let strength = if cx.theme().is_dark() { 0.18 } else { 0.12 };
+    let strength = if cx.theme().is_dark() { 0.08 } else { 0.055 };
     cx.theme()
         .sidebar
-        .blend(accent(cx).opacity(strength))
+        .blend(cx.theme().foreground.opacity(strength))
         .opacity(1.)
 }
 

@@ -151,10 +151,7 @@ impl Integrations {
 
 impl Render for Integrations {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut rows = v_flex().w_full().px_4().rounded(px(12.)).bg(cx
-            .theme()
-            .background
-            .blend(cx.theme().foreground.opacity(0.035)));
+        let mut rows = v_flex().w_full();
         for (index, target) in self.targets.iter().enumerate() {
             let configured = target.status == Status::Configured;
             let blocked = matches!(target.status, Status::Conflict | Status::Unreadable);
@@ -217,7 +214,7 @@ impl Render for Integrations {
                     .into_any_element()
             };
             if index > 0 {
-                rows = rows.child(div().h(px(1.)).w_full().bg(cx.theme().border));
+                rows = rows.child(div().h(px(1.)).w_full().bg(cx.theme().border.opacity(0.6)));
             }
             let label = h_flex().gap_2().child(div().text_sm().child(target.kind.label()))
                 .when(configured || blocked, |row| {

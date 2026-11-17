@@ -566,10 +566,10 @@ impl Workspace {
                         .absolute()
                         .inset_0(),
                     )
-                    .h(px(30.))
-                    .border_1()
+                    .h_full()
+                    .border_b_2()
                     .border_color(if active {
-                        crate::views::accent(cx).opacity(0.4)
+                        crate::views::accent(cx)
                     } else {
                         gpui_kit::transparent_black()
                     })
@@ -580,16 +580,14 @@ impl Workspace {
                     })
                     .flex_shrink_0()
                     .gap_1()
-                    .pl(px(7.))
-                    .pr(px(3.))
-                    .rounded(px(7.))
-                    .bg(if active {
-                        cx.theme()
-                            .background
-                            .blend(crate::views::accent(cx).opacity(0.09))
+                    .pl_3()
+                    .pr_2()
+                    .text_color(if active {
+                        cx.theme().foreground
                     } else {
-                        cx.theme().background
+                        cx.theme().muted_foreground
                     })
+                    .hover(|tab| tab.bg(cx.theme().foreground.opacity(0.035)))
                     .cursor_pointer()
                     .on_drag(dragged, |drag, _, _, cx| {
                         cx.stop_propagation();
@@ -683,18 +681,16 @@ impl Workspace {
             })
             .collect::<Vec<_>>();
         h_flex()
-            .h(px(40.))
+            .h(px(36.))
             .w_full()
             .flex_shrink_0()
-            .px_1()
             .bg(cx.theme().background)
             .border_b_1()
-            .border_color(cx.theme().border)
+            .border_color(cx.theme().border.opacity(0.6))
             .child(
                 h_flex()
                     .id("document-tabs")
                     .role(Role::TabList)
-                    .gap_1()
                     .track_scroll(&self.tab_scroll)
                     .flex_1()
                     .min_w_0()
@@ -728,14 +724,13 @@ impl Workspace {
                 .aria_label(label.clone())
                 .aria_description(status.clone())
                 .aria_selected(false)
-                .h(px(30.))
+                .h_full()
                 .flex_shrink_0()
                 .gap_1()
-                .pl(px(7.))
-                .pr(px(3.))
-                .border_1()
-                .border_color(cx.theme().border)
-                .rounded(px(7.))
+                .pl_3()
+                .pr_2()
+                .border_b_2()
+                .border_color(gpui_kit::transparent_black())
                 .bg(cx.theme().background)
                 .child(
                     h_flex()

@@ -236,7 +236,7 @@ impl Workspace {
             return workspace_title_bar(
                 h_flex()
                     .size_full()
-                    .pl(px(94.))
+                    .pl(title_bar_inset())
                     .pr_3()
                     .gap_3()
                     .child(div().flex_1().min_w_0().truncate().text_sm().child(name))
@@ -247,19 +247,16 @@ impl Workspace {
         let search = h_flex()
             .relative()
             .w(relative(0.34))
-            .max_w(px(420.))
+            .max_w(px(360.))
             .child(
                 Input::new(&self.search)
                     .small()
-                    .h(px(34.))
+                    .h(px(28.))
                     .px_3()
-                    .text_size(px(14.))
-                    .rounded(px(10.))
-                    .bg(cx
-                        .theme()
-                        .background
-                        .blend(cx.theme().foreground.opacity(0.025)))
-                    .border_color(cx.theme().border.opacity(0.65))
+                    .text_size(px(12.))
+                    .rounded(px(6.))
+                    .bg(cx.theme().foreground.opacity(0.035))
+                    .border_color(gpui_kit::transparent_black())
                     .focus_bordered(true)
                     .w_full(),
             )
@@ -417,23 +414,10 @@ impl Workspace {
                     .child(
                         h_flex()
                             .absolute()
-                            .left(px(94.))
+                            .left(title_bar_inset())
                             .top_0()
                             .h_full()
                             .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .flex_shrink_0()
-                                    .h(px(28.))
-                                    .flex()
-                                    .items_center()
-                                    .text_size(px(16.))
-                                    .line_height(px(16.))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child("Superfile"),
-                            )
-                            .child(div().w(px(1.)).h(px(16.)).mx_1().bg(cx.theme().border))
                             .child(self.navigation_toolbar(cx)),
                     )
                     .child(search)
@@ -466,10 +450,15 @@ impl Workspace {
 fn workspace_title_bar(content: impl IntoElement, cx: &App) -> AnyElement {
     TitleBar::new()
         .bg(cx.theme().sidebar)
-        .border_b_0()
-        .h(px(48.))
+        .border_b_1()
+        .border_color(cx.theme().border.opacity(0.6))
+        .h(px(40.))
         .pl_0()
         .pr_0()
         .child(content)
         .into_any_element()
+}
+
+fn title_bar_inset() -> Pixels {
+    px(if cfg!(target_os = "macos") { 80. } else { 12. })
 }

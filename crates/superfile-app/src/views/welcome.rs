@@ -17,52 +17,26 @@ fn quick_action(
     label: &'static str,
     shortcut: &'static str,
     icon: IconName,
-    share: f32,
     cx: &App,
 ) -> Button {
-    let primary = id == "welcome-new-workspace";
-    let ink = if primary {
-        super::accent(cx)
-    } else {
-        cx.theme().muted_foreground
-    };
-    let surface = if primary {
-        cx.theme().background.blend(ink.opacity(0.14))
-    } else {
-        cx.theme().background
-    };
-    let border = if primary {
-        cx.theme().border.blend(ink.opacity(0.40))
-    } else {
-        cx.theme().border
-    };
     Button::new(id)
-        .custom(
-            ButtonCustomVariant::new(cx)
-                .color(surface)
-                .hover(surface.blend(cx.theme().foreground.opacity(0.04)))
-                .active(surface.blend(cx.theme().foreground.opacity(0.08))),
-        )
-        .bg(surface)
-        .flex_1()
-        .flex_basis(relative(share))
+        .ghost()
+        .w_full()
         .min_w_0()
-        .h(px(60.))
+        .h(px(40.))
         .px_3()
-        .rounded(px(10.))
-        .border_1()
-        .border_color(border)
+        .rounded(px(6.))
         .accessibility_label(superfile_services::locale::tr(label))
         .child(
             h_flex()
                 .w_full()
                 .min_w_0()
                 .items_center()
-                .gap_2()
+                .gap_3()
                 .child(
                     Icon::new(icon)
-                        .size(px(20.))
-                        .text_color(ink)
+                        .size(px(17.))
+                        .text_color(cx.theme().muted_foreground)
                         .flex_shrink_0(),
                 )
                 .child(
@@ -72,21 +46,130 @@ fn quick_action(
                         .truncate()
                         .text_sm()
                         .text_left()
-                        .font_weight(if primary {
-                            FontWeight::SEMIBOLD
-                        } else {
-                            FontWeight::MEDIUM
-                        })
-                        .text_color(if primary { ink } else { cx.theme().foreground })
+                        .font_weight(FontWeight::NORMAL)
+                        .text_color(cx.theme().foreground)
                         .child(superfile_services::locale::tr(label)),
                 )
                 .child(
                     div()
                         .flex_shrink_0()
-                        .text_size(px(10.))
+                        .text_xs()
                         .text_color(cx.theme().muted_foreground)
                         .child(shortcut),
                 ),
+        )
+}
+
+fn quick_actions(
+    current: &super::workspace::Workspace,
+    cx: &mut Context<super::workspace::Workspace>,
+) -> impl IntoElement {
+    let locations = current.remote_locations(cx);
+    let location_owner = cx.entity().downgrade();
+    v_flex()
+        .w_full()
+        .gap_1()
+        .child(
+            h_flex()
+                .w_full()
+                .items_center()
+                .min_w_0()
+                .child(
+                    quick_action(
+                        "welcome-new-workspace",
+                        "Open Workspace…",
+                        if cfg!(target_os = "macos") {
+                            "⌘⇧O"
+                        } else {
+                            "Ctrl+Shift+O"
+                        },
+                        IconName::FolderOpen,
+                        cx,
+                    )
+                    .flex_1()
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenFolder), cx)),
+                )
+                .child(
+                    Button::new("welcome-workspace-location")
+                        .ghost()
+                        .h(px(32.))
+                        .w(px(32.))
+                        .flex_shrink_0()
+                        .rounded(px(6.))
+                        .text_color(cx.theme().muted_foreground)
+                        .icon(Icon::new(IconName::ChevronDown).size(px(14.)))
+                        .tooltip(superfile_services::locale::tr("Choose Workspace Location"))
+                        .accessibility_label(superfile_services::locale::tr(
+                            "Choose Workspace Location",
+                        ))
+                        .dropdown_menu(move |mut menu, _, _| {
+                            menu = menu.item(
+                                PopupMenuItem::new(superfile_services::locale::tr("This Mac…"))
+                                    .on_click(|_, window, cx| {
+                                        window.dispatch_action(Box::new(OpenFolder), cx)
+                                    }),
+                            );
+                            if !locations.is_empty() {
+                                menu = menu.separator();
+                            }
+                            for connection in &locations {
+                                let connection = connection.clone();
+                                let owner = location_owner.clone();
+                                menu = menu.item(PopupMenuItem::new(connection.label()).on_click(
+                                    move |_, window, cx| {
+                                        let _ = owner.update(cx, |workspace, cx| {
+                                            workspace.show_remote(
+                                                Some(connection.clone()),
+                                                false,
+                                                false,
+                                                window,
+                                                cx,
+                                            )
+                                        });
+                                    },
+                                ));
+                            }
+                            let owner = location_owner.clone();
+                            menu.separator().item(
+                                PopupMenuItem::new(superfile_services::locale::tr(
+                                    "Add SSH Connection…",
+                                ))
+                                .on_click(move |_, window, cx| {
+                                    let _ = owner.update(cx, |workspace, cx| {
+                                        workspace.add_remote_connection(window, cx)
+                                    });
+                                }),
+                            )
+                        }),
+                ),
+        )
+        .child(
+            quick_action(
+                "welcome-open-file",
+                "Open File…",
+                if cfg!(target_os = "macos") {
+                    "⌘O"
+                } else {
+                    "Ctrl+O"
+                },
+                IconName::FileText,
+                cx,
+            )
+            .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenFile), cx)),
+        )
+        .child(
+            quick_action(
+                "welcome-new-file",
+                "New File",
+                if cfg!(target_os = "macos") {
+                    "⌘N"
+                } else {
+                    "Ctrl+N"
+                },
+                IconName::FilePlus,
+                cx,
+            )
+            .on_click(|_, window, cx| window.dispatch_action(Box::new(NewFile), cx)),
         )
 }
 
@@ -113,20 +196,14 @@ pub fn welcome(
         .map(|history| history.0.clone())
         .unwrap_or_default();
     let more = recent.len() > current.recent_visible();
-    let recent_count = recent.len();
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
     let visible = recent
         .into_iter()
         .take(current.recent_visible())
         .collect::<Vec<_>>();
-    let locations = current.remote_locations(cx);
-    let location_owner = cx.entity().downgrade();
-    let workspace_ink = super::accent(cx);
-    let workspace_surface = cx.theme().background.blend(workspace_ink.opacity(0.14));
-    let workspace_border = cx.theme().border.blend(workspace_ink.opacity(0.40));
     let content = v_flex()
         .w_full()
-        .max_w(px(860.))
+        .max_w(px(520.))
         .min_w_0()
         .flex_shrink_0()
         .gap_8()
@@ -136,164 +213,18 @@ pub fn welcome(
                 .gap_3()
                 .child(
                     img("branding/superfile-welcome.png")
-                        .size(px(48.))
+                        .size(px(32.))
                         .object_fit(ObjectFit::Contain)
                         .flex_shrink_0(),
                 )
                 .child(
                     div()
-                        .text_size(px(34.))
-                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_size(px(26.))
+                        .font_weight(FontWeight::MEDIUM)
                         .child("Superfile"),
                 ),
         )
-        .child(
-            h_flex()
-                .w_full()
-                .gap_3()
-                .child(
-                    h_flex()
-                        .flex_1()
-                        .flex_basis(relative(0.5))
-                        .items_center()
-                        .min_w_0()
-                        .rounded(px(10.))
-                        .border_1()
-                        .border_color(workspace_border)
-                        .bg(workspace_surface)
-                        .child(
-                            quick_action(
-                                "welcome-new-workspace",
-                                "Open Workspace…",
-                                if cfg!(target_os = "macos") {
-                                    "⌘⇧O"
-                                } else {
-                                    "Ctrl+Shift+O"
-                                },
-                                IconName::FolderOpen,
-                                1.0,
-                                cx,
-                            )
-                            .rounded(px(0.))
-                            .rounded_tl(px(10.))
-                            .rounded_bl(px(10.))
-                            .border_0()
-                            .bg(gpui_kit::transparent_black())
-                            .on_click(|_, window, cx| {
-                                window.dispatch_action(Box::new(OpenFolder), cx)
-                            }),
-                        )
-                        .child(
-                            div()
-                                .w(px(1.))
-                                .h(px(20.))
-                                .flex_shrink_0()
-                                .bg(workspace_ink.opacity(0.22)),
-                        )
-                        .child(
-                            Button::new("welcome-workspace-location")
-                                .h(px(60.))
-                                .w(px(36.))
-                                .rounded(px(0.))
-                                .rounded_tr(px(10.))
-                                .rounded_br(px(10.))
-                                .border_0()
-                                .border_color(workspace_border)
-                                .text_color(workspace_ink)
-                                .custom(
-                                    ButtonCustomVariant::new(cx)
-                                        .color(workspace_surface)
-                                        .hover(workspace_surface.blend(workspace_ink.opacity(0.08)))
-                                        .active(
-                                            workspace_surface.blend(workspace_ink.opacity(0.12)),
-                                        ),
-                                )
-                                .icon(IconName::ChevronDown)
-                                .tooltip(superfile_services::locale::tr(
-                                    "Choose Workspace Location",
-                                ))
-                                .accessibility_label(superfile_services::locale::tr(
-                                    "Choose Workspace Location",
-                                ))
-                                .dropdown_menu(move |mut menu, _, _| {
-                                    menu =
-                                        menu.item(
-                                            PopupMenuItem::new(superfile_services::locale::tr(
-                                                "This Mac…",
-                                            ))
-                                            .on_click(|_, window, cx| {
-                                                window.dispatch_action(Box::new(OpenFolder), cx)
-                                            }),
-                                        );
-                                    if !locations.is_empty() {
-                                        menu = menu.separator();
-                                    }
-                                    for connection in &locations {
-                                        let connection = connection.clone();
-                                        let owner = location_owner.clone();
-                                        menu = menu.item(
-                                            PopupMenuItem::new(connection.label()).on_click(
-                                                move |_, window, cx| {
-                                                    let _ = owner.update(cx, |workspace, cx| {
-                                                        workspace.show_remote(
-                                                            Some(connection.clone()),
-                                                            false,
-                                                            false,
-                                                            window,
-                                                            cx,
-                                                        )
-                                                    });
-                                                },
-                                            ),
-                                        );
-                                    }
-                                    let owner = location_owner.clone();
-                                    menu.separator().item(
-                                        PopupMenuItem::new(superfile_services::locale::tr(
-                                            "Add SSH Connection…",
-                                        ))
-                                        .on_click(
-                                            move |_, window, cx| {
-                                                let _ = owner.update(cx, |workspace, cx| {
-                                                    workspace.add_remote_connection(window, cx)
-                                                });
-                                            },
-                                        ),
-                                    )
-                                }),
-                        ),
-                )
-                .child(
-                    quick_action(
-                        "welcome-open-file",
-                        "Open File…",
-                        if cfg!(target_os = "macos") {
-                            "⌘O"
-                        } else {
-                            "Ctrl+O"
-                        },
-                        IconName::FileText,
-                        0.25,
-                        cx,
-                    )
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenFile), cx)),
-                )
-                .child(
-                    quick_action(
-                        "welcome-new-file",
-                        "New File",
-                        if cfg!(target_os = "macos") {
-                            "⌘N"
-                        } else {
-                            "Ctrl+N"
-                        },
-                        IconName::FilePlus,
-                        0.25,
-                        cx,
-                    )
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(NewFile), cx)),
-                ),
-        )
+        .child(quick_actions(current, cx))
         .when(!visible.is_empty(), |view| {
             view.child(
                 v_flex()
@@ -301,22 +232,13 @@ pub fn welcome(
                     .min_w_0()
                     .gap_3()
                     .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .text_sm()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child(superfile_services::locale::tr("Recent Workspaces")),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(recent_count.to_string()),
-                            ),
+                        h_flex().gap_2().items_center().child(
+                            div()
+                                .flex_1()
+                                .text_sm()
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(superfile_services::locale::tr("Recent Workspaces")),
+                        ),
                     )
                     .child(v_flex().w_full().min_w_0().gap_1().children(
                         visible.into_iter().enumerate().map(|(index, workspace)| {
@@ -360,10 +282,12 @@ pub fn welcome(
                             h_flex()
                                 .w_full()
                                 .min_w_0()
-                                .h(px(44.))
+                                .h(px(52.))
                                 .items_center()
-                                .rounded(px(7.))
-                                .when(is_current, |row| row.bg(accent.opacity(0.08)))
+                                .rounded(px(6.))
+                                .when(is_current, |row| {
+                                    row.bg(cx.theme().foreground.opacity(0.035))
+                                })
                                 .hover(|row| row.bg(cx.theme().muted.opacity(0.55)))
                                 .child(
                                     Button::new(("recent-workspace", index))
@@ -402,38 +326,34 @@ pub fn welcome(
                                                         .into_any_element()
                                                 })
                                                 .child(
-                                                    div()
-                                                        .w(relative(0.30))
-                                                        .min_w_0()
-                                                        .flex_shrink_0()
-                                                        .truncate()
-                                                        .text_sm()
-                                                        .font_weight(FontWeight::MEDIUM)
-                                                        .child(title),
-                                                )
-                                                .child(
-                                                    div()
+                                                    v_flex()
                                                         .flex_1()
                                                         .min_w_0()
-                                                        .truncate()
-                                                        .text_xs()
-                                                        .text_color(cx.theme().muted_foreground)
-                                                        .child(paths),
+                                                        .gap(px(2.))
+                                                        .child(
+                                                            div().truncate().text_sm().child(title),
+                                                        )
+                                                        .child(
+                                                            div()
+                                                                .truncate()
+                                                                .text_xs()
+                                                                .text_color(
+                                                                    cx.theme().muted_foreground,
+                                                                )
+                                                                .child(paths),
+                                                        ),
                                                 )
-                                                .child(
-                                                    div()
-                                                        .w(px(40.))
-                                                        .flex_shrink_0()
-                                                        .text_xs()
-                                                        .text_color(accent)
-                                                        .when(is_current, |label| {
-                                                            label.child(
-                                                                superfile_services::locale::tr(
-                                                                    "Current",
-                                                                ),
-                                                            )
-                                                        }),
-                                                ),
+                                                .when(is_current, |row| {
+                                                    row.child(
+                                                        div()
+                                                            .flex_shrink_0()
+                                                            .text_xs()
+                                                            .text_color(accent)
+                                                            .child(superfile_services::locale::tr(
+                                                                "Current",
+                                                            )),
+                                                    )
+                                                }),
                                         )
                                         .on_click(cx.listener(move |view, _, window, cx| {
                                             view.open_recent_here(open.clone(), window, cx)
@@ -569,15 +489,25 @@ pub fn welcome(
 #[cfg(test)]
 mod tests {
     use gpui_kit::{
-        AppContext, Bounds, Pixels, Point, TestAppContext, WindowBounds, WindowOptions, px, size,
+        AppContext, Bounds, Pixels, Point, TestAppContext, WindowBounds, WindowOptions,
+        component::{Theme, ThemeMode},
+        px, size,
         test::TestWindowExt,
     };
 
     #[gpui_kit::test]
-    fn quick_actions_stay_in_one_row_at_minimum_window_width(cx: &mut TestAppContext) {
+    fn welcome_actions_fit_both_themes_and_sidebar_layouts(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         cx.update(|cx| crate::app::remote::init(Default::default(), cx));
-        for (width, height) in [(800., 480.), (1100., 760.), (1470., 855.)] {
+        for (mode, width, height) in [
+            (ThemeMode::Light, 800., 480.),
+            (ThemeMode::Light, 1100., 760.),
+            (ThemeMode::Light, 1470., 855.),
+            (ThemeMode::Dark, 800., 480.),
+            (ThemeMode::Dark, 1100., 760.),
+            (ThemeMode::Dark, 1470., 855.),
+        ] {
+            cx.update(|cx| Theme::change(mode, None, cx));
             let (handle, _) = cx.update(|cx| {
                 gpui_kit::open_window(
                     WindowOptions {
@@ -606,15 +536,32 @@ mod tests {
                     assert!(bounds.size.width >= px(105.), "{id} too narrow at {width}");
                     assert!(bounds.origin.x >= px(0.));
                     assert!(bounds.origin.x + bounds.size.width <= px(width));
+                    assert!(bounds.origin.y >= px(40.));
+                    assert!(bounds.bottom() <= px(height));
                     if let Some(previous) = previous {
+                        assert_eq!(bounds.origin.x, previous.origin.x);
                         assert!(
-                            bounds.origin.y >= previous.origin.y + previous.size.height
-                                || bounds.origin.x >= previous.origin.x + previous.size.width,
+                            bounds.origin.y >= previous.bottom(),
                             "quick actions overlap at {width}"
                         );
                     }
                     previous = Some(bounds);
                 }
+                let workspace = window.find("welcome-new-workspace").bounds();
+                let location = window.find("welcome-workspace-location").bounds();
+                assert!(location.origin.x >= workspace.right());
+                assert!(location.right() <= px(width));
+
+                let expanded = window.find("welcome-open-file").bounds();
+                window.click("toggle-sidebar", cx);
+                let collapsed = window.find("welcome-open-file").bounds();
+                assert!(collapsed.origin.x < expanded.origin.x);
+                assert!(collapsed.size.width >= expanded.size.width);
+                window.click("toggle-sidebar", cx);
+                assert_eq!(window.find("welcome-open-file").bounds(), expanded);
+
+                window.click("workspace-actions", cx);
+                assert!(window.find("popup-menu").visible());
             })
             .unwrap();
         }
