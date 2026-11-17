@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 subprocess.run([os.environ.get('PYTHON', sys.executable), str(ROOT / 'scripts/generate-format-catalog.py'), '--check'], check=True)
 metadata = json.loads(subprocess.check_output(
     [os.environ.get('CARGO', 'cargo'), 'metadata', '--no-deps', '--locked', '--format-version', '1'],
-    cwd=ROOT, text=True))
+    cwd=ROOT, text=True, encoding='utf-8'))
 allowed = {
     'superfile-core': set(),
     'superfile-services': {'superfile-core'},
@@ -34,7 +34,7 @@ for name, package in packages.items():
         if name in ('superfile-core', 'superfile-services') and not headless_updater and (target.startswith('gpui') or target in ('wry', 'tao')):
             errors.append(f'{name}: UI dependency {target} belongs in superfile-app')
 
-registry = (ROOT / 'crates/superfile-services/src/documents/registry.rs').read_text()
+registry = (ROOT / 'crates/superfile-services/src/documents/registry.rs').read_text(encoding='utf-8')
 identifiers = re.findall(r'\bid:\s*"([^"]+)"', registry)
 if not identifiers or len(set(identifiers)) != len(identifiers):
     errors.append('built-in reader IDs must be nonempty and unique')
@@ -44,7 +44,7 @@ for identifier in identifiers:
 
 # Paths may be emitted for playlist actions, but prepared-format dispatch belongs to reader construction.
 for path in (ROOT / 'crates/superfile-app/src/views/workspace').glob('*.rs'):
-    source = path.read_text()
+    source = path.read_text(encoding='utf-8')
     if re.search(r'(?:Ok\(Content::\w+\([^\n]*\)\)|Content::\w+\([^\n]*\))\s*=>', source):
         errors.append(f'{path.relative_to(ROOT)}: move prepared-format dispatch to reader/construction')
 
@@ -56,7 +56,7 @@ presentations = [reader_root / name for name in (
     'sqlite/view.rs', 'books/view.rs')]
 presentations.append(reader_root.parent / 'minimap/geometry.rs')
 for path in presentations:
-    source = path.read_text()
+    source = path.read_text(encoding='utf-8')
     if re.search(r'\bsuperfile_services\s*::|\bcrate::app\s*::|\bstd::(?:fs|process|net)\s*::', source):
         errors.append(f'{path.relative_to(ROOT)}: use pure payloads and injected host operations')
 

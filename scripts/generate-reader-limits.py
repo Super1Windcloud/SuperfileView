@@ -16,7 +16,7 @@ def unique(pairs):
     return result
 
 def generate(output):
-    policy = json.loads((ROOT / 'assets/reader-limits.json').read_text(), object_pairs_hook=unique)
+    policy = json.loads((ROOT / 'assets/reader-limits.json').read_text(encoding='utf-8'), object_pairs_hook=unique)
     if policy['schema_version'] != 1:
         raise ValueError('Unsupported reader policy schema')
     values, rust = {}, []
@@ -44,11 +44,11 @@ def generate(output):
     output.mkdir(parents=True, exist_ok=True)
     target = output / 'reader_limits.rs'
     text = '// Generated from assets/reader-limits.json; edit the policy, not this file.\n' + '\n'.join(rust) + '\n'
-    if not target.exists() or target.read_text() != text:
-        target.write_text(text)
+    if not target.exists() or target.read_text(encoding='utf-8') != text:
+        target.write_text(text, encoding='utf-8', newline='\n')
 
 def document():
-    policy = json.loads((ROOT / 'assets/reader-limits.json').read_text(), object_pairs_hook=unique)
+    policy = json.loads((ROOT / 'assets/reader-limits.json').read_text(encoding='utf-8'), object_pairs_hook=unique)
     effects = {'reject': '拒绝该操作或视图', 'truncate': '截取显示', 'fallback': '降级处理', 'budget': '处理／内存预算', 'timeout': '超时', 'page': '分页，可继续访问', 'unlimited': '无应用层总量门槛'}
     for chinese in (False, True):
         title = '# 阅读器边界统一管理' if chinese else '# Shared reader policy'
@@ -78,7 +78,7 @@ def document():
                 lines.append(f"| `{group}.{name}` | {display} | {entry['unit']} | {effect} | {behavior.replace('|', '&#124;')} |")
             lines.append('')
         name = 'reader-limits.zh-CN.md' if chinese else 'reader-limits.md'
-        (ROOT / 'docs' / name).write_text('\n'.join(lines))
+        (ROOT / 'docs' / name).write_text('\n'.join(lines), encoding='utf-8', newline='\n')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)

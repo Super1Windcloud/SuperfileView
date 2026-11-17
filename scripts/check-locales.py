@@ -15,7 +15,7 @@ def catalog(path):
                 errors.append(f'{path.name}: duplicate key {key!r}')
             result[key] = value
         return result
-    return json.loads(path.read_text(), object_pairs_hook=pairs)
+    return json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=pairs)
 
 catalogs = {p.stem: catalog(p) for p in (ROOT / 'assets/locales').glob('*.json')}
 base = catalogs['en']
@@ -43,7 +43,7 @@ for folder, suffix in [('crates', '*.rs')]:
     for path in (ROOT / folder).rglob(suffix):
         if 'tests' in path.parts:
             continue
-        source = path.read_text()
+        source = path.read_text(encoding='utf-8')
         # User content and diagnostic strings are excluded; direct control labels
         # must use the shared lookup (product/format names are invariant).
         if path.suffix == '.rs':
@@ -53,7 +53,7 @@ for folder, suffix in [('crates', '*.rs')]:
         for label in re.findall(controls, source):
             if re.search(r'[A-Za-z\u4e00-\u9fff]', label) and label not in {'Superfile', 'SQL', 'File', 'Edit', 'A−', 'A+', r'\(Int(size)) pt'}:
                 errors.append(f'{path.relative_to(ROOT)}: unlocalized control {label!r}')
-        for raw in re.findall(r'\b(?:tr|L)\(\s*"((?:[^"\\]|\\.)*)"', path.read_text()):
+        for raw in re.findall(r'\b(?:tr|L)\(\s*"((?:[^"\\]|\\.)*)"', path.read_text(encoding='utf-8')):
             try:
                 key = json.loads('"' + raw + '"')
             except ValueError:

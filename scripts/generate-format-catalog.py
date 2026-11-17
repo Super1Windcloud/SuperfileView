@@ -34,7 +34,7 @@ def effective_icon(suffix, icons):
 
 
 def read_catalog():
-    data = json.loads(CATALOG.read_text())
+    data = json.loads(CATALOG.read_text(encoding='utf-8'))
     require(data['version'] == 1, 'Unsupported format catalog version')
     known = set()
     for name, rule in data['sets'].items():
@@ -67,7 +67,7 @@ def read_catalog():
         require(set(provider.get('exclude', [])) <= candidates, f'Unknown exclusion in {identifier}')
     require(identifiers.index('book') < identifiers.index('archive'), 'Book containers must precede archives')
     # Rust retains executable function pointers; the catalog owns declaration order.
-    registry = (ROOT / 'crates/superfile-services/src/documents/registry.rs').read_text()
+    registry = (ROOT / 'crates/superfile-services/src/documents/registry.rs').read_text(encoding='utf-8')
     require(re.findall(r'\bid:\s*"([^"]*)"', registry) == identifiers, 'Provider IDs/order differ from services registry')
     bundle_extensions = set()
     for group in data['bundle_types']:
@@ -87,13 +87,13 @@ def read_catalog():
             require(lower in bundle_extensions, f'Association missing bundle registration: {suffix}')
             require(lower not in grouped, f'Duplicate association: {suffix}')
             grouped.add(lower)
-    icons = json.loads((ROOT / 'assets/file-icons/manifest.json').read_text())
+    icons = json.loads((ROOT / 'assets/file-icons/manifest.json').read_text(encoding='utf-8'))
     missing = known - icons['extensions'].keys()
     require(set(data['icon_fallbacks']) == missing, 'Update explicit icon_fallbacks for: ' + ', '.join(sorted(set(data['icon_fallbacks']) ^ missing)))
     for suffix, expected in data['icon_fallbacks'].items():
         require(expected == effective_icon(suffix, icons), f'Icon fallback changed: {suffix}')
     # Cross-check the actual table consumed by GPUI, not just the icon manifest.
-    icon_source = (ROOT / 'crates/superfile-app/src/views/file_icons_data.rs').read_text().split('static EXTENSIONS:')[1]
+    icon_source = (ROOT / 'crates/superfile-app/src/views/file_icons_data.rs').read_text(encoding='utf-8').split('static EXTENSIONS:')[1]
     actual = {name: dict(dark=dark, light=light) for name, dark, light in re.findall(r'\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,?\s*\)', icon_source)}
     require(actual == icons['extensions'], 'Icon manifest and runtime extension table differ')
     for suffix in known:
@@ -156,20 +156,20 @@ def main():
     if plist['CFBundleDocumentTypes'] != data['bundle_types']:
         require(args.write, 'Bundle declarations differ from catalog')
         # Preserve release metadata formatting consumed by the Rust build script.
-        source = plist_path.read_text()
+        source = plist_path.read_text(encoding='utf-8')
         start = source.index('<key>CFBundleDocumentTypes</key>') + len('<key>CFBundleDocumentTypes</key>')
         array = plistlib.dumps(data['bundle_types'], sort_keys=False).decode().split('<plist version="1.0">\n')[1].split('\n</plist>')[0]
         # The document declarations are the last value in the top-level dictionary.
         end = source.rfind('</dict>')
         require(not re.search(r'^    <key>', source[start:end], re.M), 'Unexpected keys after CFBundleDocumentTypes; update the focused writer')
-        plist_path.write_text(source[:start] + '\n' + array + '\n' + source[end:])
+        plist_path.write_text(source[:start] + '\n' + array + '\n' + source[end:], encoding='utf-8', newline='\n')
     stale = []
     for name, expected in outputs.items():
         path = ROOT / name
         if args.write:
             path.parent.mkdir(parents=True,exist_ok=True)
-            path.write_text(expected)
-        elif not path.exists() or path.read_text() != expected:
+            path.write_text(expected, encoding='utf-8', newline='\n')
+        elif not path.exists() or path.read_text(encoding='utf-8') != expected:
             stale.append(name)
     require(not stale, 'Regenerate format catalog outputs: ' + ', '.join(stale))
     print(f'Format catalog: {len(known)} suffixes, {len(data["providers"])} providers; declarations and generated consumers agree.')
