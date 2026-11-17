@@ -14,7 +14,7 @@ Superfile 将文件、源码、文档、图片和结构化数据放在同一个�
 - 使用 crates.io 官方锁定依赖，不保留 `vendor` 或框架源码补丁。
 - 文件 I/O 在后台执行，任务可取消，数据按页加载，阅读器状态持续保留。
 - 使用独立的 Superfile 应用数据与缓存目录。
-- 诊断日志保存在本地，没有远程遥测传输或自动更新器。
+- 诊断日志保存在本地，没有远程遥测传输；支持无需客户端 Token 的[静态 Manifest 应用更新](docs/updates.md)。
 
 应用不使用 Swift、Quick Look 或基于 WebView 的阅读器。Markdown 交互使用公开插件接口，Mermaid 通过 Rust 引擎渲染。HTML 使用 TextView 显示，不执行脚本。
 
@@ -32,7 +32,7 @@ Superfile 将文件、源码、文档、图片和结构化数据放在同一个�
 | PDF | 从不可变私有快照按需生成页面图像，提供翻页和图像详情 |
 | 压缩包 | ZIP、TAR 和常见压缩流 |
 
-Windows 构建和基础启动已在本机验证。已配置 Windows、macOS ARM/Intel 和 Linux 构建工作流；macOS、Linux 的原生运行尚未验证。
+Windows 构建和基础启动已在本机验证，macOS 启动与更新对话框也已检查。构建工作流覆盖 Windows、macOS ARM/Intel 和 Linux；Linux 原生运行及各平台真实安装、更新仍待验收。
 
 「设置 → 默认文件类型」打开可搜索的对话框，显示系统文件格式、类型说明和当前默认打开应用。默认应用列可下拉选择系统登记的兼容应用：macOS、Linux 设置后回读确认，Windows 打开系统设置由用户确认，完成后刷新。数据在后台读取，可刷新或取消；部分来源不可读时会明确提示。开发运行也可使用。详见[系统文件关联](docs/file-associations.md)。
 
@@ -88,7 +88,7 @@ git push origin v0.0.3
 | macOS Apple Silicon | ARM64 `.dmg` 安装包、`.tar.gz` 应用包 |
 | macOS Intel | x86_64 `.dmg` 安装包、`.tar.gz` 应用包 |
 
-四个构建均执行工作区测试、Clippy 和 release 编译，全部通过且 8 个包完整后，统一生成 `SHA256SUMS.txt` 并上传至对应的 GitHub Release，自动生成发布说明；上传后检查附件名称和大小。任一平台失败则不进入发布作业。权限只在发布作业提升至 `contents: write`，使用 GitHub 自动提供的 [`GITHUB_TOKEN`](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token)，不需要额外 PAT。
+四个构建均执行工作区测试、Clippy 和 release 编译，全部通过且 8 个包完整后，统一生成 `SHA256SUMS.txt` 和 `latest.json`，共 10 个附件并上传至对应的 GitHub Release，自动生成发布说明；上传后检查附件名称和大小。任一平台失败则不进入发布作业。权限只在发布作业提升至 `contents: write`，使用 GitHub 自动提供的 [`GITHUB_TOKEN`](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token)，不需要额外 PAT。
 
 Linux 包在 Ubuntu 24.04 构建，`.deb` 根据二进制生成共享库依赖，便携包仍需要兼容的系统库和图形驱动。当前未配置 Windows 代码签名或 Apple Developer ID 签名/公证；macOS 包只做 ad-hoc 签名。首次远端运行结果需在 GitHub Actions 页面确认，失败时可直接重跑相应作业。
 
@@ -99,6 +99,10 @@ python -m unittest discover -s scripts/package -p 'test_*.py' -v
 ```
 
 打包脚本默认只读取 `target/<target>/release/` 下的精确目标二进制，不会回退到 debug 或其他架构。`SUPERFILE_DIST_DIR` 可隔离输出目录；`SUPERFILE_PACKAGE_BINARY` 只用于本地显式指定打包测试输入，工作流不设置此覆盖。
+
+## 应用更新
+
+应用菜单与设置 → 应用 → 软件更新均可打开更新对话框。使用 [`gpui-updater-core`](https://github.com/AprilNEA/gpui-updater) 的 `StaticManifestSource` 读取固定 [latest.json](https://github.com/Super1Windcloud/SuperfileView/releases/latest/download/latest.json)，不调用 GitHub API，不内置 Token。默认每 24 小时最多自动检查一次，可关闭；下载和安装由用户确认。下载强制 HTTPS 与 SHA-256 校验，安装前保护未保存文件并保存会话，替换失败恢复原版本。开发构建仅允许检查和下载；包管理器安装使用原安装方式更新。首次发布含 Manifest 的版本后线上入口才可用。签名和平台验收边界见[更新说明](docs/updates.md)。
 
 ## 检查
 

@@ -105,6 +105,7 @@
   "View": "View",
   "About": "About",
   "About Superfile": "About Superfile",
+  "View project on GitHub": "View project on GitHub",
   "Author": "Author",
   "App integrations": "App integrations",
   "Default file opener": "Default file opener",
@@ -770,5 +771,13 @@
   "Updating default application…": "Updating default application…",
   "Could not change the default application.": "Could not change the default application.",
   "Confirm the file type and application in Windows Settings, then refresh.": "Confirm the file type and application in Windows Settings, then refresh.",
-  "Default application updated.": "Default application updated."
+  "Default application updated.": "Default application updated.",
+  "View releases on GitHub": "View releases on GitHub",
+  "Check for updates on startup": "Check for updates on startup",
+  "You’re up to date.": "You’re up to date.",
+  "Local builds can check and download updates, but cannot replace the development executable.": "Local builds can check and download updates, but cannot replace the development executable.",
+  "Move Superfile out of the disk image or translocated folder before updating.": "Move Superfile out of the disk image or translocated folder before updating.",
+  "Install the Superfile app bundle before using in-app updates.": "Install the Superfile app bundle before using in-app updates.",
+  "Use the package manager that installed Superfile to update it.": "Use the package manager that installed Superfile to update it.",
+  "Show Downloaded Update": "Show Downloaded Update"
 }

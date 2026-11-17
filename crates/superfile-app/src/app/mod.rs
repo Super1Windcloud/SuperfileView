@@ -32,10 +32,11 @@ use gpui_kit::*;
 
 use crate::views::workspace::Workspace;
 use actions::{
-    About, AddFolder, CloseWindow, CloseWorkspace, DefaultApplications, KeyboardShortcuts,
-    LanguageChinese, LanguageEnglish, LanguageSystem, NavigateBack, NavigateForward, NewFile,
-    NewWindow, NextTab, OpenFile, OpenFolder, OpenSettings, PreviousTab, Quit, Refresh, SaveFile,
-    SearchWorkspace, ToggleDarkMode, TogglePreview, ToggleSidebar, ToggleWordWrap,
+    About, AddFolder, CheckForUpdates, CloseWindow, CloseWorkspace, DefaultApplications,
+    KeyboardShortcuts, LanguageChinese, LanguageEnglish, LanguageSystem, NavigateBack,
+    NavigateForward, NewFile, NewWindow, NextTab, OpenFile, OpenFolder, OpenSettings, PreviousTab,
+    Quit, Refresh, SaveFile, SearchWorkspace, ToggleDarkMode, TogglePreview, ToggleSidebar,
+    ToggleWordWrap,
 };
 
 pub struct ReaderPreferences {
@@ -445,6 +446,7 @@ pub fn run() -> Result<()> {
             let workspace = cx.global_mut::<WorkspaceSaveTask>().0.take();
             let recent_paths = recent_paths::take_write(cx);
             let associations = default_applications::take_write(cx);
+            let (update_task, update_preferences, restart) = updates::shutdown(cx);
             let remote_connections = cx.global_mut::<remote::Connections>().write.take();
             let sessions = cx
                 .global_mut::<workspace_sessions::SavedWorkspaces>()
@@ -485,6 +487,17 @@ pub fn run() -> Result<()> {
                 }
                 if let Some(window_sessions) = window_sessions {
                     window_sessions.await;
+                }
+                if let Some(task) = update_task {
+                    task.await;
+                }
+                if let Some(task) = update_preferences {
+                    task.await;
+                }
+                if let Some(executable) = restart
+                    && let Err(error) = superfile_services::updates::relaunch(&executable)
+                {
+                    log::error!("Update restart failed: {error:#}");
                 }
             }
         })
@@ -535,6 +548,7 @@ pub fn run() -> Result<()> {
         cx.on_action(|_: &LanguageChinese, cx| change_language("zh-CN", cx));
         cx.on_action(|_: &LanguageEnglish, cx| change_language("en", cx));
         cx.on_action(|_: &KeyboardShortcuts, cx| shortcuts::open(cx));
+        cx.on_action(|_: &CheckForUpdates, cx| updates::open(cx));
         cx.bind_keys([
             KeyBinding::new("secondary-q", Quit, None),
             KeyBinding::new("secondary-,", OpenSettings, None),
@@ -605,6 +619,9 @@ pub(crate) fn reveal_existing_file(
 
 fn open_system_files(urls: Vec<String>, cx: &mut App) {
     updates::interrupt_for_files(cx);
+    if updates::queue_files(&urls, cx) {
+        return;
+    }
     for value in urls {
         if let Ok(url) = url::Url::parse(&value)
             && remote_open::receive(&url, cx)
@@ -650,6 +667,11 @@ fn open_folder_workspace(
     cx: &mut App,
 ) {
     updates::interrupt_for_files(cx);
+    if let Ok(url) = url::Url::from_directory_path(&path)
+        && updates::queue_files(&[url.to_string()], cx)
+    {
+        return;
+    }
     let mut windows = OpenWorkspaces::windows(cx);
     for (view, handle) in &windows {
         let Some(view) = view.upgrade() else { continue };
@@ -909,7 +931,7 @@ mod quit_tests {
 }
 
 pub(crate) fn request_quit(cx: &mut App) {
-    if updates::busy(cx) || updates::prepare_quit(cx) {
+    if updates::prepare_quit(cx) {
         return;
     }
     if cx.global::<QuitSession>().0 {
@@ -921,11 +943,15 @@ pub(crate) fn request_quit(cx: &mut App) {
     }) {
         return;
     }
-    cancel_quit(cx);
+    reset_quit_approvals(cx);
     cx.global_mut::<QuitSession>().0 = true;
     continue_quit(cx);
 }
 pub(crate) fn cancel_quit(cx: &mut App) {
+    updates::quit_cancelled(cx);
+    reset_quit_approvals(cx);
+}
+fn reset_quit_approvals(cx: &mut App) {
     cx.global_mut::<QuitSession>().0 = false;
     for (view, _) in OpenWorkspaces::windows(cx) {
         if let Some(view) = view.upgrade() {

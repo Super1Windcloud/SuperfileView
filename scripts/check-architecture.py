@@ -28,7 +28,10 @@ for name, package in packages.items():
         target = dependency['name']
         if target in packages and target not in allowed[name]:
             errors.append(f'{name} must not depend on {target}')
-        if name in ('superfile-core', 'superfile-services') and (target.startswith('gpui') or target in ('wry', 'tao')):
+        # The updater's core is explicitly headless; only its adapters import GPUI.
+        headless_updater = (name == 'superfile-services' and target == 'gpui-updater-core'
+                            and not dependency['uses_default_features'])
+        if name in ('superfile-core', 'superfile-services') and not headless_updater and (target.startswith('gpui') or target in ('wry', 'tao')):
             errors.append(f'{name}: UI dependency {target} belongs in superfile-app')
 
 registry = (ROOT / 'crates/superfile-services/src/documents/registry.rs').read_text()

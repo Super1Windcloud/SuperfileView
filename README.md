@@ -14,7 +14,7 @@ Author: **superwindcloud**.
 - Official, locked crates.io dependencies; no `vendor` directory or framework source patches.
 - Background file I/O, cancellable jobs, paged data, and retained reader state.
 - Independent Superfile application data and cache directories.
-- Local diagnostic logs, with no remote telemetry transport or automatic updater.
+- Local diagnostic logs, with no remote telemetry transport; [static-manifest application updates](docs/updates.md) without a client token.
 
 The application does not use Swift, Quick Look, or WebView-based readers. Markdown interactions use the public plugin API; Mermaid diagrams are rendered by a Rust engine. HTML is displayed with TextView and does not execute scripts.
 
@@ -32,7 +32,7 @@ The application does not use Swift, Quick Look, or WebView-based readers. Markdo
 | PDF | On-demand page images from an immutable private snapshot, page navigation, and image detail |
 | Archives | ZIP, TAR, and common compressed streams |
 
-Windows builds and basic startup have been verified locally. Build workflows are configured for Windows, macOS ARM/Intel, and Linux; macOS and Linux native execution have not yet been verified.
+Windows builds and basic startup have been verified locally. macOS startup and the update dialog have also been inspected. Build workflows cover Windows, macOS ARM/Intel, and Linux; Linux native execution and installation/update acceptance across platforms remain pending.
 
 Settings → Default File Types opens a searchable dialog showing system file types, descriptions, and their current default applications. Each application cell opens a dropdown of registered compatible apps. macOS/Linux apply the selection and read back the system default; Windows opens system Settings for user confirmation and requires a refresh afterward. Discovery runs in the background, supports refresh/cancellation, and reports incomplete reads. This also works during development. See [system file associations](docs/file-associations.md).
 
@@ -88,7 +88,7 @@ The [release workflow](.github/workflows/build.yml) accepts tags such as `v1.2.3
 | macOS Apple Silicon | ARM64 `.dmg` installer and `.tar.gz` application bundle |
 | macOS Intel | x86_64 `.dmg` installer and `.tar.gz` application bundle |
 
-All four native builds run workspace tests, Clippy, and release compilation. Publication requires all builds and all eight packages to succeed. It adds `SHA256SUMS.txt`, generates release notes, uploads the assets to the matching GitHub Release, and verifies uploaded names and sizes. A failed platform blocks publication. Only the publish job has `contents: write`; it uses GitHub's automatic [`GITHUB_TOKEN`](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token), with no additional PAT required.
+All four native builds run workspace tests, Clippy, and release compilation. Publication requires all builds and all eight packages to succeed. It adds `SHA256SUMS.txt` and `latest.json` (10 assets in total), generates release notes, uploads the assets to the matching GitHub Release, and verifies uploaded names and sizes. A failed platform blocks publication. Only the publish job has `contents: write`; it uses GitHub's automatic [`GITHUB_TOKEN`](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token), with no additional PAT required.
 
 Linux packages are built on Ubuntu 24.04; `.deb` dependencies are derived from the binary, and portable archives still require compatible system libraries and graphics drivers. Windows code signing and Apple Developer ID signing/notarization are not configured; macOS bundles receive an ad-hoc signature. Confirm the first remote run in GitHub Actions; failed jobs can be rerun there.
 
@@ -99,6 +99,10 @@ python -m unittest discover -s scripts/package -p 'test_*.py' -v
 ```
 
 Packagers require the exact binary under `target/<target>/release/` and never fall back to debug or another architecture. `SUPERFILE_DIST_DIR` isolates package output; `SUPERFILE_PACKAGE_BINARY` is an explicit input override for local packaging smoke tests and is not set by the workflow.
+
+## Application updates
+
+The application menu and Settings → Application → Software Update open the updater. It uses [`gpui-updater-core`](https://github.com/AprilNEA/gpui-updater) with a static [latest.json](https://github.com/Super1Windcloud/SuperfileView/releases/latest/download/latest.json), without GitHub API calls or an embedded token. Startup checks run at most once per day and can be disabled; downloading and installing require user actions. Downloads require HTTPS and SHA-256 verification. Release builds can replace writable app bundles/portable binaries after saving workspace state, with backup and rollback on failure. Development builds allow checking/downloading but cannot overwrite the development executable. Package-manager installations use their original update method. See [update behavior and release protocol](docs/updates.md), including signing and platform acceptance limits. The feed becomes available when a release with the new manifest is published.
 
 ## Checks
 

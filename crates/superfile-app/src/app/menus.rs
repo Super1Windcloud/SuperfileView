@@ -1,6 +1,6 @@
 use super::actions::{
-    About, AddFolder, CloseWorkspace, NewFile, NewWindow, OpenFile, OpenFolder, OpenRemote,
-    OpenSettings, Quit, SaveFile, TogglePreview, ToggleSidebar, ToggleWordWrap,
+    About, AddFolder, CheckForUpdates, CloseWorkspace, NewFile, NewWindow, OpenFile, OpenFolder,
+    OpenRemote, OpenSettings, Quit, SaveFile, TogglePreview, ToggleSidebar, ToggleWordWrap,
 };
 use gpui_kit::{App, Menu, MenuItem};
 use superfile_services::locale::tr;
@@ -13,6 +13,7 @@ pub(super) fn update(cx: &mut App) {
             disabled: false,
             items: vec![
                 MenuItem::action(tr("About Superfile"), About),
+                MenuItem::action(tr("Check for Updates…"), CheckForUpdates),
                 MenuItem::separator(),
                 MenuItem::action(tr("Settings…"), OpenSettings),
                 MenuItem::separator(),

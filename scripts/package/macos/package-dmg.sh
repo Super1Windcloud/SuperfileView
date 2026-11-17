@@ -58,5 +58,5 @@ for attempt in 1 2 3; do
   sleep 2
 done
 hdiutil verify "${DMG_OUTPUT}"
-tar -C "${STAGING_DIR}" -czf "${DIST_DIR}/superfile-${TAG}-macos-${ARCH_LABEL}.tar.gz" Superfile.app
+COPYFILE_DISABLE=1 tar -C "${STAGING_DIR}" -czf "${DIST_DIR}/superfile-${TAG}-macos-${ARCH_LABEL}.tar.gz" Superfile.app
 python3 "${REPO_ROOT}/scripts/package/release.py" verify "${TAG}" --platform "macos-${ARCH_LABEL}" --directory "${DIST_DIR}"

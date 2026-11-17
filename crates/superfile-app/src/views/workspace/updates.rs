@@ -5,6 +5,17 @@ use std::time::Duration;
 use superfile_services::watch::{Changes, WorkspaceWatch};
 
 impl Workspace {
+    pub(crate) fn update_activity(&self) -> superfile_core::update::UpdateActivity {
+        superfile_core::update::UpdateActivity {
+            dirty: self.has_unsaved(),
+            saving: self.is_saving(),
+            loading: self.loading
+                || !self.incoming_files.is_empty()
+                || self.picking
+                || self.editing_locked
+                || !self.can_begin_quit(),
+        }
+    }
     pub(super) fn start_watching(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.watch_task = Some(cx.spawn_in(window, async move |view, cx| {
             loop {

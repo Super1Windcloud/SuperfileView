@@ -1,8 +1,14 @@
 use crate::app::actions::{CloseWindow, CloseWorkspace};
 use gpui_kit::{
-    component::{ActiveTheme, TitleBar, h_flex, v_flex},
+    component::{
+        ActiveTheme, Icon, Sizable, TitleBar,
+        button::{Button, ButtonVariants},
+        h_flex, v_flex,
+    },
     *,
 };
+
+const GITHUB_URL: &str = "https://github.com/Super1Windcloud/SuperfileView";
 
 pub(crate) struct About {
     focus: FocusHandle,
@@ -85,6 +91,21 @@ impl Render for About {
                                 superfile_services::locale::tr("Author"),
                                 env!("CARGO_PKG_AUTHORS")
                             )),
+                    )
+                    .child(
+                        Button::new("about-github")
+                            .ghost()
+                            .small()
+                            .size(px(28.))
+                            .icon(Icon::empty().path("navigation/github.svg").size(px(20.)))
+                            .tooltip(format!(
+                                "{} · {GITHUB_URL}",
+                                superfile_services::locale::tr("View project on GitHub")
+                            ))
+                            .accessibility_label(superfile_services::locale::tr(
+                                "View project on GitHub",
+                            ))
+                            .on_click(|_, _, cx| cx.open_url(GITHUB_URL)),
                     ),
             )
     }

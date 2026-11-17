@@ -1,5 +1,5 @@
 use super::Workspace;
-use crate::app::actions::{DefaultApplications, KeyboardShortcuts};
+use crate::app::actions::{CheckForUpdates, DefaultApplications, KeyboardShortcuts};
 use gpui_kit::{
     component::{
         ActiveTheme, Disableable, Icon, Sizable,
@@ -271,7 +271,20 @@ impl Workspace {
                                 )),
                         )
                         .child(heading("Application").mt_3())
-                        .child(group().child(row("Keyboard Shortcuts…", "", shortcuts)))
+                        .child(
+                            group()
+                                .child(row("Keyboard Shortcuts…", "", shortcuts))
+                                .child(divider())
+                                .child(row(
+                                    "Software Update",
+                                    "",
+                                    action_button("settings-updates", "Check for Updates…")
+                                        .on_click(|_, window, cx| {
+                                            window.dispatch_action(Box::new(CheckForUpdates), cx)
+                                        })
+                                        .into_any_element(),
+                                )),
+                        )
                         .child(self.integrations.clone())
                         .child(heading("About").mt_3())
                         .child(about),

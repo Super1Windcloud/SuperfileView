@@ -105,6 +105,7 @@
   "View": "视图",
   "About": "关于",
   "About Superfile": "关于 Superfile",
+  "View project on GitHub": "在 GitHub 查看项目",
   "Author": "作者",
   "App integrations": "应用集成",
   "Default file opener": "默认打开工具",
@@ -770,5 +771,13 @@
   "Updating default application…": "正在更新默认应用…",
   "Could not change the default application.": "无法更改默认应用。",
   "Confirm the file type and application in Windows Settings, then refresh.": "请在 Windows 系统设置中选择相应文件格式和应用，完成后刷新。",
-  "Default application updated.": "默认应用已更新。"
+  "Default application updated.": "默认应用已更新。",
+  "View releases on GitHub": "查看发布版本",
+  "Check for updates on startup": "启动时检查更新",
+  "You’re up to date.": "当前已是最新版本。",
+  "Local builds can check and download updates, but cannot replace the development executable.": "本地构建可以检查和下载更新，但不会替换开发环境的可执行文件。",
+  "Move Superfile out of the disk image or translocated folder before updating.": "请先将 Superfile 移出磁盘映像或临时隔离目录，再更新。",
+  "Install the Superfile app bundle before using in-app updates.": "请先安装 Superfile 应用包，再使用应用内更新。",
+  "Use the package manager that installed Superfile to update it.": "请使用安装 Superfile 的软件包管理器进行更新。",
+  "Show Downloaded Update": "显示已下载的更新"
 }

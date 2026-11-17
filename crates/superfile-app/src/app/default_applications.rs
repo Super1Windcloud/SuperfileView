@@ -523,9 +523,8 @@ mod tests {
             window.click(("system-file-type-select", 0_usize), cx);
             assert!(
                 view.read(cx).picker.is_some(),
-                "Picker did not open; trigger={:?}, list={:?}",
-                window.find(("system-file-type-select", 0_usize)).bounds(),
-                window.find("system-file-type-list").bounds()
+                "Picker did not open; trigger={:?}",
+                window.find(("system-file-type-select", 0_usize)).bounds()
             );
         })
         .unwrap();

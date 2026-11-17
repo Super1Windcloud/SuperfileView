@@ -1,5 +1,6 @@
 """Regression checks for tag preparation and publication completeness."""
 import hashlib
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -7,10 +8,58 @@ import tempfile
 import tomllib
 import unittest
 
-from release import ROOT, assets, prepare, verify, version
+from release import ROOT, assets, generate_manifest, prepare, verify, verify_manifest, version
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_manifest_metadata_prerelease_and_symlink_protection(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            tag = 'v1.2.3-rc.1'
+            for name in assets(tag):
+                (root / name).write_bytes(name.encode())
+            manifest = generate_manifest(tag, root, 'owner/repo')
+            self.assertEqual(manifest['channel'], 'prerelease')
+            self.assertEqual(manifest['version'], '1.2.3-rc.1')
+            verify_manifest(tag, root, 'owner/repo')
+            for key, value in [('schema_version', 9), ('app_id', 'other'), ('channel', 'stable'),
+                               ('release_url', 'https://evil.example'), ('published_at', '2026-01-01')]:
+                with self.subTest(key=key):
+                    (root / 'latest.json').write_text(json.dumps({**manifest, key: value}))
+                    with self.assertRaises(ValueError):
+                        verify_manifest(tag, root, 'owner/repo')
+            if os.name != 'nt':
+                (root / 'latest.json').unlink()
+                outside = root / 'outside'
+                outside.write_text('preserve')
+                # Use an external directory so publication's unknown-asset guard remains meaningful.
+                with tempfile.TemporaryDirectory() as links:
+                    for name in assets(tag):
+                        (Path(links) / name).write_bytes(b'package')
+                    (Path(links) / 'latest.json').symlink_to(outside)
+                    with self.assertRaises(ValueError):
+                        generate_manifest(tag, Path(links), 'owner/repo')
+                self.assertEqual(outside.read_text(), 'preserve')
+
+    def test_manifest_covers_exact_update_archives_and_rejects_tampering(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name in assets('v1.2.3'):
+                (root / name).write_bytes(name.encode())
+            manifest = generate_manifest('v1.2.3', root, 'owner/repo')
+            self.assertEqual(len(manifest['assets']), 4)
+            self.assertEqual({asset['format'] for asset in manifest['assets']}, {'zip', 'tar.gz'})
+            self.assertEqual({(asset['os'], asset['arch']) for asset in manifest['assets']}, {
+                ('windows', 'x86_64'), ('linux', 'x86_64'), ('macos', 'aarch64'), ('macos', 'x86_64')})
+            verify('v1.2.3', root, checksums=True, manifest=True)
+            verify_manifest('v1.2.3', root, 'owner/repo')
+            generate_manifest('v1.2.3', root, 'owner/repo')
+            (root / manifest['assets'][0]['name']).write_bytes(b'changed')
+            with self.assertRaises(ValueError):
+                verify_manifest('v1.2.3', root, 'owner/repo')
+            with self.assertRaises(ValueError):
+                generate_manifest('v1.2.3', root, 'owner/repo?token=secret')
+
     def test_shell_packagers_reject_missing_release_instead_of_falling_back(self):
         with tempfile.TemporaryDirectory() as temporary:
             environment = {**os.environ, 'SUPERFILE_PACKAGE_BINARY': str(Path(temporary) / 'missing')}

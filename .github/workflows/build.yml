@@ -60,6 +60,7 @@ jobs:
       PACKAGE_ARCH: ${{ matrix.arch_label }}
       PACKAGE_PLATFORM: ${{ matrix.platform_name }}
       SUPERFILE_BUILD_CHANNEL: release
+      SUPERFILE_UPDATE_MANIFEST_URL: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
       # Bundle the MSVC runtime into the Windows executable for fresh installs.
       CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
     strategy:
@@ -166,6 +167,10 @@ jobs:
           merge-multiple: true
       - name: Require all eight packages and generate SHA256 checksums
         run: python scripts/package/release.py verify "$RELEASE_TAG" --directory dist --checksums
+      - name: Generate and validate the static update manifest
+        run: |
+          python scripts/package/release.py manifest "$RELEASE_TAG" --directory dist --repository "$GITHUB_REPOSITORY"
+          python scripts/package/release.py verify "$RELEASE_TAG" --directory dist --checksums --manifest --repository "$GITHUB_REPOSITORY"
       - name: Create GitHub Release and upload packages
         id: publish
         uses: softprops/action-gh-release@v2
