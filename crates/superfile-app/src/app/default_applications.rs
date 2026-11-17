@@ -486,7 +486,12 @@ mod tests {
     fn dropdown_updates_only_after_confirmation_and_preserves_defaults_on_failure(
         cx: &mut TestAppContext,
     ) {
-        cx.update(gpui_kit::init);
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            // Hit testing must use settled dialog/popover geometry, regardless
+            // of how far the entrance animation moves between pointer events.
+            cx.set_reduce_motion(true);
+        });
         let handle = cx.update(|cx| {
             gpui_kit::open_window(WindowOptions::default(), cx, |_, cx| {
                 cx.new(|_| gpui_kit::Empty)
