@@ -59,6 +59,7 @@ cargo run --locked -p superfile -- 'C:\Users\name\Documents'
 Build artifacts are stored in the project's `target/` directory. User data and caches use platform directories under `Superfile`. For isolated development or validation, set `SUPERFILE_DATA_DIR` and `SUPERFILE_CACHE_DIR` to absolute paths.
 
 Application artwork comes from `assets/branding/superfile-source.png`, the left document/magnifier icon in the supplied reference. Its [source and extraction prompt](assets/branding/icon-source.json) are recorded alongside it. Run `NODE_PATH=/path/to/node_modules node scripts/render-icons.mjs` with the optional `sharp` package to generate PNG, SVG, and Windows ICO assets; macOS also generates ICNS. Normal builds use the committed resources directly.
+On macOS, startup sets the Dock icon from the embedded ICNS, including direct `cargo run` launches without an `.app` bundle.
 
 ## Tag releases
 

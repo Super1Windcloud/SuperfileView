@@ -5,6 +5,8 @@ mod assets;
 pub(crate) mod diagram_engine;
 pub(crate) mod document_session;
 pub(crate) mod edit_session;
+#[cfg(target_os = "macos")]
+mod icon;
 mod image_http;
 pub(crate) mod languages;
 pub(crate) mod media_prepare;
@@ -424,6 +426,8 @@ pub fn run() -> Result<()> {
         }
     });
     application.run(move |cx| {
+        #[cfg(target_os = "macos")]
+        icon::set();
         #[cfg(feature = "reader-measurements")]
         if let Some(startup) = startup {
             startup.observe(cx);

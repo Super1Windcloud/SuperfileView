@@ -59,6 +59,7 @@ cargo run --locked -p superfile -- 'C:\Users\name\Documents'
 构建产物存放在项目的 `target/` 目录中。用户数据和缓存使用平台目录下的 `Superfile` 子目录。开发或隔离验证时，可将 `SUPERFILE_DATA_DIR` 与 `SUPERFILE_CACHE_DIR` 设置为绝对路径。
 
 应用图标源文件为 `assets/branding/superfile-source.png`，使用提供的左侧文件/放大镜图标。[来源与提取提示词](assets/branding/icon-source.json)随资源保存。通过 `NODE_PATH=/path/to/node_modules node scripts/render-icons.mjs` 可生成 PNG、SVG 和 Windows ICO；macOS 上还会生成 ICNS。该可选工具需要 `sharp`，正常构建直接使用已提交资源。
+macOS 启动时会从内嵌 ICNS 设置 Dock 图标，因此直接 `cargo run` 也能显示图标，无需先打包 `.app`。
 
 ## Tag 自动发布
 
