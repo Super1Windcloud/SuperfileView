@@ -374,8 +374,8 @@ pub fn collect(text: &str) -> Result<Vec<Diagram>> {
     Ok(diagrams)
 }
 
-/// Render a document in an isolated system WebView, with bundled engines and
-/// no network or local-file access. Temporary sources are removed on return.
+/// Render document diagrams in a cancellable subprocess using the Rust engine.
+/// Temporary request and output files are removed on return.
 pub fn render(
     text: &str,
     cancelled: &AtomicBool,

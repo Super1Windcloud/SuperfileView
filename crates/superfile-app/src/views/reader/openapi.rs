@@ -5,7 +5,7 @@ use std::{path::PathBuf, sync::Arc};
 use superfile_core::resources::TextSnapshot;
 
 pub(super) struct OpenApiReader {
-    // Release WebKit before its file-backed index and snapshot.
+    // Release the reader before its file-backed index and snapshot.
     view: Option<Entity<DocumentReader>>,
     index: Option<superfile_services::openapi::Index>,
     path: PathBuf,

@@ -1,4 +1,4 @@
-//! Prepare native preview data off the UI thread; launch the settings helper only.
+//! Detect files supported by the shared readers and scan media folders off the UI thread.
 use anyhow::{Context, Result, ensure};
 use std::path::Path;
 
@@ -43,7 +43,7 @@ pub fn is_iwork(path: &Path) -> bool {
 }
 
 /// `.key` is also used by plain-text cryptographic keys. Only document packages
-/// and ZIP containers should be handed to Keynote's Quick Look provider.
+/// and ZIP containers should be treated as Keynote documents.
 pub fn can_open(path: &Path) -> bool {
     if !supports(path) {
         return false;

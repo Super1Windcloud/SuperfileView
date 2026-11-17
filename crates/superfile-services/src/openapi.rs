@@ -1,5 +1,5 @@
 //! Streaming JSON index for the offline API reference. Values stay in a private
-//! snapshot; only bounded labels and child windows cross into the WebView.
+//! snapshot; only bounded labels and child windows are passed to the reader.
 use crate::{limits, work::Cancellation};
 use anyhow::{Result, ensure};
 use rusqlite::{Connection, params};

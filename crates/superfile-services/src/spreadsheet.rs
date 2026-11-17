@@ -1,4 +1,4 @@
-//! Stream XLSX/XLSM cells into a disk-backed index; legacy XLS uses native Quick Look.
+//! Stream XLSX/XLSM cells into a disk-backed index.
 //! Stored formula results are displayed without evaluating workbook code.
 mod pages;
 use crate::{limits, work::Cancellation};

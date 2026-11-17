@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile the shared reader policy into Rust, Swift and a JavaScript value map."""
+"""Compile the shared reader policy into Rust constants and embedded JSON."""
 import argparse
 import json
 from pathlib import Path
@@ -19,7 +19,7 @@ def generate(output):
     policy = json.loads((ROOT / 'assets/reader-limits.json').read_text(), object_pairs_hook=unique)
     if policy['schema_version'] != 1:
         raise ValueError('Unsupported reader policy schema')
-    values, rust, swift = {}, [], ['enum ReaderLimits {']
+    values, rust = {}, []
     types = {'usize': 2**63-1, 'u64': 2**64-1, 'u32': 2**32-1, 'i32': 2**31-1}
     for group, fields in policy['limits'].items():
         for name, entry in fields.items():
@@ -39,16 +39,13 @@ def generate(output):
                     raise ValueError(f'Null gate must be unlimited: {key}')
                 continue
             rust.append(f'pub const {key}: {kind} = {value};')
-            swift.append(f'    static let {key} = {value}')
-    swift.append('}')
     encoded = json.dumps(values, separators=(',', ':'))
     rust.append(f'pub const JSON: &str = r#"{encoded}"#;')
     output.mkdir(parents=True, exist_ok=True)
-    for name, contents in [('reader_limits.rs', '\n'.join(rust)), ('ReaderLimits.swift', '\n'.join(swift))]:
-        target = output / name
-        text = '// Generated from assets/reader-limits.json; edit the policy, not this file.\n' + contents + '\n'
-        if not target.exists() or target.read_text() != text:
-            target.write_text(text)
+    target = output / 'reader_limits.rs'
+    text = '// Generated from assets/reader-limits.json; edit the policy, not this file.\n' + '\n'.join(rust) + '\n'
+    if not target.exists() or target.read_text() != text:
+        target.write_text(text)
 
 def document():
     policy = json.loads((ROOT / 'assets/reader-limits.json').read_text(), object_pairs_hook=unique)
@@ -61,9 +58,9 @@ def document():
             'All application reader boundaries take their numeric values from [assets/reader-limits.json](../assets/reader-limits.json). Edit a category’s `value`, preserving its `type`, `unit` and `effect`, then rebuild and install. Null values retire total-size/count gates. Finite values govern a specific feature, page or resource budget; see the behavior description.'
         )
         architecture = (
-            '构建脚本通过 `scripts/generate-reader-limits.py` 在 Cargo OUT_DIR 生成 Rust 常量、Swift ReaderLimits 和嵌入式 JSON；图表 WebView 接收同一份 JSON。运行时不扫描或读取配置文件。配置只管理阈值，解析格式是否合法、编解码支持及 UI 布局仍由对应实现负责。'
+            '构建脚本通过 `scripts/generate-reader-limits.py` 在 Cargo OUT_DIR 生成 Rust 常量和嵌入式 JSON，供阅读器和 Rust 图表引擎使用。运行时不扫描或读取配置文件。配置只管理阈值，解析格式是否合法、编解码支持及 UI 布局仍由对应实现负责。'
             if chinese else
-            'Build scripts use `scripts/generate-reader-limits.py` to generate Rust constants, Swift ReaderLimits and embedded JSON in Cargo OUT_DIR. The diagram WebView receives that same JSON. Rendering does not read the policy from disk. Format validity, codec support and UI geometry remain responsibilities of their implementations.'
+            'Build scripts use `scripts/generate-reader-limits.py` to generate Rust constants and embedded JSON in Cargo OUT_DIR for readers and the Rust diagram engine. Rendering does not read the policy from disk. Format validity, codec support and UI geometry remain responsibilities of their implementations.'
         )
         instructions = ('本页由同一配置自动生成。修改配置后执行 `python3 scripts/generate-reader-limits.py --docs` 更新中英文清单；普通构建只生成 OUT_DIR 文件。' if chinese else 'This page is generated from the same policy. After editing it, run `python3 scripts/generate-reader-limits.py --docs` to update both language inventories. Ordinary builds write generated files only to OUT_DIR.')
         lines = [title, '', intro, '', architecture, '', instructions, '']
