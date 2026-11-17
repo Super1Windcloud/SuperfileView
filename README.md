@@ -58,6 +58,36 @@ cargo run --locked -p superfile -- 'C:\Users\name\Documents'
 
 Build artifacts are stored in the project's `target/` directory. User data and caches use platform directories under `Superfile`. For isolated development or validation, set `SUPERFILE_DATA_DIR` and `SUPERFILE_CACHE_DIR` to absolute paths.
 
+## Tag releases
+
+Commit and push the workflow and packaging scripts first, then tag that commit:
+
+```sh
+git tag v0.0.3
+git push origin v0.0.3
+```
+
+The [release workflow](.github/workflows/build.yml) accepts tags such as `v1.2.3`, `1.2.3`, and `v1.2.3-rc.1`. Prerelease tags create GitHub Prereleases. CI synchronizes only workspace package versions in its own Cargo manifest and lockfile, so the application's version matches the tag without updating external dependencies or writing changes back to the repository.
+
+| Target | Release assets |
+| --- | --- |
+| Windows x64 | NSIS `-setup.exe` installer and portable `.zip` |
+| Linux x64 | `.deb` installer and portable `.tar.gz` |
+| macOS Apple Silicon | ARM64 `.dmg` installer and `.tar.gz` application bundle |
+| macOS Intel | x86_64 `.dmg` installer and `.tar.gz` application bundle |
+
+All four native builds run workspace tests, Clippy, and release compilation. Publication requires all builds and all eight packages to succeed. It adds `SHA256SUMS.txt`, generates release notes, uploads the assets to the matching GitHub Release, and verifies uploaded names and sizes. A failed platform blocks publication. Only the publish job has `contents: write`; it uses GitHub's automatic [`GITHUB_TOKEN`](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token), with no additional PAT required.
+
+Linux packages are built on Ubuntu 24.04; `.deb` dependencies are derived from the binary, and portable archives still require compatible system libraries and graphics drivers. Windows code signing and Apple Developer ID signing/notarization are not configured; macOS bundles receive an ad-hoc signature. Confirm the first remote run in GitHub Actions; failed jobs can be rerun there.
+
+Check the packaging helpers locally (Python 3.11 or later):
+
+```sh
+python -m unittest discover -s scripts/package -p 'test_*.py' -v
+```
+
+Packagers require the exact binary under `target/<target>/release/` and never fall back to debug or another architecture. `SUPERFILE_DIST_DIR` isolates package output; `SUPERFILE_PACKAGE_BINARY` is an explicit input override for local packaging smoke tests and is not set by the workflow.
+
 ## Checks
 
 ```sh
@@ -69,7 +99,7 @@ cargo test --locked -p superfile-core --lib search::tests
 cargo test --locked -p superfile-services --test portable_documents
 ```
 
-These checks cover the selected code paths; they do not replace native UI acceptance on each platform. CI artifacts are development binaries, not signed installers.
+These checks cover the selected code paths; they do not replace native UI acceptance on each platform. Tag workflows produce release installers and portable packages; signing and notarization limits are described above.
 
 ## Project layout
 

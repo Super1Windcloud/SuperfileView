@@ -1,38 +1,22 @@
 param (
     [string]$Target = "x86_64-pc-windows-msvc",
-    [string]$Tag = "v0.0.2"
+    [Parameter(Mandatory = $true)]
+    [string]$Tag
 )
 
 $ErrorActionPreference = "Stop"
 
-$cleanVersion = $Tag.TrimStart('v')
-if ([string]::IsNullOrWhiteSpace($cleanVersion)) {
-    $cleanVersion = "0.0.2"
-}
-
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..\..")
-$distDir = Join-Path $repoRoot "package-dist"
-$sourceCandidates = @(
-    (Join-Path $repoRoot "target\$Target\release\superfile.exe"),
-    (Join-Path $repoRoot "target\release\superfile.exe"),
-    (Join-Path $repoRoot "target\$Target\debug\superfile.exe"),
-    (Join-Path $repoRoot "target\debug\superfile.exe")
-)
-
-$sourceExe = $null
-foreach ($cand in $sourceCandidates) {
-    if (Test-Path $cand) {
-        $sourceExe = $cand
-        break
-    }
-}
-
-if (-not $sourceExe) {
-    Write-Error "Cannot find superfile.exe in target directories"
-}
+$versionScript = Join-Path $repoRoot 'scripts\package\release.py'
+$cleanVersion = & python $versionScript version $Tag --field version
+if ($LASTEXITCODE -ne 0) { throw 'Invalid release tag' }
+if ($Target -ne 'x86_64-pc-windows-msvc') { throw 'Only Windows x86_64 packaging is supported' }
+$distDir = if ($env:SUPERFILE_DIST_DIR) { $env:SUPERFILE_DIST_DIR } else { Join-Path $repoRoot 'package-dist' }
+$sourceExe = if ($env:SUPERFILE_PACKAGE_BINARY) { $env:SUPERFILE_PACKAGE_BINARY } else { Join-Path $repoRoot "target\$Target\release\superfile.exe" }
+if (-not (Test-Path $sourceExe -PathType Leaf)) { throw "Missing release binary: $sourceExe" }
 
 New-Item -ItemType Directory -Force -Path $distDir | Out-Null
-$stagingDir = Join-Path $repoRoot "staging\superfile"
+$stagingDir = Join-Path $repoRoot "target\package-staging\windows-$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
 
 Copy-Item $sourceExe (Join-Path $stagingDir "superfile.exe") -Force
@@ -115,3 +99,7 @@ Write-Host "NSIS installer created: $setupPath"
 
 Write-Host "Windows packaging completed. Dist files:"
 Get-ChildItem -Path $distDir
+& python $versionScript verify $Tag --platform windows-x86_64 --directory $distDir
+if ($LASTEXITCODE -ne 0) { throw 'Windows package validation failed' }
+# This directory was created by this invocation; no existing staging is removed.
+Remove-Item -LiteralPath $stagingDir -Recurse -Force

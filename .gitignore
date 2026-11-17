@@ -1,5 +1,6 @@
 /target/
 /dist/
+/package-dist/
 .DS_Store
 /scripts/markdown/node_modules/
 /scripts/**/__pycache__/

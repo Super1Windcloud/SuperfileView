@@ -58,6 +58,36 @@ cargo run --locked -p superfile -- 'C:\Users\name\Documents'
 
 构建产物存放在项目的 `target/` 目录中。用户数据和缓存使用平台目录下的 `Superfile` 子目录。开发或隔离验证时，可将 `SUPERFILE_DATA_DIR` 与 `SUPERFILE_CACHE_DIR` 设置为绝对路径。
 
+## Tag 自动发布
+
+先将工作流和相关脚本提交、推送到 GitHub，再在该提交上建立版本 tag：
+
+```sh
+git tag v0.0.3
+git push origin v0.0.3
+```
+
+[发布工作流](.github/workflows/build.yml)接受 `v1.2.3`、`1.2.3` 或 `v1.2.3-rc.1` 形式的 tag。预发布 tag 自动建立 GitHub Prerelease。CI 仅在自己的检出目录中同步 Cargo 工作区和锁文件里的项目版本，因此应用显示的版本与 tag 一致，不改动外部依赖或回写仓库。
+
+| 构建目标 | Release 附件 |
+| --- | --- |
+| Windows x64 | NSIS `-setup.exe` 安装包、`.zip` 便携包 |
+| Linux x64 | `.deb` 安装包、`.tar.gz` 便携包 |
+| macOS Apple Silicon | ARM64 `.dmg` 安装包、`.tar.gz` 应用包 |
+| macOS Intel | x86_64 `.dmg` 安装包、`.tar.gz` 应用包 |
+
+四个构建均执行工作区测试、Clippy 和 release 编译，全部通过且 8 个包完整后，统一生成 `SHA256SUMS.txt` 并上传至对应的 GitHub Release，自动生成发布说明；上传后检查附件名称和大小。任一平台失败则不进入发布作业。权限只在发布作业提升至 `contents: write`，使用 GitHub 自动提供的 [`GITHUB_TOKEN`](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token)，不需要额外 PAT。
+
+Linux 包在 Ubuntu 24.04 构建，`.deb` 根据二进制生成共享库依赖，便携包仍需要兼容的系统库和图形驱动。当前未配置 Windows 代码签名或 Apple Developer ID 签名/公证；macOS 包只做 ad-hoc 签名。首次远端运行结果需在 GitHub Actions 页面确认，失败时可直接重跑相应作业。
+
+本地检查发布脚本（Python 3.11 及以上）：
+
+```sh
+python -m unittest discover -s scripts/package -p 'test_*.py' -v
+```
+
+打包脚本默认只读取 `target/<target>/release/` 下的精确目标二进制，不会回退到 debug 或其他架构。`SUPERFILE_DIST_DIR` 可隔离输出目录；`SUPERFILE_PACKAGE_BINARY` 只用于本地显式指定打包测试输入，工作流不设置此覆盖。
+
 ## 检查
 
 ```sh
@@ -69,7 +99,7 @@ cargo test --locked -p superfile-core --lib search::tests
 cargo test --locked -p superfile-services --test portable_documents
 ```
 
-这些检查覆盖指定代码路径，不能替代各平台的原生 UI 验收。CI 产物为开发二进制文件，不是已签名的安装包。
+这些检查覆盖指定代码路径，不能替代各平台的原生 UI 验收。Tag 工作流构建 release 安装包和便携包；签名与公证范围见上文。
 
 ## 项目结构
 

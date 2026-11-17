@@ -4,21 +4,69 @@ on:
   push:
     tags:
       - 'v*'
-      - '[0-9]+.*'
+      - '[0-9]*'
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ github.ref_name }}
 
 jobs:
+  prepare:
+    name: Validate release tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Validate tag and determine release type
+        id: version
+        run: python scripts/package/release.py version "$RELEASE_TAG"
+      - name: Check packaging logic
+        run: python -m unittest discover -s scripts/package -p 'test_*.py' -v
+      - name: Validate formatting, locales and architecture
+        run: |
+          cargo fmt --all --check
+          python scripts/check-locales.py
+          python scripts/check-architecture.py
+
   build:
     name: Build (${{ matrix.platform_name }})
+    needs: prepare
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 180
+    env:
+      BUILD_TARGET: ${{ matrix.target }}
+      PACKAGE_ARCH: ${{ matrix.arch_label }}
+      PACKAGE_PLATFORM: ${{ matrix.platform_name }}
+      SUPERFILE_BUILD_CHANNEL: release
+      # Bundle the MSVC runtime into the Windows executable for fresh installs.
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2022
             target: x86_64-pc-windows-msvc
             platform_name: windows-x86_64
             arch_label: x86_64
@@ -37,101 +85,114 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
+          components: clippy
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake libfontconfig-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libxcb-shape0-dev libxcb-xfixes0-dev libssl-dev libvulkan-dev
-
+          sudo apt-get install -y clang cmake pkg-config dpkg-dev libfontconfig-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libxcb-shape0-dev libxcb-xfixes0-dev libssl-dev libvulkan-dev
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
-
-      - name: Validate locales & architecture
-        run: |
-          python scripts/check-locales.py
-          python scripts/check-architecture.py
-
+          key: release-${{ matrix.target }}
+          cache-on-failure: true
+      - name: Set application version from tag
+        run: python scripts/package/release.py prepare "$RELEASE_TAG"
+      - name: Run workspace tests
+        run: cargo test --workspace --locked --target "$BUILD_TARGET"
+      - name: Check lints
+        run: cargo clippy --workspace --all-targets --locked --target "$BUILD_TARGET" -- -D warnings
       - name: Build release binary
-        run: cargo build --release --locked -p superfile --target ${{ matrix.target }}
+        run: cargo build --release --locked -p superfile --target "$BUILD_TARGET"
 
-      - name: Run portable document test
-        run: cargo test --locked -p superfile-services --test portable_documents --target ${{ matrix.target }}
-
-      - name: Install NSIS
+      - name: Locate NSIS
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          # Official SourceForge zip for NSIS 3.13. The hash is the file itself.
-          $version = '3.13'
-          $expected = 'ba63dffc4410ee89193e1cb5a41989991bd77c61068da17e3156d136b7b0b3d8'
-          $zip = Join-Path $env:RUNNER_TEMP "nsis-$version.zip"
-          $dest = Join-Path $env:RUNNER_TEMP 'nsis-extract'
-          $uri = "https://downloads.sourceforge.net/project/nsis/NSIS%203/$version/nsis-$version.zip"
-          Invoke-WebRequest -Uri $uri -OutFile $zip -UseBasicParsing -MaximumRedirection 10 -Headers @{ 'User-Agent' = 'SuperfileView CI' }
-          $actual = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLowerInvariant()
-          if ($actual -ne $expected) { throw "NSIS $version hash mismatch: $actual" }
-          Expand-Archive -Path $zip -DestinationPath $dest -Force
-          $nsisHome = Join-Path $dest "nsis-$version"
+          # windows-2022 includes NSIS; avoid an unneeded external installer download.
+          $nsisHome = Join-Path ${env:ProgramFiles(x86)} 'NSIS'
           if (-not (Test-Path (Join-Path $nsisHome 'makensis.exe'))) {
-            throw "makensis.exe missing under $nsisHome"
+            throw 'The Windows runner is missing its bundled NSIS installation'
           }
-          Add-Content -Path $env:GITHUB_ENV -Value "NSIS_HOME=$nsisHome"
-          Add-Content -Path $env:GITHUB_PATH -Value $nsisHome
-
+          "NSIS_HOME=$nsisHome" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Package Windows artifacts
         if: runner.os == 'Windows'
         shell: pwsh
-        run: pwsh scripts/package/windows/package-windows.ps1 -Target "${{ matrix.target }}" -Tag "${{ github.ref_name }}"
-
+        run: ./scripts/package/windows/package-windows.ps1 -Target $env:BUILD_TARGET -Tag $env:RELEASE_TAG
       - name: Package macOS artifacts
         if: runner.os == 'macOS'
-        run: bash scripts/package/macos/package-dmg.sh "${{ matrix.target }}" "${{ matrix.arch_label }}" "${{ github.ref_name }}"
-
+        run: bash scripts/package/macos/package-dmg.sh "$BUILD_TARGET" "$PACKAGE_ARCH" "$RELEASE_TAG"
       - name: Package Linux artifacts
         if: runner.os == 'Linux'
-        run: bash scripts/package/linux/package-deb.sh "${{ matrix.target }}" "${{ github.ref_name }}"
-
+        run: bash scripts/package/linux/package-deb.sh "$BUILD_TARGET" "$RELEASE_TAG"
+      - name: Require both installer and portable package
+        run: python scripts/package/release.py verify "$RELEASE_TAG" --platform "$PACKAGE_PLATFORM"
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4
         with:
           name: packages-${{ matrix.platform_name }}
           path: package-dist/*
           if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
 
   release:
-    name: Publish Release to GitHub
-    needs: [build]
-    runs-on: ubuntu-latest
+    name: Publish GitHub Release
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Download all package artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
           pattern: packages-*
           merge-multiple: true
-
-      - name: Generate SHA256 Checksums
-        run: |
-          cd dist
-          sha256sum * > SHA256SUMS.txt
-          cat SHA256SUMS.txt
-
-      - name: Create GitHub Release and Upload Assets
+      - name: Require all eight packages and generate SHA256 checksums
+        run: python scripts/package/release.py verify "$RELEASE_TAG" --directory dist --checksums
+      - name: Create GitHub Release and upload packages
+        id: publish
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/*
+          tag_name: ${{ github.ref_name }}
+          name: Superfile ${{ needs.prepare.outputs.version }}
+          files: dist/*
+          fail_on_unmatched_files: true
           generate_release_notes: true
+          prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
+          make_latest: ${{ needs.prepare.outputs.prerelease == 'true' && 'false' || 'legacy' }}
+      - name: Verify uploaded assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_URL: ${{ steps.publish.outputs.url }}
+        run: |
+          gh release view "$RELEASE_TAG" --json assets > release-assets.json
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          expected = {path.name: path.stat().st_size for path in Path('dist').iterdir()}
+          uploaded = json.loads(Path('release-assets.json').read_text())['assets']
+          actual = {asset['name']: asset['size'] for asset in uploaded}
+          if actual != expected:
+              raise SystemExit(f'Release asset mismatch: expected={expected}, actual={actual}')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+              summary.write(f"Published {len(expected)} assets: {os.environ['RELEASE_URL']}\n")
+          PY
