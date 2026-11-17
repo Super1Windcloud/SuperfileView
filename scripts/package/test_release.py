@@ -2,16 +2,31 @@
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
 import tomllib
 import unittest
 
-from release import ROOT, assets, generate_manifest, prepare, verify, verify_manifest, version
+from release import ROOT, RELEASE_PLATFORMS, assets, generate_manifest, prepare, verify, verify_manifest, version
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_release_matrix_matches_manifest_and_preserves_manual_intel_packaging(self):
+        workflow = (ROOT / '.github/workflows/build.yml').read_text(encoding='utf-8')
+        matrix = re.findall(r'^\s+platform_name:\s+([a-z0-9_-]+)\s*$', workflow, re.M)
+        self.assertEqual(set(matrix), set(RELEASE_PLATFORMS))
+        self.assertEqual(len(matrix), 3)
+        self.assertFalse(any('macos-x86_64' in name for name in assets('v1.2.3')))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            names = assets('v1.2.3', 'macos-x86_64')
+            self.assertEqual(len(names), 2)
+            for name in names:
+                (root / name).write_bytes(b'manual Intel package')
+            verify('v1.2.3', root, platform='macos-x86_64')
+
     def test_manifest_metadata_prerelease_and_symlink_protection(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -47,10 +62,10 @@ class ReleaseTests(unittest.TestCase):
             for name in assets('v1.2.3'):
                 (root / name).write_bytes(name.encode())
             manifest = generate_manifest('v1.2.3', root, 'owner/repo')
-            self.assertEqual(len(manifest['assets']), 4)
+            self.assertEqual(len(manifest['assets']), 3)
             self.assertEqual({asset['format'] for asset in manifest['assets']}, {'zip', 'tar.gz'})
             self.assertEqual({(asset['os'], asset['arch']) for asset in manifest['assets']}, {
-                ('windows', 'x86_64'), ('linux', 'x86_64'), ('macos', 'aarch64'), ('macos', 'x86_64')})
+                ('windows', 'x86_64'), ('linux', 'x86_64'), ('macos', 'aarch64')})
             verify('v1.2.3', root, checksums=True, manifest=True)
             verify_manifest('v1.2.3', root, 'owner/repo')
             generate_manifest('v1.2.3', root, 'owner/repo')
@@ -109,12 +124,12 @@ class ReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             names = assets('v1.2.3')
-            self.assertEqual(len(names), 8)
+            self.assertEqual(len(names), 6)
             for name in names:
                 (root / name).write_bytes(name.encode())
             verify('v1.2.3', root, checksums=True)
             checksums = (root / 'SHA256SUMS.txt').read_text()
-            self.assertEqual(len(checksums.splitlines()), 8)
+            self.assertEqual(len(checksums.splitlines()), 6)
             for name in names:
                 self.assertIn(hashlib.sha256(name.encode()).hexdigest() + '  ' + name, checksums)
             verify('v1.2.3', root, checksums=True)  # stale checksum file is excluded

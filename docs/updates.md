@@ -20,7 +20,9 @@ Debug 和未标记为正式发布的本地构建可以检查和下载，但不�
 
 ## 发布契约
 
-推送版本标签后，工作流完成 Windows x64、Linux x64、macOS ARM64/Intel 的测试和构建，校验 8 个安装包/便携归档，再生成 `SHA256SUMS.txt` 和 `latest.json`，共上传 10 个附件。Manifest 含版本、标签、发布时间、发布页面，以及四个更新归档的 OS、架构、格式、字节数和 SHA-256。Windows 更新选择 `.zip`，Linux/macOS 选择 `.tar.gz`；原有 NSIS、DEB、DMG 安装包仍正常发布。
+标签发布不运行工作区测试、Clippy、格式和仓库审查任务；这些检查由开发验证执行。自动发布和更新清单采用三个目标；macOS Intel 仍可手动构建、打包。v0.0.4 已启动的流程保留其原有四目标配置，新的矩阵从后续标签生效。
+
+推送版本标签后，工作流校验标签后，完成 Windows x64、Linux x64、macOS ARM64 的 Release 编译和打包，校验 6 个安装包/便携归档，再生成 `SHA256SUMS.txt` 和 `latest.json`，共上传 8 个附件。Manifest 含版本、标签、发布时间、发布页面，以及三个更新归档的 OS、架构、格式、字节数和 SHA-256。Windows 更新选择 `.zip`，Linux/macOS 选择 `.tar.gz`；原有 NSIS、DEB、DMG 安装包仍正常发布。
 
 ```sh
 python3 scripts/package/release.py manifest v1.2.3 --directory package-dist --repository Super1Windcloud/SuperfileView

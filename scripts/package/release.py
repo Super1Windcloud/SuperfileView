@@ -17,6 +17,8 @@ PLATFORMS = {
     'macos-aarch64': ('.dmg', '.tar.gz'),
     'macos-x86_64': ('.dmg', '.tar.gz'),
 }
+# Intel macOS remains available to local packagers, outside automated releases.
+RELEASE_PLATFORMS = ('windows-x86_64', 'linux-x86_64', 'macos-aarch64')
 
 
 def version(tag):
@@ -82,7 +84,7 @@ def prepare(tag, root=ROOT):
 
 def assets(tag, platform=None):
     version(tag)
-    platforms = [platform] if platform else PLATFORMS
+    platforms = [platform] if platform else RELEASE_PLATFORMS
     return {f'superfile-{tag}-{name}{suffix}'
             for name in platforms for suffix in PLATFORMS[name]}
 
@@ -112,7 +114,7 @@ def manifest_assets(tag, directory, repository):
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
         raise ValueError('Expected a GitHub owner/repository')
     result = []
-    for platform in PLATFORMS:
+    for platform in RELEASE_PLATFORMS:
         os_name, arch = platform.split('-', 1)
         suffix = '.zip' if os_name == 'windows' else '.tar.gz'
         name = f'superfile-{tag}-{platform}{suffix}'
@@ -165,7 +167,7 @@ def verify_manifest(tag, directory, repository):
         raise ValueError('Update publication time must include a timezone')
     if data.get('assets') != manifest_assets(tag, directory, repository):
         raise ValueError('Update manifest assets do not match the release packages')
-    print('Validated latest.json for all four update targets')
+    print(f'Validated latest.json for all {len(RELEASE_PLATFORMS)} update targets')
 
 
 def main():

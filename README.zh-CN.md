@@ -32,7 +32,7 @@ Superfile 将文件、源码、文档、图片和结构化数据放在同一个�
 | PDF | 从不可变私有快照按需生成页面图像，提供翻页和图像详情 |
 | 压缩包 | ZIP、TAR 和常见压缩流 |
 
-Windows 构建和基础启动已在本机验证，macOS 启动与更新对话框也已检查。构建工作流覆盖 Windows、macOS ARM/Intel 和 Linux；Linux 原生运行及各平台真实安装、更新仍待验收。
+Windows 构建和基础启动已在本机验证，macOS 启动与更新对话框也已检查。构建工作流覆盖 Windows x64、macOS ARM64 和 Linux x64；Linux 原生运行及各平台真实安装、更新仍待验收。
 
 「设置 → 默认文件类型」打开可搜索的对话框，显示系统文件格式、类型说明和当前默认打开应用。默认应用列可下拉选择系统登记的兼容应用：macOS、Linux 设置后回读确认，Windows 打开系统设置由用户确认，完成后刷新。数据在后台读取，可刷新或取消；部分来源不可读时会明确提示。开发运行也可使用。详见[系统文件关联](docs/file-associations.md)。
 
@@ -86,9 +86,10 @@ git push origin v0.0.3
 | Windows x64 | NSIS `-setup.exe` 安装包、`.zip` 便携包 |
 | Linux x64 | `.deb` 安装包、`.tar.gz` 便携包 |
 | macOS Apple Silicon | ARM64 `.dmg` 安装包、`.tar.gz` 应用包 |
-| macOS Intel | x86_64 `.dmg` 安装包、`.tar.gz` 应用包 |
 
-四个构建均执行工作区测试、Clippy 和 release 编译，全部通过且 8 个包完整后，统一生成 `SHA256SUMS.txt` 和 `latest.json`，共 10 个附件并上传至对应的 GitHub Release，自动生成发布说明；上传后检查附件名称和大小。任一平台失败则不进入发布作业。权限只在发布作业提升至 `contents: write`，使用 GitHub 自动提供的 [`GITHUB_TOKEN`](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token)，不需要额外 PAT。
+标签流水线只执行版本校验、Release 编译、打包校验和发布。工作区测试、Clippy、格式与仓库审查作为发布流程之外的开发检查。三个构建均完成且 6 个包完整后，统一生成 `SHA256SUMS.txt` 和 `latest.json`，共 8 个附件并上传至对应的 GitHub Release，自动生成发布说明；上传后检查附件名称和大小。任一平台失败则不进入发布作业。权限只在发布作业提升至 `contents: write`，使用 GitHub 自动提供的 [`GITHUB_TOKEN`](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token)，不需要额外 PAT。
+
+自动发布提供 macOS Apple Silicon 安装包；Intel macOS 仍可从源码手动构建和打包。此矩阵用于工作流调整后的新标签；v0.0.4 保留其标签提交内的四目标配置。
 
 Linux 包在 Ubuntu 24.04 构建，`.deb` 根据二进制生成共享库依赖，便携包仍需要兼容的系统库和图形驱动。当前未配置 Windows 代码签名或 Apple Developer ID 签名/公证；macOS 包只做 ad-hoc 签名。首次远端运行结果需在 GitHub Actions 页面确认，失败时可直接重跑相应作业。
 

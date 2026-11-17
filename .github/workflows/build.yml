@@ -36,19 +36,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
       - name: Validate tag and determine release type
         id: version
         run: python scripts/package/release.py version "$RELEASE_TAG"
-      - name: Check packaging logic
-        run: python -m unittest discover -s scripts/package -p 'test_*.py' -v
-      - name: Validate formatting, locales and architecture
-        run: |
-          cargo fmt --all --check
-          python scripts/check-locales.py
-          python scripts/check-architecture.py
 
   build:
     name: Build (${{ matrix.platform_name }})
@@ -75,10 +65,6 @@ jobs:
             target: aarch64-apple-darwin
             platform_name: macos-aarch64
             arch_label: aarch64
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-            platform_name: macos-x86_64
-            arch_label: x86_64
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             platform_name: linux-x86_64
@@ -94,7 +80,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-          components: clippy
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -106,10 +91,6 @@ jobs:
           cache-on-failure: true
       - name: Set application version from tag
         run: python scripts/package/release.py prepare "$RELEASE_TAG"
-      - name: Run workspace tests
-        run: cargo test --workspace --locked --target "$BUILD_TARGET"
-      - name: Check lints
-        run: cargo clippy --workspace --all-targets --locked --target "$BUILD_TARGET" -- -D warnings
       - name: Build release binary
         run: cargo build --release --locked -p superfile --target "$BUILD_TARGET"
 
@@ -165,7 +146,7 @@ jobs:
           path: dist
           pattern: packages-*
           merge-multiple: true
-      - name: Require all eight packages and generate SHA256 checksums
+      - name: Require all six packages and generate SHA256 checksums
         run: python scripts/package/release.py verify "$RELEASE_TAG" --directory dist --checksums
       - name: Generate and validate the static update manifest
         run: |

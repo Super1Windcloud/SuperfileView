@@ -32,7 +32,7 @@ The application does not use Swift, Quick Look, or WebView-based readers. Markdo
 | PDF | On-demand page images from an immutable private snapshot, page navigation, and image detail |
 | Archives | ZIP, TAR, and common compressed streams |
 
-Windows builds and basic startup have been verified locally. macOS startup and the update dialog have also been inspected. Build workflows cover Windows, macOS ARM/Intel, and Linux; Linux native execution and installation/update acceptance across platforms remain pending.
+Windows builds and basic startup have been verified locally. macOS startup and the update dialog have also been inspected. Build workflows cover Windows x64, macOS ARM64, and Linux x64; Linux native execution and installation/update acceptance across platforms remain pending.
 
 Settings → Default File Types opens a searchable dialog showing system file types, descriptions, and their current default applications. Each application cell opens a dropdown of registered compatible apps. macOS/Linux apply the selection and read back the system default; Windows opens system Settings for user confirmation and requires a refresh afterward. Discovery runs in the background, supports refresh/cancellation, and reports incomplete reads. This also works during development. See [system file associations](docs/file-associations.md).
 
@@ -86,9 +86,10 @@ The [release workflow](.github/workflows/build.yml) accepts tags such as `v1.2.3
 | Windows x64 | NSIS `-setup.exe` installer and portable `.zip` |
 | Linux x64 | `.deb` installer and portable `.tar.gz` |
 | macOS Apple Silicon | ARM64 `.dmg` installer and `.tar.gz` application bundle |
-| macOS Intel | x86_64 `.dmg` installer and `.tar.gz` application bundle |
 
-All four native builds run workspace tests, Clippy, and release compilation. Publication requires all builds and all eight packages to succeed. It adds `SHA256SUMS.txt` and `latest.json` (10 assets in total), generates release notes, uploads the assets to the matching GitHub Release, and verifies uploaded names and sizes. A failed platform blocks publication. Only the publish job has `contents: write`; it uses GitHub's automatic [`GITHUB_TOKEN`](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token), with no additional PAT required.
+The tag workflow validates the version, compiles Release binaries, packages and validates artifacts, and uploads the release. Workspace tests, Clippy, formatting and repository audits are development checks outside this publishing workflow. Publication requires all builds and all six packages to succeed. It adds `SHA256SUMS.txt` and `latest.json` (8 assets in total), generates release notes, uploads the assets to the matching GitHub Release, and verifies uploaded names and sizes. A failed platform blocks publication. Only the publish job has `contents: write`; it uses GitHub's automatic [`GITHUB_TOKEN`](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token), with no additional PAT required.
+
+Automated releases publish macOS Apple Silicon packages; Intel macOS can still be built and packaged manually from source. This matrix applies to tags created after the workflow change; v0.0.4 keeps its original four-target workflow.
 
 Linux packages are built on Ubuntu 24.04; `.deb` dependencies are derived from the binary, and portable archives still require compatible system libraries and graphics drivers. Windows code signing and Apple Developer ID signing/notarization are not configured; macOS bundles receive an ad-hoc signature. Confirm the first remote run in GitHub Actions; failed jobs can be rerun there.
 
