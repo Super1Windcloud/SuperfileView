@@ -448,7 +448,8 @@ impl CommunityThemes {
 }
 
 impl Render for CommunityThemes {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        super::sync_input_placeholder(&self.search, tr("Search themes…"), window, cx);
         let entries = self.filtered(cx);
         let count = entries.len();
         let columns = self.columns;
@@ -560,11 +561,24 @@ mod tests {
                 view.search
                     .update(cx, |search, cx| search.set_value("", window, cx));
                 assert_eq!(view.filtered(cx), vec![minimal]);
+                view.search.update(cx, |search, cx| {
+                    search.set_value("KEPANO", window, cx);
+                    search.set_placeholder("outdated language", window, cx);
+                });
             });
             window.render_frame(cx);
             let button = window.within("default-theme").find("theme-use").bounds();
             assert!(button.origin.x >= px(0.) && button.right() <= px(560.));
-            view.update(cx, |view, _| assert!(view.preview_tasks.is_empty()));
+            view.update(cx, |view, cx| {
+                assert!(view.preview_tasks.is_empty());
+                let search = view.search.read(cx);
+                assert_eq!(search.value().as_str(), "KEPANO");
+                assert_eq!(
+                    search.presentation().placeholder().as_ref(),
+                    superfile_services::locale::tr("Search themes…")
+                );
+                assert_eq!(view.filtered(cx).len(), 1);
+            });
         })
         .unwrap();
     }

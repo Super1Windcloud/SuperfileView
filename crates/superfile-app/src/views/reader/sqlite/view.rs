@@ -365,8 +365,15 @@ impl SqliteView {
     }
 }
 impl Render for SqliteView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let tr = self.host.translate;
+        for (input, message) in [
+            (&self.search, "Search all rows and columns…"),
+            (&self.table_search, "Filter tables…"),
+            (&self.page_input, "Go to page"),
+        ] {
+            crate::views::sync_input_placeholder(input, tr(message), window, cx);
+        }
         let table_filter = self.table_search.read(cx).value().to_lowercase();
         let tables = self.tables.clone();
         let busy = self.status.busy;
@@ -612,6 +619,7 @@ mod tests {
         ColumnSort, InputEvent, Navigation, Policy, ReaderHost, Request, SqlitePage, SqliteView,
         TableDelegate, TableEvent,
     };
+    use gpui_kit::test::TestWindowExt;
     use gpui_kit::{AnyWindowHandle, AppContext, Entity, TestAppContext, WindowOptions, point, px};
     use std::{cell::RefCell, rc::Rc};
     use superfile_core::resources::{ResourcePool, TextRowsBuilder};
@@ -657,6 +665,57 @@ mod tests {
             more: true,
             start_column: 4,
         }
+    }
+
+    #[gpui_kit::test]
+    fn changing_language_updates_hints_without_resetting_queries_or_navigation(
+        cx: &mut TestAppContext,
+    ) {
+        let pool = ResourcePool::with_budgets(0, 16 * 1024);
+        let (handle, view) = open(cx, &pool);
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |view, cx| {
+                view.search
+                    .update(cx, |input, cx| input.set_value("needle", window, cx));
+                view.table_search
+                    .update(cx, |input, cx| input.set_value("users", window, cx));
+                view.page_input
+                    .update(cx, |input, cx| input.set_value("3", window, cx));
+                view.status.page = 2;
+            });
+            for chinese in [true, false] {
+                view.update(cx, |view, _| {
+                    view.host.translate = if chinese {
+                        |text| match text {
+                            "Search all rows and columns…" => "搜索所有行和列…".into(),
+                            "Filter tables…" => "筛选表…".into(),
+                            "Go to page" => "跳转到页".into(),
+                            _ => text.to_owned(),
+                        }
+                    } else {
+                        str::to_owned
+                    };
+                });
+                window.render_frame(cx);
+                view.update(cx, |view, cx| {
+                    for (input, message, value) in [
+                        (&view.search, "Search all rows and columns…", "needle"),
+                        (&view.table_search, "Filter tables…", "users"),
+                        (&view.page_input, "Go to page", "3"),
+                    ] {
+                        let input = input.read(cx);
+                        assert_eq!(input.value().as_str(), value);
+                        assert_eq!(
+                            input.presentation().placeholder().as_ref(),
+                            (view.host.translate)(message)
+                        );
+                    }
+                    assert_eq!(view.status.page, 2);
+                });
+            }
+        })
+        .unwrap();
     }
 
     #[gpui_kit::test]

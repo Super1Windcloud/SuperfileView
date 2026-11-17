@@ -320,15 +320,19 @@ pub fn save_preview_mode(kind: &str, preview: bool) -> Result<()> {
     )
 }
 pub fn language() -> Option<String> {
-    get("language")
-        .ok()
-        .flatten()
+    language_in(&storage::open().ok()?).ok().flatten()
+}
+fn language_in(db: &rusqlite::Connection) -> Result<Option<String>> {
+    Ok(setting(db, "language")?
         .filter(|v| crate::locale::supported(v.trim()))
-        .map(|v| v.trim().to_owned())
+        .map(|v| v.trim().to_owned()))
 }
 pub fn save_language(language: &str) -> Result<()> {
+    save_language_in(&storage::open()?, language)
+}
+fn save_language_in(db: &rusqlite::Connection, language: &str) -> Result<()> {
     anyhow::ensure!(crate::locale::supported(language), "Unknown language");
-    set("language", language)
+    set_setting(db, "language", language)
 }
 /// A missing choice lets the app apply its defaults; unreadable data fails closed.
 pub fn telemetry_consent() -> Result<Option<crate::telemetry::Consent>> {
@@ -395,6 +399,30 @@ fn save_groups(
     storage::sessions::save(&tx, scope, groups)?;
     tx.commit()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod language_tests {
+    use super::*;
+
+    #[test]
+    fn language_survives_reopening_and_invalid_choices_preserve_the_saved_value() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut db = storage::open_at(directory.path()).unwrap();
+        assert_eq!(language_in(&db).unwrap(), None);
+        for choice in ["zh-CN", "en", "system"] {
+            save_language_in(&db, choice).unwrap();
+            drop(db);
+            db = storage::open_at(directory.path()).unwrap();
+            assert_eq!(language_in(&db).unwrap().as_deref(), Some(choice));
+        }
+        assert!(save_language_in(&db, "fr").is_err());
+        assert_eq!(language_in(&db).unwrap().as_deref(), Some("system"));
+        set_setting(&db, "language", " zh-CN ").unwrap();
+        assert_eq!(language_in(&db).unwrap().as_deref(), Some("zh-CN"));
+        set_setting(&db, "language", "unknown").unwrap();
+        assert_eq!(language_in(&db).unwrap(), None);
+    }
 }
 
 #[cfg(test)]

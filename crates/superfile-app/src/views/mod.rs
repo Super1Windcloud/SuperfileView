@@ -14,6 +14,21 @@ pub(crate) mod workspace_window;
 mod file_icons;
 pub(crate) mod integrations;
 
+/// Update translated hints without changing input contents or notifying every frame.
+fn sync_input_placeholder(
+    input: &gpui_kit::Entity<gpui_kit::component::input::InputState>,
+    placeholder: String,
+    window: &mut gpui_kit::Window,
+    cx: &mut gpui_kit::App,
+) {
+    let placeholder = gpui_kit::SharedString::from(placeholder);
+    if input.read(cx).presentation().placeholder() != &placeholder {
+        input.update(cx, |input, cx| {
+            input.set_placeholder(placeholder, window, cx)
+        });
+    }
+}
+
 /// Shared configurable accent, adapted for the current appearance.
 fn accent(cx: &gpui_kit::App) -> gpui_kit::Hsla {
     crate::app::theme::accent(cx)

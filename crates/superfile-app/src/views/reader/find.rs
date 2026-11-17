@@ -327,6 +327,8 @@ impl Render for FindBar {
         if !self.open {
             return Empty.into_any_element();
         }
+        crate::views::sync_input_placeholder(&self.input, tr("Find"), window, cx);
+        crate::views::sync_input_placeholder(&self.replacement, tr("Replace"), window, cx);
         let matcher = &self.matcher;
         let label = matcher.label();
         let empty = matcher.is_empty() || self.pending.is_some() || self.error;
