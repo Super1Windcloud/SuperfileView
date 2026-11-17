@@ -88,7 +88,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.target }}
-          cache-on-failure: true
+          # Different tags cannot share tag-scoped caches. Restore available
+          # caches without delaying publication to save another tag-only cache.
+          save-if: false
       - name: Set application version from tag
         run: python scripts/package/release.py prepare "$RELEASE_TAG"
       - name: Build release binary
