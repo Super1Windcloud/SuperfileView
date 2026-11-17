@@ -34,7 +34,12 @@ pub(crate) fn thumbnail_png_cancellable(
         let png = extract_icns_png(&bytes)?;
         return thumbnail_png_from_bytes(&png, max_edge, cancel);
     }
-    if let Some(size) = crate::svg_preview::dimensions(path, cancel)? {
+    // Binary image metadata may contain XML-like bytes. Recognize rasters before
+    // asking the XML reader for SVG dimensions.
+    let reader = image::ImageReader::open(path)?.with_guessed_format()?;
+    if reader.format().is_none()
+        && let Some(size) = crate::svg_preview::dimensions(path, cancel)?
+    {
         let prepared = crate::svg_preview::prepare_image(path, cancel, false)?;
         let options = resvg::usvg::Options {
             fontdb: svg_fontdb().clone(),
@@ -56,7 +61,6 @@ pub(crate) fn thumbnail_png_cancellable(
         cancel.check()?;
         return Ok(pixmap.encode_png()?);
     }
-    let reader = image::ImageReader::open(path)?.with_guessed_format()?;
     let (width, height) = reader.into_dimensions()?;
     ensure!(width > 0 && height > 0, "Invalid image dimensions");
     let required = u64::from(width)
@@ -155,6 +159,21 @@ fn svg_fontdb() -> &'static std::sync::Arc<resvg::usvg::fontdb::Database> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raster_metadata_is_not_parsed_as_xml() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("metadata.png");
+        let mut encoder = png::Encoder::new(std::fs::File::create(&path)?, 2, 2);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.add_text_chunk("Description".into(), "A & B <diagram>".into())?;
+        let mut writer = encoder.write_header()?;
+        writer.write_image_data(&[128; 16])?;
+        writer.finish()?;
+        let bytes = thumbnail_png(&path, 1)?;
+        assert_eq!(image::load_from_memory(&bytes)?.width(), 1);
+        Ok(())
+    }
     #[test]
     fn raster_and_svg_previews_are_portable() -> Result<()> {
         let directory = tempfile::tempdir()?;

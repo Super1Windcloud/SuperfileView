@@ -19,6 +19,7 @@ mod shortcuts;
 pub(crate) mod spreadsheet_prepare;
 pub(crate) mod system_open;
 pub(crate) mod telemetry;
+pub(crate) mod theme;
 pub(crate) mod updates;
 pub(crate) mod workspace_sessions;
 
@@ -173,6 +174,7 @@ pub(crate) fn sync_system_appearance(window: &mut Window, cx: &mut App) {
         })
     {
         gpui_kit::component::Theme::sync_system_appearance(Some(window), cx);
+        theme::apply(cx);
     }
 }
 
@@ -262,6 +264,7 @@ fn apply_appearance(appearance: superfile_services::preferences::Appearance, cx:
             Theme::change(ThemeMode::Dark, None, cx);
         }
     }
+    theme::apply(cx);
 }
 
 fn open_default_applications(cx: &mut App) {
@@ -383,6 +386,14 @@ pub fn run() -> Result<()> {
         });
     let word_wrap = superfile_services::preferences::word_wrap();
     let appearance = superfile_services::preferences::appearance();
+    let theme_preferences = superfile_services::preferences::theme_preferences();
+    let theme_scheme = theme_preferences
+        .scheme
+        .as_deref()
+        .map(|id| {
+            superfile_services::themes::load(id, &Default::default()).map(|package| package.scheme)
+        })
+        .transpose();
     let html_preview = superfile_services::preferences::preview_mode("html");
     let markdown_preview = superfile_services::preferences::preview_mode("markdown");
     let csv_preview = superfile_services::preferences::preview_mode("csv");
@@ -427,6 +438,7 @@ pub fn run() -> Result<()> {
         cx.set_global(LanguageSaveTask::default());
         cx.set_global(LanguagePreference(language));
         cx.set_global(AppearancePreference(appearance));
+        theme::init(theme_preferences, theme_scheme, cx);
         apply_appearance(appearance, cx);
         cx.set_global(AppearanceSaveTask::default());
         cx.set_global(WorkspaceSaveTask::default());
@@ -456,6 +468,7 @@ pub fn run() -> Result<()> {
                 .window_write
                 .take();
             let telemetry = telemetry::shutdown(cx);
+            let accent_write = theme::take_write(cx);
             let recovery = recovery::shutdown(cx);
             let pending = cx.global_mut::<ExplorerSaveTask>().0.take();
             let workspace = cx.global_mut::<WorkspaceSaveTask>().0.take();
@@ -465,6 +478,9 @@ pub fn run() -> Result<()> {
                 .write
                 .take();
             async move {
+                if let Some(write) = accent_write {
+                    write.await;
+                }
                 for write in reader_writes {
                     write.await;
                 }

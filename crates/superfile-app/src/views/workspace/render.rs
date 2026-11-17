@@ -102,7 +102,8 @@ impl Render for Workspace {
                 });
             });
         let content = match self.page {
-            Page::Settings => self.settings_page(cx),
+            Page::Themes => self.community_themes.clone().into_any_element(),
+            Page::Settings => self.settings_page(window, cx),
             Page::Start => welcome(self, cx.entity_id(), cx).into_any_element(),
             Page::Document => match self.active.and_then(|i| self.tabs.get_mut(i)) {
                 Some(reader) => {

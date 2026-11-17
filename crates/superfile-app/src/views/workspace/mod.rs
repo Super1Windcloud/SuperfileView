@@ -14,7 +14,10 @@ mod updates;
 mod usage;
 mod workspaces;
 
-use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::component::{
+    color_picker::{ColorPickerEvent, ColorPickerState},
+    input::{InputEvent, InputState},
+};
 use gpui_kit::*;
 use std::path::PathBuf;
 
@@ -25,12 +28,14 @@ enum Page {
     Document,
     Start,
     Settings,
+    Themes,
 }
 
 const DEFAULT_SIDEBAR_RATIO: f32 = 0.20;
 const SIDEBAR_COLLAPSE_WIDTH: f32 = 120.;
 
 pub struct Workspace {
+    community_themes: Entity<super::community_themes::CommunityThemes>,
     integrations: Entity<super::integrations::Integrations>,
     remote: Option<superfile_services::remote::Session>,
     remote_dialog: Option<Entity<remote::RemoteDialog>>,
@@ -52,6 +57,8 @@ pub struct Workspace {
     navigating: bool,
     history_swipe: Option<gestures::HistorySwipe>,
     search: Entity<InputState>,
+    accent_color: Entity<ColorPickerState>,
+    _accent_subscription: Subscription,
     sidebar_visible: bool,
     sidebar_ratio: f32,
     sidebar_window_width: f32,
@@ -111,6 +118,14 @@ pub struct Workspace {
 }
 
 impl Workspace {
+    fn show_themes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.page = Page::Themes;
+        self.community_themes.update(cx, |view, cx| view.reload(cx));
+        self.results.clear();
+        self.search_task = None;
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
     pub(crate) fn set_editing_locked(&mut self, locked: bool, cx: &mut Context<Self>) {
         self.editing_locked = locked;
         if locked {
@@ -206,6 +221,20 @@ impl Workspace {
         let appearance_subscription = window.observe_window_appearance(|window, cx| {
             crate::app::sync_system_appearance(window, cx);
         });
+        let accent_color = cx.new(|cx| {
+            ColorPickerState::new(window, cx).default_value(rgb(crate::app::theme::color(cx).rgb()))
+        });
+        let accent_subscription = cx.subscribe(&accent_color, |_, _, event, cx| {
+            let ColorPickerEvent::Change(value) = event;
+            let color = value.map_or_else(Default::default, |color| {
+                let rgb = color.to_rgb();
+                let channel = |value: f32| (value.clamp(0., 1.) * 255.).round() as u32;
+                superfile_services::preferences::AccentColor::from_rgb(
+                    channel(rgb.r) << 16 | channel(rgb.g) << 8 | channel(rgb.b),
+                )
+            });
+            crate::app::theme::set_color(color, cx);
+        });
         let weak = cx.entity().downgrade();
         window.on_window_should_close(cx, move |window, cx| {
             if crate::app::updates::intercept_last_window_close(cx) {
@@ -222,6 +251,8 @@ impl Workspace {
             .unwrap_or(true)
         });
         let mut workspace = Self {
+            community_themes: cx
+                .new(|cx| super::community_themes::CommunityThemes::new(window, cx)),
             integrations: cx.new(|_| super::integrations::Integrations::default()),
             remote: None,
             remote_dialog: None,
@@ -258,6 +289,8 @@ impl Workspace {
             preference_task: None,
             watch_scan_task: None,
             search,
+            accent_color,
+            _accent_subscription: accent_subscription,
             results: Vec::new(),
             search_offset: 0,
             search_more: false,

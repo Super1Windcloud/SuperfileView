@@ -1,4 +1,5 @@
 pub(crate) mod about;
+pub(crate) mod community_themes;
 mod context_menu;
 pub mod explorer;
 mod minimap;
@@ -13,15 +14,9 @@ pub(crate) mod workspace_window;
 mod file_icons;
 pub(crate) mod integrations;
 
-/// Brand ink for navigation and primary entry points; tuned for each appearance.
+/// Shared configurable accent, adapted for the current appearance.
 fn accent(cx: &gpui_kit::App) -> gpui_kit::Hsla {
-    use gpui_kit::component::ActiveTheme;
-    gpui_kit::rgb(if cx.theme().is_dark() {
-        0x65d5c3
-    } else {
-        0x167566
-    })
-    .into()
+    crate::app::theme::accent(cx)
 }
 
 fn icon_button(
@@ -42,14 +37,10 @@ fn icon_button(
         .accessibility_label(label)
 }
 
-/// Neutral selection fill shared by sidebar navigation and file-tree rows.
+/// Opaque theme selection shared by sidebar navigation and file-tree rows.
 fn selection_background(cx: &gpui_kit::App) -> gpui_kit::Hsla {
     use gpui_kit::component::ActiveTheme;
-    let strength = if cx.theme().is_dark() { 0.08 } else { 0.055 };
-    cx.theme()
-        .sidebar
-        .blend(cx.theme().foreground.opacity(strength))
-        .opacity(1.)
+    cx.theme().sidebar.blend(cx.theme().list_active).opacity(1.)
 }
 
 fn connection_color(connected: bool, cx: &gpui_kit::App) -> gpui_kit::Hsla {

@@ -21,6 +21,7 @@ The application does not use Swift, Quick Look, or WebView-based readers. Markdo
 | Area | Current implementation |
 | --- | --- |
 | Workspace | File tree, multiple folders, tabs, navigation, recent workspaces, and session state |
+| Appearance | Configurable accent (purple by default), Obsidian foundation palettes, and [community theme browsing, downloads, and color-variable mapping](docs/themes.md) |
 | Text and source | Basic editing, syntax highlighting, find/replace, automatic and explicit saving, and drafts |
 | Documents and data | Markdown/HTML views, structured data, CSV/TSV tables, SQLite snapshots, and OpenAPI indexes |
 | Images and books | Raster images, SVG, GIF, electronic books, and outline/graph readers |

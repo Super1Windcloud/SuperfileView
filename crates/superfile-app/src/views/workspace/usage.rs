@@ -31,6 +31,7 @@ impl Workspace {
                     Page::Document => "document",
                     Page::Start => "start",
                     Page::Settings => "settings",
+                    Page::Themes => "themes",
                 }),
             ),
         ];
@@ -98,6 +99,7 @@ impl Workspace {
                 text(match self.page {
                     Page::Document => "document",
                     Page::Settings => "settings",
+                    Page::Themes => "themes",
                     Page::Start => "start",
                 }),
             ),

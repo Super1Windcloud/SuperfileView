@@ -4,6 +4,7 @@ use gpui_kit::{
     component::{
         ActiveTheme, Disableable, Icon, Sizable,
         button::Button,
+        color_picker::ColorPicker,
         h_flex,
         menu::{DropdownMenu, PopupMenuItem},
         v_flex,
@@ -64,7 +65,38 @@ fn preference_picker(
 }
 
 impl Workspace {
-    pub(super) fn settings_page(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn settings_page(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let color = crate::app::theme::color(cx);
+        let value = rgb(color.rgb()).into();
+        self.accent_color.update(cx, |state, cx| {
+            if state.value() != Some(value) {
+                state.set_value(value, window, cx);
+            }
+        });
+        let accent_color = h_flex()
+            .gap_2()
+            .child(
+                ColorPicker::new(&self.accent_color)
+                    .small()
+                    .label(color.hex())
+                    .accessibility_label(superfile_services::locale::tr("Accent color"))
+                    .featured_colors(
+                        [0x8b5cf6, 0x3b82f6, 0x06b6d4, 0x22c55e, 0xf97316, 0xec4899]
+                            .into_iter()
+                            .map(|color| rgb(color).into())
+                            .collect(),
+                    ),
+            )
+            .child(
+                Button::new("reset-accent-color")
+                    .small()
+                    .icon(gpui_kit::assets::IconName::RotateCcw)
+                    .tooltip(superfile_services::locale::tr("Use theme accent"))
+                    .accessibility_label(superfile_services::locale::tr("Use theme accent"))
+                    .disabled(!crate::app::theme::has_custom_accent(cx))
+                    .on_click(|_, _, cx| crate::app::theme::reset_accent(cx)),
+            )
+            .into_any_element();
         let appearance = cx.global::<crate::app::AppearancePreference>().0;
         let theme = preference_picker(
             "settings-theme",
@@ -94,6 +126,21 @@ impl Workspace {
                 .map(|(code, name)| (PreferenceChoice::Language(code), name)),
         );
         let language = preference_picker("settings-language", "Language", label, options, cx);
+        let color_scheme = h_flex()
+            .gap_2()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(crate::app::theme::scheme(cx).name.clone()),
+            )
+            .child(
+                Button::new("browse-community-themes")
+                    .small()
+                    .label(superfile_services::locale::tr("Browse themes…"))
+                    .on_click(cx.listener(|view, _, window, cx| view.show_themes(window, cx))),
+            )
+            .into_any_element();
         let action_button = |id: &'static str, label: &'static str| {
             Button::new(id)
                 .small()
@@ -201,6 +248,10 @@ impl Workspace {
                         .child(
                             group()
                                 .child(row("Theme", "", theme))
+                                .child(divider())
+                                .child(row("Color scheme", "", color_scheme))
+                                .child(divider())
+                                .child(row("Accent color", "", accent_color))
                                 .child(divider())
                                 .child(row("Language", "", language)),
                         )

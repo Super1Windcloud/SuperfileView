@@ -182,7 +182,9 @@ impl Workspace {
             &self.tabs[index].document.path,
             [("preview", superfile_services::telemetry::flag(preview))],
         );
-        if !preview {
+        if preview {
+            window.focus(&self.focus, cx);
+        } else {
             self.tabs[index].focus_source(window, cx);
         }
         if let Some(kind) = preference {
@@ -449,7 +451,7 @@ impl Workspace {
 
 fn workspace_title_bar(content: impl IntoElement, cx: &App) -> AnyElement {
     TitleBar::new()
-        .bg(cx.theme().sidebar)
+        .bg(cx.theme().title_bar)
         .border_b_1()
         .border_color(cx.theme().border.opacity(0.6))
         .h(px(40.))

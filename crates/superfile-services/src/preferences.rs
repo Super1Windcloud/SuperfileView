@@ -185,6 +185,121 @@ pub fn save_appearance(value: Appearance) -> Result<()> {
         },
     )
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct AccentColor(u32);
+
+impl AccentColor {
+    pub const PURPLE: Self = Self(0x8b5cf6);
+
+    pub fn from_rgb(rgb: u32) -> Self {
+        Self(rgb & 0xffffff)
+    }
+
+    pub fn rgb(self) -> u32 {
+        self.0
+    }
+
+    pub fn hex(self) -> String {
+        format!("#{:06X}", self.0)
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        let value = value.trim().strip_prefix('#').unwrap_or(value.trim());
+        if value.len() != 6 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return None;
+        }
+        u32::from_str_radix(value, 16).ok().map(Self)
+    }
+}
+
+impl Default for AccentColor {
+    fn default() -> Self {
+        Self::PURPLE
+    }
+}
+
+impl TryFrom<String> for AccentColor {
+    type Error = &'static str;
+    fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
+        Self::parse(&value).ok_or("Invalid accent color")
+    }
+}
+impl From<AccentColor> for String {
+    fn from(value: AccentColor) -> Self {
+        value.hex()
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct ThemePreferences {
+    pub scheme: Option<String>,
+    pub accent: Option<AccentColor>,
+}
+
+pub fn theme_preferences() -> ThemePreferences {
+    storage::open()
+        .and_then(|db| theme_preferences_in(&db))
+        .unwrap_or_default()
+}
+
+fn theme_preferences_in(db: &rusqlite::Connection) -> Result<ThemePreferences> {
+    if let Some(value) = setting(db, "theme-preferences")? {
+        return serde_json::from_str(&value).map_err(Into::into);
+    }
+    Ok(ThemePreferences {
+        scheme: None,
+        accent: setting(db, "accent-color")?
+            .as_deref()
+            .and_then(AccentColor::parse),
+    })
+}
+
+pub fn save_theme_preferences(preferences: &ThemePreferences) -> Result<()> {
+    save_theme_preferences_in(&storage::open()?, preferences)
+}
+
+fn save_theme_preferences_in(
+    db: &rusqlite::Connection,
+    preferences: &ThemePreferences,
+) -> Result<()> {
+    anyhow::ensure!(
+        preferences
+            .scheme
+            .as_ref()
+            .is_none_or(|id| id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit())),
+        "Invalid theme package ID"
+    );
+    set_setting(
+        db,
+        "theme-preferences",
+        &serde_json::to_string(preferences)?,
+    )
+}
+
+pub fn accent_color() -> AccentColor {
+    storage::open()
+        .and_then(|db| accent_color_in(&db))
+        .unwrap_or_default()
+}
+
+fn accent_color_in(db: &rusqlite::Connection) -> Result<AccentColor> {
+    Ok(setting(db, "accent-color")?
+        .as_deref()
+        .and_then(AccentColor::parse)
+        .unwrap_or_default())
+}
+
+pub fn save_accent_color(color: AccentColor) -> Result<()> {
+    save_accent_color_in(&storage::open()?, color)
+}
+
+fn save_accent_color_in(db: &rusqlite::Connection, color: AccentColor) -> Result<()> {
+    set_setting(db, "accent-color", &color.hex())
+}
+
 fn preview_key(kind: &str) -> Result<String> {
     anyhow::ensure!(
         matches!(kind, "html" | "markdown" | "csv"),
@@ -280,4 +395,67 @@ fn save_groups(
     storage::sessions::save(&tx, scope, groups)?;
     tx.commit()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod accent_tests {
+    use super::*;
+
+    #[test]
+    fn theme_selection_migrates_legacy_accent_and_persists_reset() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = storage::open_at(directory.path()).unwrap();
+        assert_eq!(
+            theme_preferences_in(&db).unwrap(),
+            ThemePreferences::default()
+        );
+        save_accent_color_in(&db, AccentColor::from_rgb(0x3b82f6)).unwrap();
+        let mut preferences = theme_preferences_in(&db).unwrap();
+        assert_eq!(preferences.accent.unwrap().hex(), "#3B82F6");
+        preferences.scheme = Some("a".repeat(64));
+        preferences.accent = None;
+        save_theme_preferences_in(&db, &preferences).unwrap();
+        drop(db);
+        let db = storage::open_at(directory.path()).unwrap();
+        assert_eq!(theme_preferences_in(&db).unwrap(), preferences);
+        save_theme_preferences_in(&db, &ThemePreferences::default()).unwrap();
+        assert_eq!(
+            theme_preferences_in(&db).unwrap(),
+            ThemePreferences::default()
+        );
+        preferences.scheme = Some("../theme".into());
+        assert!(save_theme_preferences_in(&db, &preferences).is_err());
+        assert_eq!(
+            theme_preferences_in(&db).unwrap(),
+            ThemePreferences::default()
+        );
+        set_setting(&db, "theme-preferences", "{broken").unwrap();
+        assert!(theme_preferences_in(&db).is_err());
+    }
+
+    #[test]
+    fn accent_defaults_to_purple_and_survives_reopening_the_store() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = storage::open_at(directory.path()).unwrap();
+        assert_eq!(accent_color_in(&db).unwrap(), AccentColor::PURPLE);
+        let color = AccentColor::parse("#0aBC12").unwrap();
+        save_accent_color_in(&db, color).unwrap();
+        drop(db);
+        let db = storage::open_at(directory.path()).unwrap();
+        assert_eq!(accent_color_in(&db).unwrap(), color);
+        assert_eq!(
+            setting(&db, "accent-color").unwrap().as_deref(),
+            Some("#0ABC12")
+        );
+        set_setting(&db, "accent-color", "#not-a-color").unwrap();
+        assert_eq!(accent_color_in(&db).unwrap(), AccentColor::PURPLE);
+    }
+
+    #[test]
+    fn accent_rejects_invalid_or_transparent_values() {
+        for value in ["", "#123", "#12345678", "#12GGFF", "+12345", "#紫色"] {
+            assert_eq!(AccentColor::parse(value), None, "{value}");
+        }
+        assert_eq!(AccentColor::parse("  #8B5CF6 "), Some(AccentColor::PURPLE));
+    }
 }

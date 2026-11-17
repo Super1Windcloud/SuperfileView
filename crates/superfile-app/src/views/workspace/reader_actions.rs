@@ -39,6 +39,7 @@ pub(super) enum ToolbarAction {
     Sidebar,
     Back,
     Forward,
+    TogglePreview,
     Preview,
     Source,
     WordWrap,
@@ -46,6 +47,7 @@ pub(super) enum ToolbarAction {
     FileFullscreen,
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct ToolbarItem {
     pub(super) action: ToolbarAction,
     pub(super) label: &'static str,
@@ -62,6 +64,7 @@ impl ToolbarAction {
             Self::Sidebar => "toggle-sidebar",
             Self::Back => "back",
             Self::Forward => "forward",
+            Self::TogglePreview => "toggle-reader-preview",
             Self::Preview => "reader-preview",
             Self::Source => "reader-source",
             Self::WordWrap => "word-wrap",
@@ -79,6 +82,7 @@ impl ToolbarItem {
             ToolbarAction::Sidebar => ("Toggle Sidebar", Some(IconName::PanelLeft)),
             ToolbarAction::Back => ("Back", Some(IconName::ArrowLeft)),
             ToolbarAction::Forward => ("Forward", Some(IconName::ArrowRight)),
+            ToolbarAction::TogglePreview => ("Toggle Preview", Some(IconName::Eye)),
             ToolbarAction::Preview => ("Preview", Some(IconName::Eye)),
             ToolbarAction::Source => ("Source", Some(IconName::Code)),
             ToolbarAction::WordWrap => ("Word wrap", None),
