@@ -1,10 +1,12 @@
 use crate::app::actions::{NewFile, OpenFile, OpenFolder};
+use crate::app::recent_paths::{Kind, RecentPaths};
 use gpui_kit::{
     assets::IconName,
     component::{
         ActiveTheme, Icon, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
+        kbd::Kbd,
         menu::{ContextMenuExt, DropdownMenu, PopupMenuItem},
         v_flex,
     },
@@ -55,9 +57,202 @@ fn quick_action(
                         .flex_shrink_0()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child(shortcut),
+                        .child(format_shortcut_for_display(shortcut)),
                 ),
         )
+}
+
+fn format_shortcut_for_display(shortcut: &str) -> String {
+    Keystroke::parse(shortcut)
+        .map(|key| Kbd::format(&key))
+        .unwrap_or_default()
+}
+
+fn section_heading(id: &'static str, label: &'static str, cx: &App) -> impl IntoElement {
+    h_flex()
+        .id(id)
+        .w_full()
+        .items_center()
+        .gap_3()
+        .mb_2()
+        .child(
+            div()
+                .flex_shrink_0()
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(cx.theme().muted_foreground)
+                .child(superfile_services::locale::tr(label).to_uppercase()),
+        )
+        .child(div().flex_1().h(px(1.)).bg(cx.theme().border))
+}
+
+fn recent_paths(
+    current: &super::workspace::Workspace,
+    kind: Kind,
+    cx: &mut Context<super::workspace::Workspace>,
+) -> impl IntoElement {
+    let (id, title, empty, remove, icon) = match kind {
+        Kind::File => (
+            "recent-files",
+            "Recent Files",
+            "No recent files yet.",
+            "Remove from Recent Files",
+            IconName::FileText,
+        ),
+        Kind::Directory => (
+            "recent-directories",
+            "Recent Folders",
+            "No recent folders yet.",
+            "Remove from Recent Folders",
+            IconName::Folder,
+        ),
+    };
+    let paths = cx
+        .try_global::<RecentPaths>()
+        .map(|history| history.0.paths(kind).to_vec())
+        .unwrap_or_default();
+    let limit = current.recent_paths_visible(kind);
+    let more = paths.len() > limit;
+    let empty_list = paths.is_empty();
+    v_flex()
+        .id(id)
+        .w_full()
+        .min_w_0()
+        .gap_1()
+        .child(section_heading(
+            match kind {
+                Kind::File => "recent-files-heading",
+                Kind::Directory => "recent-directories-heading",
+            },
+            title,
+            cx,
+        ))
+        .when(empty_list, |section| {
+            section.child(
+                div()
+                    .px_3()
+                    .py_2()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(superfile_services::locale::tr(empty)),
+            )
+        })
+        .children(
+            paths
+                .into_iter()
+                .take(limit)
+                .enumerate()
+                .map(|(index, path)| {
+                    let name = path
+                        .file_name()
+                        .unwrap_or(path.as_os_str())
+                        .to_string_lossy()
+                        .into_owned();
+                    let full_path = path.display().to_string();
+                    let parent = path
+                        .parent()
+                        .map(|path| path.display().to_string())
+                        .unwrap_or_default();
+                    let open = path.clone();
+                    let remove_path = path.clone();
+                    let open_window = path.clone();
+                    let owner = cx.entity().downgrade();
+                    let context_owner = owner.clone();
+                    Button::new((id, index))
+                        .ghost()
+                        .w_full()
+                        .min_w_0()
+                        .h(px(34.))
+                        .px_3()
+                        .rounded(px(6.))
+                        .accessibility_label(format!("{name}: {full_path}"))
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .min_w_0()
+                                .gap_3()
+                                .items_center()
+                                .child(
+                                    Icon::new(icon)
+                                        .size(px(17.))
+                                        .flex_shrink_0()
+                                        .text_color(cx.theme().muted_foreground),
+                                )
+                                .child(
+                                    div()
+                                        .max_w(relative(0.55))
+                                        .min_w_0()
+                                        .truncate()
+                                        .text_sm()
+                                        .font_weight(FontWeight::NORMAL)
+                                        .child(name),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .truncate()
+                                        .text_xs()
+                                        .text_left()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(parent),
+                                ),
+                        )
+                        .tooltip(full_path)
+                        .on_click(cx.listener(move |view, _, window, cx| {
+                            view.open_recent_path(kind, open.clone(), window, cx)
+                        }))
+                        .context_menu(move |menu, _, _| {
+                            let owner = context_owner.clone();
+                            let path = path.clone();
+                            let open_window = open_window.clone();
+                            let remove_path = remove_path.clone();
+                            menu.item(
+                                PopupMenuItem::new(superfile_services::locale::tr("Open"))
+                                    .on_click(move |_, window, cx| {
+                                        let _ = owner.update(cx, |view, cx| {
+                                            view.open_recent_path(kind, path.clone(), window, cx)
+                                        });
+                                    }),
+                            )
+                            .item(
+                                PopupMenuItem::new(superfile_services::locale::tr(
+                                    "Open in New Window",
+                                ))
+                                .on_click(move |_, _, cx| {
+                                    crate::app::recent_paths::open_in_new_window(
+                                        open_window.clone(),
+                                        cx,
+                                    )
+                                }),
+                            )
+                            .separator()
+                            .item(
+                                PopupMenuItem::new(superfile_services::locale::tr(remove))
+                                    .on_click(move |_, _, cx| {
+                                        crate::app::recent_paths::remove(
+                                            kind,
+                                            remove_path.clone(),
+                                            cx,
+                                        )
+                                    }),
+                            )
+                        })
+                }),
+        )
+        .when(more, |section| {
+            section.child(
+                Button::new(match kind {
+                    Kind::File => "recent-files-more",
+                    Kind::Directory => "recent-directories-more",
+                })
+                .ghost()
+                .small()
+                .icon(IconName::ChevronDown)
+                .label(superfile_services::locale::tr("Show more"))
+                .on_click(cx.listener(move |view, _, _, cx| view.show_more_recent_paths(kind, cx))),
+            )
+        })
 }
 
 fn quick_actions(
@@ -70,6 +265,16 @@ fn quick_actions(
         .w_full()
         .gap_1()
         .child(
+            quick_action(
+                "welcome-new-file",
+                "New File",
+                "secondary-n",
+                IconName::FilePlus,
+                cx,
+            )
+            .on_click(|_, window, cx| window.dispatch_action(Box::new(NewFile), cx)),
+        )
+        .child(
             h_flex()
                 .w_full()
                 .items_center()
@@ -78,11 +283,7 @@ fn quick_actions(
                     quick_action(
                         "welcome-new-workspace",
                         "Open Workspace…",
-                        if cfg!(target_os = "macos") {
-                            "⌘⇧O"
-                        } else {
-                            "Ctrl+Shift+O"
-                        },
+                        "secondary-shift-o",
                         IconName::FolderOpen,
                         cx,
                     )
@@ -147,29 +348,11 @@ fn quick_actions(
             quick_action(
                 "welcome-open-file",
                 "Open File…",
-                if cfg!(target_os = "macos") {
-                    "⌘O"
-                } else {
-                    "Ctrl+O"
-                },
+                "secondary-o",
                 IconName::FileText,
                 cx,
             )
             .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenFile), cx)),
-        )
-        .child(
-            quick_action(
-                "welcome-new-file",
-                "New File",
-                if cfg!(target_os = "macos") {
-                    "⌘N"
-                } else {
-                    "Ctrl+N"
-                },
-                IconName::FilePlus,
-                cx,
-            )
-            .on_click(|_, window, cx| window.dispatch_action(Box::new(NewFile), cx)),
         )
 }
 
@@ -194,64 +377,79 @@ pub fn welcome(
     let recent = cx
         .try_global::<crate::app::RecentWorkspaces>()
         .map(|history| history.0.clone())
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|workspace| {
+            workspace.folders.len() > 1
+                || workspace.name.is_some()
+                || superfile_services::remote::is_remote_id(&workspace.id)
+        })
+        .collect::<Vec<_>>();
     let more = recent.len() > current.recent_visible();
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
     let visible = recent
         .into_iter()
         .take(current.recent_visible())
         .collect::<Vec<_>>();
     let content = v_flex()
         .w_full()
-        .max_w(px(520.))
+        .max_w(px(660.))
         .min_w_0()
         .flex_shrink_0()
-        .gap_8()
+        .gap_6()
         .child(
             h_flex()
                 .items_center()
                 .gap_3()
                 .child(
                     img("branding/superfile-welcome.png")
-                        .size(px(32.))
+                        .size(px(52.))
                         .object_fit(ObjectFit::Contain)
                         .flex_shrink_0(),
                 )
                 .child(
-                    div()
-                        .text_size(px(26.))
-                        .font_weight(FontWeight::MEDIUM)
-                        .child("Superfile"),
+                    v_flex()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_size(px(24.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(superfile_services::locale::tr("Welcome to Superfile")),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(superfile_services::locale::tr("Your files, within reach.")),
+                        ),
                 ),
         )
-        .child(quick_actions(current, cx))
+        .child(
+            v_flex()
+                .w_full()
+                .min_w_0()
+                .child(section_heading("welcome-get-started", "Get Started", cx))
+                .child(quick_actions(current, cx)),
+        )
+        .child(recent_paths(current, Kind::File, cx))
+        .child(recent_paths(current, Kind::Directory, cx))
         .when(!visible.is_empty(), |view| {
             view.child(
                 v_flex()
                     .w_full()
                     .min_w_0()
                     .gap_3()
-                    .child(
-                        h_flex().gap_2().items_center().child(
-                            div()
-                                .flex_1()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child(superfile_services::locale::tr("Recent Workspaces")),
-                        ),
-                    )
+                    .child(h_flex().gap_2().items_center().child(section_heading(
+                        "recent-workspaces-heading",
+                        "Recent Workspaces",
+                        cx,
+                    )))
                     .child(v_flex().w_full().min_w_0().gap_1().children(
                         visible.into_iter().enumerate().map(|(index, workspace)| {
                             let title = workspace.title();
                             let mut paths = workspace
                                 .folders
                                 .iter()
-                                .map(|path| {
-                                    home.as_ref()
-                                        .and_then(|home| path.strip_prefix(home).ok())
-                                        .map(|relative| format!("~/{}", relative.display()))
-                                        .unwrap_or_else(|| path.display().to_string())
-                                })
+                                .map(|path| path.display().to_string())
                                 .collect::<Vec<_>>()
                                 .join(" · ");
                             let remote = cx
@@ -528,9 +726,9 @@ mod tests {
                 window.render_frame(cx);
                 let mut previous: Option<Bounds<Pixels>> = None;
                 for id in [
+                    "welcome-new-file",
                     "welcome-new-workspace",
                     "welcome-open-file",
-                    "welcome-new-file",
                 ] {
                     let bounds = window.find(id).bounds();
                     assert!(bounds.size.width >= px(105.), "{id} too narrow at {width}");

@@ -27,6 +27,22 @@ impl Target {
 impl Workspace {
     pub(super) fn record_history(&mut self, cx: &mut Context<Self>) {
         self.remember_session(cx);
+        if !superfile_services::remote::is_remote_id(&self.recent_id)
+            && let Some(reader) = self.active_reader()
+            && reader.document.draft_directory.is_none()
+            && reader.document.remote.is_none()
+            && !reader.is_unavailable()
+            && matches!(
+                reader.session_tab(cx),
+                superfile_core::session::SessionTab::File { .. }
+            )
+        {
+            crate::app::recent_paths::remember(
+                crate::app::recent_paths::Kind::File,
+                reader.document.path.clone(),
+                cx,
+            );
+        }
         if self.navigating {
             self.navigating = false;
             return;

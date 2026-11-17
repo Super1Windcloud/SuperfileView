@@ -70,6 +70,7 @@ pub struct Workspace {
     search_offset: usize,
     search_more: bool,
     recent_visible: usize,
+    recent_paths_visible: [usize; 2],
     pending_anchor: Option<(PathBuf, String)>,
     search_task: Option<Task<()>>,
     _search_subscription: Subscription,
@@ -148,6 +149,17 @@ impl Workspace {
 
     pub(crate) fn recent_visible(&self) -> usize {
         self.recent_visible
+    }
+    pub(crate) fn recent_paths_visible(&self, kind: crate::app::recent_paths::Kind) -> usize {
+        self.recent_paths_visible[kind as usize]
+    }
+    pub(crate) fn show_more_recent_paths(
+        &mut self,
+        kind: crate::app::recent_paths::Kind,
+        cx: &mut Context<Self>,
+    ) {
+        self.recent_paths_visible[kind as usize] += 5;
+        cx.notify();
     }
     pub(crate) fn show_more_recent(&mut self, cx: &mut Context<Self>) {
         self.recent_visible = self
@@ -295,6 +307,7 @@ impl Workspace {
             search_offset: 0,
             search_more: false,
             recent_visible: superfile_services::limits::WORKSPACE_RECENT_WORKSPACES,
+            recent_paths_visible: [5; 2],
             pending_anchor: None,
             search_task: None,
             _search_subscription: subscription,

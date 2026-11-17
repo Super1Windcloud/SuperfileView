@@ -753,5 +753,14 @@
   "Cannot remember theme settings": "无法保存主题设置",
   "Default theme": "默认",
   "Current theme": "使用中",
-  "Use": "使用"
+  "Use": "使用",
+  "Welcome to Superfile": "欢迎使用 Superfile",
+  "Your files, within reach.": "轻松访问你的文件。",
+  "Get Started": "开始使用",
+  "Recent Files": "最近文件",
+  "Recent Folders": "最近文件夹",
+  "No recent files yet.": "暂无最近打开的文件。",
+  "No recent folders yet.": "暂无最近打开的文件夹。",
+  "Remove from Recent Files": "从最近文件中移除",
+  "Remove from Recent Folders": "从最近文件夹中移除"
 }

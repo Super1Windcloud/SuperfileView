@@ -28,6 +28,7 @@ pub mod platform;
 pub mod preferences;
 pub mod preview;
 mod qoi;
+pub mod recent_paths;
 pub mod remote;
 mod report;
 pub mod resources;

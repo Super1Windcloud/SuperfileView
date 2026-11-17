@@ -112,6 +112,11 @@ impl Workspace {
             return false;
         }
         if self.roots.iter().any(|root| root == path) {
+            crate::app::recent_paths::remember(
+                crate::app::recent_paths::Kind::Directory,
+                path.to_owned(),
+                cx,
+            );
             self.select_workspace(self.recent_id.clone(), window, cx);
             self.page = super::Page::Document;
             self.sidebar_visible = true;
@@ -323,6 +328,13 @@ impl Workspace {
         }
         self.sidebar_visible = true;
         self.roots.push(snapshot.root.clone());
+        if !superfile_services::remote::is_remote_id(&self.recent_id) {
+            crate::app::recent_paths::remember(
+                crate::app::recent_paths::Kind::Directory,
+                snapshot.root.clone(),
+                cx,
+            );
+        }
         superfile_services::telemetry::track(
             "workspace_folder_added",
             [(

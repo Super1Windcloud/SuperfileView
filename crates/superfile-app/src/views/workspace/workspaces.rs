@@ -13,6 +13,37 @@ use gpui_kit::{
 use superfile_services::preferences::RecentWorkspace;
 
 impl Workspace {
+    pub(crate) fn open_recent_path(
+        &mut self,
+        kind: crate::app::recent_paths::Kind,
+        path: std::path::PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if crate::app::updates::busy(cx) {
+            return;
+        }
+        match kind {
+            crate::app::recent_paths::Kind::File => {
+                if superfile_services::remote::is_remote_id(&self.recent_id) {
+                    crate::app::recent_paths::open_in_new_window(path, cx);
+                } else {
+                    self.open_workspace_path(path, window, cx);
+                }
+            }
+            crate::app::recent_paths::Kind::Directory => {
+                self.open_recent_here(
+                    RecentWorkspace {
+                        id: format!("local-directory-{}", path.display()),
+                        folders: vec![path],
+                        name: None,
+                    },
+                    window,
+                    cx,
+                );
+            }
+        }
+    }
     pub(crate) fn workspace_descriptor(&self) -> RecentWorkspace {
         RecentWorkspace {
             id: self.recent_id.clone(),
@@ -40,6 +71,15 @@ impl Workspace {
     }
 
     pub(crate) fn resume_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !superfile_services::remote::is_remote_id(&self.recent_id) {
+            for root in self.roots.clone().into_iter().rev() {
+                crate::app::recent_paths::remember(
+                    crate::app::recent_paths::Kind::Directory,
+                    root,
+                    cx,
+                );
+            }
+        }
         self.page = Page::Document;
         window.focus(&self.focus, cx);
         self.reveal_active_file(cx);

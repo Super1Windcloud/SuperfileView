@@ -753,5 +753,14 @@
   "Cannot remember theme settings": "Cannot remember theme settings",
   "Default theme": "Default theme",
   "Current theme": "Current theme",
-  "Use": "Use"
+  "Use": "Use",
+  "Welcome to Superfile": "Welcome to Superfile",
+  "Your files, within reach.": "Your files, within reach.",
+  "Get Started": "Get Started",
+  "Recent Files": "Recent Files",
+  "Recent Folders": "Recent Folders",
+  "No recent files yet.": "No recent files yet.",
+  "No recent folders yet.": "No recent folders yet.",
+  "Remove from Recent Files": "Remove from Recent Files",
+  "Remove from Recent Folders": "Remove from Recent Folders"
 }

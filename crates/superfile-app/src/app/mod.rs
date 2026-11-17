@@ -15,6 +15,7 @@ mod menus;
 pub(crate) mod reader_jobs;
 #[cfg(feature = "reader-measurements")]
 pub(crate) mod reader_measurement;
+pub(crate) mod recent_paths;
 pub(crate) mod recovery;
 pub(crate) mod remote;
 mod remote_open;
@@ -442,6 +443,7 @@ pub fn run() -> Result<()> {
             let recovery = recovery::shutdown(cx);
             let pending = cx.global_mut::<ExplorerSaveTask>().0.take();
             let workspace = cx.global_mut::<WorkspaceSaveTask>().0.take();
+            let recent_paths = recent_paths::take_write(cx);
             let remote_connections = cx.global_mut::<remote::Connections>().write.take();
             let sessions = cx
                 .global_mut::<workspace_sessions::SavedWorkspaces>()
@@ -468,6 +470,9 @@ pub fn run() -> Result<()> {
                 if let Some(workspace) = workspace {
                     workspace.await;
                 }
+                if let Some(recent_paths) = recent_paths {
+                    recent_paths.await;
+                }
                 if let Some(connections) = remote_connections {
                     connections.await;
                 }
@@ -482,6 +487,7 @@ pub fn run() -> Result<()> {
         .detach();
         cx.set_global(RecentWorkspaces::default());
         load_recent_workspaces(cx);
+        recent_paths::init(cx);
         languages::init();
         cx.set_global(ReaderPreferences {
             word_wrap,
