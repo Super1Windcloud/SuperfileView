@@ -9,6 +9,7 @@ pub(crate) mod edit_session;
 #[cfg(target_os = "macos")]
 mod icon;
 mod image_http;
+mod instance;
 pub(crate) mod languages;
 pub(crate) mod media_prepare;
 pub(crate) mod menus;
@@ -332,13 +333,12 @@ pub fn run() -> Result<()> {
     }
     #[cfg(feature = "reader-measurements")]
     let startup = reader_measurement::StartupMeasurement::start();
-    superfile_services::diagnostics::initialize()?;
     let mut arguments = std::env::args_os().skip(1);
-    let path = arguments.next();
+    let path = arguments.next().map(std::path::PathBuf::from);
     if arguments.next().is_some() {
         bail!("Usage: superfile [file-or-folder]");
     }
-    if path.as_deref() == Some(std::ffi::OsStr::new("--help")) {
+    if path.as_deref() == Some(std::path::Path::new("--help")) {
         println!(
             "Usage: superfile [file-or-folder]\n\nOpen a folder or UTF-8 file in the viewer and basic text editor."
         );
@@ -347,6 +347,11 @@ pub fn run() -> Result<()> {
         return Ok(());
     }
 
+    use superfile_services::instance::Launch;
+    let Launch::Primary(instance, path) = superfile_services::instance::launch(path)? else {
+        return Ok(());
+    };
+    superfile_services::diagnostics::initialize()?;
     superfile_services::storage::initialize()?;
     let language = superfile_services::preferences::language().unwrap_or_else(|| "system".into());
     superfile_services::locale::set(&language);
@@ -397,12 +402,7 @@ pub fn run() -> Result<()> {
             open_pending.borrow_mut().extend(urls);
         }
     });
-    application.on_reopen(|cx| {
-        if cx.windows().is_empty() && !updates::busy(cx) && !workspace_sessions::restore_windows(cx)
-        {
-            open_workspace(None, cx);
-        }
-    });
+    application.on_reopen(instance::activate);
     application.run(move |cx| {
         #[cfg(target_os = "macos")]
         icon::set();
@@ -411,6 +411,7 @@ pub fn run() -> Result<()> {
             startup.observe(cx);
         }
         gpui_kit::init(cx);
+        instance::init(instance, cx);
         remote::init(remote_catalog, cx);
         system_open::init(cx);
         remote_open::init(cx);
@@ -433,6 +434,7 @@ pub fn run() -> Result<()> {
             restoring: false,
         });
         cx.on_app_quit(|cx| {
+            let instance = instance::stop(cx);
             log::info!("application quit requested");
             log::logger().flush();
             let mut reader_writes = Vec::new();
@@ -504,6 +506,9 @@ pub fn run() -> Result<()> {
                 if let Some(task) = update_preferences {
                     task.await;
                 }
+                // Keep ownership during all shutdown writes, then let the
+                // replacement process acquire it before opening a window.
+                drop(instance);
                 if let Some(executable) = restart
                     && let Err(error) = superfile_services::updates::relaunch(&executable)
                 {
@@ -605,7 +610,7 @@ pub fn run() -> Result<()> {
         .detach();
 
         let requested = std::mem::take(&mut *pending.borrow_mut());
-        updates::start_application(path.map(Into::into), requested, cx);
+        updates::start_application(path, requested, cx);
     });
     Ok(())
 }

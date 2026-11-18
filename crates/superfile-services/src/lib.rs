@@ -14,6 +14,7 @@ mod fragmented_mp4;
 pub mod geo;
 pub mod graph;
 pub mod inline_images;
+pub mod instance;
 pub mod integrations;
 pub mod json;
 pub mod limits;
