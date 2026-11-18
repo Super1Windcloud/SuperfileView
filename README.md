@@ -36,9 +36,11 @@ Windows builds and basic startup have been verified locally. macOS startup and t
 
 Settings → Default File Types opens a searchable dialog showing system file types, descriptions, and their current default applications. Each application cell opens a dropdown of registered compatible apps. macOS/Linux apply the selection and read back the system default; Windows opens system Settings for user confirmation and requires a refresh afterward. Discovery runs in the background, supports refresh/cancellation, and reports incomplete reads. This also works during development. See [system file associations](docs/file-associations.md).
 
+The top-right application menu provides File and View actions, Settings, community themes, default file types, keyboard shortcuts, updates, and About on all three platforms. It remains accessible on the start page, with the sidebar collapsed, and in file fullscreen. Native macOS menus share the same action definitions. Menu navigation has automated coverage and macOS smoke testing; Windows/Linux visual acceptance remains pending.
+
 The workspace home groups quick actions, Recent Files, and Recent Folders into compact lists. Local opens are remembered across launches; reopening moves an item to the top. Each list initially shows five entries with Show more, and keeps up to 200 entries. Right-click an entry to open it in another window or remove only its history record. Existing workspace roots and saved local file tabs are imported once; multi-folder and SSH workspaces remain available separately. History uses the shared application database in both Debug and Release.
 
-This is not a completed port or a published release. PDF text search/selection, image-only and complex Office documents, legacy Office/iWork formats, font previews, full audio/video playback, OCR, and remaining format/platform gaps still require implementation or acceptance. The format catalog lists candidate routes, not a guarantee of complete support. See [feature status](docs/support.md) for details.
+The published 0.x releases remain under active development. PDF text search/selection, image-only and complex Office documents, legacy Office/iWork formats, font previews, full audio/video playback, OCR, and remaining format/platform gaps still require implementation or acceptance. The format catalog lists candidate routes, not a guarantee of complete support. See [feature status](docs/support.md) for details.
 
 ## Build and run
 
