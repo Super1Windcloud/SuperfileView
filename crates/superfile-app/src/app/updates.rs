@@ -611,4 +611,40 @@ pub(crate) fn start_application(path: Option<PathBuf>, urls: Vec<String>, cx: &m
     } else if !restored && cx.windows().is_empty() {
         super::open_workspace(None, cx);
     }
+    if !cfg!(debug_assertions)
+        && env!("SUPERFILE_BUILD_CHANNEL") == "release"
+        && let Some(handle) = cx.windows().first().copied()
+    {
+        let _ = handle.update(cx, |_, window, _| {
+            // GPUI runs next-frame callbacks before drawing. Give the window
+            // one frame to open before acknowledging this installation.
+            window.on_next_frame(|window, _| {
+                window.on_next_frame(|_, cx| {
+                    cx.spawn(async |cx| {
+                        for attempt in 0..6 {
+                            let result = cx
+                                .background_executor()
+                                .spawn(async { service::cleanup_backups_after_startup() })
+                                .await;
+                            match result {
+                                Ok(()) => return,
+                                // The Windows process that launched us may
+                                // still be exiting and holding the old image.
+                                Err(_) if cfg!(windows) && attempt < 5 => {
+                                    cx.background_executor()
+                                        .timer(Duration::from_millis(500))
+                                        .await;
+                                }
+                                Err(error) => {
+                                    log::warn!("Cannot clean up update backups: {error:#}");
+                                    return;
+                                }
+                            }
+                        }
+                    })
+                    .detach();
+                });
+            });
+        });
+    }
 }

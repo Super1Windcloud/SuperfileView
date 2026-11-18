@@ -11,6 +11,8 @@ use std::{
 
 const MAX_EXPANDED: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_ENTRIES: usize = 65_536;
+const BACKUP_PREFIX: &str = ".superfile-previous-";
+const BACKUP_RECEIPT: &str = "update-receipt";
 
 pub struct PreparedUpdate {
     pub(super) download: Option<tempfile::TempDir>,
@@ -251,12 +253,7 @@ fn payload(root: &Path, name: &str) -> Result<PathBuf> {
 fn validate_payload(payload: &Path, version: &Version) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
-        ensure!(
-            fs::metadata(payload.join("Contents/Info.plist"))?.len() <= 1024 * 1024,
-            "Update Info.plist exceeds 1 MiB"
-        );
-        let info = plist_parser::Value::from_file(payload.join("Contents/Info.plist"))?;
-        let info = info.as_dictionary().context("Invalid app Info.plist")?;
+        let info = app_info(payload)?;
         ensure!(
             info.get("CFBundleIdentifier")
                 .and_then(plist_parser::Value::as_string)
@@ -299,6 +296,18 @@ fn validate_payload(payload: &Path, version: &Version) -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+fn app_info(app: &Path) -> Result<plist_parser::Dictionary> {
+    let path = app.join("Contents/Info.plist");
+    ensure!(
+        fs::metadata(&path)?.len() <= 1024 * 1024,
+        "Update Info.plist exceeds 1 MiB"
+    );
+    plist_parser::Value::from_file(path)?
+        .into_dictionary()
+        .context("Invalid app Info.plist")
+}
+
 pub(super) fn commit(update: &PreparedUpdate) -> Result<Installed> {
     ensure!(
         update.install_blocker.is_none(),
@@ -314,31 +323,39 @@ pub(super) fn commit(update: &PreparedUpdate) -> Result<Installed> {
         "Update staging must be on the target volume"
     );
     validate_payload(&update.payload, &update.version)?;
-    swap(&update.payload, &update.target)
+    swap(&update.payload, &update.target, &update.version)
 }
 
-fn swap(payload: &Path, target: &Path) -> Result<Installed> {
+fn swap(payload: &Path, target: &Path, version: &Version) -> Result<Installed> {
     let parent = target.parent().context("Install target has no parent")?;
     ensure!(
         !fs::symlink_metadata(target)?.file_type().is_symlink(),
         "Refusing to replace a symbolic-link install target"
     );
+    let name = target.file_name().context("Invalid install target")?;
     let backup = tempfile::Builder::new()
-        .prefix(".superfile-previous-")
-        .tempdir_in(parent)?
-        .keep();
-    let previous = backup.join(target.file_name().context("Invalid install target")?);
+        .prefix(BACKUP_PREFIX)
+        .rand_bytes(6)
+        .tempdir_in(parent)?;
+    let mut receipt = format!("{version}\n").into_bytes();
+    receipt.extend_from_slice(name.as_encoded_bytes());
+    fs::write(backup.path().join(BACKUP_RECEIPT), receipt)?;
+    let previous = backup.path().join(name);
     fs::rename(target, &previous).context("Cannot move the running application aside")?;
     if let Err(error) = fs::rename(payload, target) {
         return match fs::rename(&previous, target) {
             Ok(()) => Err(error)
                 .context("Cannot install the update; the original application was restored"),
-            Err(rollback) => Err(anyhow::anyhow!(
-                "Install failed: {error}; rollback failed: {rollback}. Original application is preserved at {}",
-                previous.display()
-            )),
+            Err(rollback) => {
+                let _ = backup.keep();
+                Err(anyhow::anyhow!(
+                    "Install failed: {error}; rollback failed: {rollback}. Original application is preserved at {}",
+                    previous.display()
+                ))
+            }
         };
     }
+    let _ = backup.keep();
     let executable = if cfg!(target_os = "macos") {
         target.join("Contents/MacOS/superfile")
     } else {
@@ -348,4 +365,148 @@ fn swap(payload: &Path, target: &Path) -> Result<Installed> {
         executable,
         backup: previous,
     })
+}
+
+pub(super) fn cleanup_running_backups() -> Result<()> {
+    let target = running_root()?;
+    // A backup can itself be launched manually. Only the installed copy may
+    // acknowledge a replacement.
+    if target.ancestors().any(is_backup_dir) || blocker(&target, true).is_some() {
+        return Ok(());
+    }
+    let version = Version::parse(env!("CARGO_PKG_VERSION"))?;
+    cleanup_backups(&target, &version)
+}
+
+fn is_backup_dir(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_prefix(BACKUP_PREFIX))
+        .is_some_and(|suffix| {
+            suffix.len() == 6 && suffix.bytes().all(|b| b.is_ascii_alphanumeric())
+        })
+}
+
+fn is_link(metadata: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        // FILE_ATTRIBUTE_REPARSE_POINT includes directory junctions.
+        if metadata.file_attributes() & 0x400 != 0 {
+            return true;
+        }
+    }
+    metadata.file_type().is_symlink()
+}
+
+fn cleanup_backups(target: &Path, running_version: &Version) -> Result<()> {
+    validate_payload(target, running_version)?;
+    let parent = target
+        .parent()
+        .context("Install target has no parent directory")?;
+    let name = target.file_name().context("Invalid install target")?;
+    let mut failure = None;
+    for entry in fs::read_dir(parent)? {
+        let directory = entry?.path();
+        if is_backup_dir(&directory)
+            && let Err(error) = cleanup_backup(&directory, name, running_version)
+        {
+            failure.get_or_insert_with(|| {
+                error.context(format!("Clean update backup {}", directory.display()))
+            });
+        }
+    }
+    failure.map_or(Ok(()), Err)
+}
+
+fn cleanup_backup(
+    directory: &Path,
+    name: &std::ffi::OsStr,
+    running_version: &Version,
+) -> Result<()> {
+    let metadata = fs::symlink_metadata(directory)?;
+    if !metadata.is_dir() || is_link(&metadata) {
+        return Ok(());
+    }
+    let receipt = directory.join(BACKUP_RECEIPT);
+    let previous = directory.join(name);
+    match fs::symlink_metadata(&receipt) {
+        Ok(metadata) if metadata.is_file() && !is_link(&metadata) && metadata.len() <= 4096 => {
+            let data = fs::read(&receipt)?;
+            let Some(split) = data.iter().position(|byte| *byte == b'\n') else {
+                return Ok(());
+            };
+            let version = std::str::from_utf8(&data[..split])
+                .ok()
+                .and_then(|text| Version::parse(text).ok());
+            if &data[split + 1..] != name.as_encoded_bytes()
+                || !version.is_some_and(|version| version <= *running_version)
+            {
+                return Ok(());
+            }
+        }
+        #[cfg(target_os = "macos")]
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if legacy_backup(&previous, running_version) {
+                remove_backup_payload(&previous)?;
+                remove_empty_backup(directory)?;
+            }
+            return Ok(());
+        }
+        _ => return Ok(()),
+    }
+    remove_backup_payload(&previous)?;
+    // Keep the receipt if the old process still holds the executable open.
+    match fs::remove_file(receipt) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+        _ => {}
+    }
+    remove_empty_backup(directory)
+}
+
+#[cfg(target_os = "macos")]
+fn legacy_backup(previous: &Path, running_version: &Version) -> bool {
+    let Ok(metadata) = fs::symlink_metadata(previous) else {
+        return false;
+    };
+    if !metadata.is_dir() || is_link(&metadata) {
+        return false;
+    }
+    app_info(previous)
+        .ok()
+        .and_then(|info| Version::parse(info.get("CFBundleShortVersionString")?.as_string()?).ok())
+        .is_some_and(|version| {
+            version < *running_version && validate_payload(previous, &version).is_ok()
+        })
+}
+
+fn remove_backup_payload(previous: &Path) -> Result<()> {
+    let metadata = match fs::symlink_metadata(previous) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    ensure!(!is_link(&metadata), "Update backup is a link");
+    if cfg!(target_os = "macos") && metadata.is_dir() {
+        fs::remove_dir_all(previous)?;
+    } else if metadata.is_file() {
+        fs::remove_file(previous)?;
+    } else {
+        anyhow::bail!("Unexpected update backup type");
+    }
+    Ok(())
+}
+
+fn remove_empty_backup(directory: &Path) -> Result<()> {
+    match fs::remove_dir(directory) {
+        Err(error)
+            if !matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::DirectoryNotEmpty
+            ) =>
+        {
+            Err(error.into())
+        }
+        _ => Ok(()),
+    }
 }

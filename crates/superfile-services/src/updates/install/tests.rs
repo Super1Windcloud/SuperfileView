@@ -67,7 +67,7 @@ fn executable(target: &Path) -> PathBuf {
 }
 
 #[test]
-fn preparation_leaves_original_intact_and_swap_preserves_backup() {
+fn update_backup_survives_replacement_until_new_version_is_running() {
     let directory = tempfile::tempdir().unwrap();
     let release = super::super::tests::release("v1.2.3");
     let artifact = archive(directory.path(), &release.asset.name);
@@ -90,7 +90,7 @@ fn preparation_leaves_original_intact_and_swap_preserves_backup() {
         fs::read(executable(&target)).unwrap(),
         b"original executable"
     );
-    let installed = swap(&update.payload, &target).unwrap();
+    let installed = swap(&update.payload, &target, &release.version).unwrap();
     assert_eq!(fs::read(&installed.executable).unwrap(), b"new executable");
     assert_eq!(
         fs::read(executable(&installed.backup)).unwrap(),
@@ -98,17 +98,52 @@ fn preparation_leaves_original_intact_and_swap_preserves_backup() {
     );
     // The public continuation cannot replace a fixture or any other application.
     assert!(commit(&update).is_err());
+
+    let backup_root = installed.backup.parent().unwrap();
+    let receipt = backup_root.join(BACKUP_RECEIPT);
+    let name = target.file_name().unwrap();
+    cleanup_backup(backup_root, name, &Version::parse("1.2.2").unwrap()).unwrap();
+    assert!(receipt.is_file() && installed.backup.exists());
+    cleanup_backup(backup_root, "OtherSuperfile".as_ref(), &release.version).unwrap();
+    assert!(receipt.is_file() && installed.backup.exists());
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        let locked = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&installed.backup)
+            .unwrap();
+        assert!(cleanup_backups(&target, &release.version).is_err());
+        assert!(receipt.is_file() && installed.backup.exists());
+        drop(locked);
+    }
+    cleanup_backups(&target, &release.version).unwrap();
+    assert!(!backup_root.exists());
+    assert_eq!(fs::read(&installed.executable).unwrap(), b"new executable");
+    cleanup_backups(&target, &release.version).unwrap();
 }
 
 #[test]
 fn failed_swap_restores_original_and_cancel_never_stages() {
     let directory = tempfile::tempdir().unwrap();
     let target = old_target(directory.path());
-    let error = swap(&directory.path().join("missing-payload"), &target).unwrap_err();
+    let error = swap(
+        &directory.path().join("missing-payload"),
+        &target,
+        &Version::parse("1.2.3").unwrap(),
+    )
+    .unwrap_err();
     assert!(format!("{error:#}").contains("restored"));
     assert_eq!(
         fs::read(executable(&target)).unwrap(),
         b"original executable"
+    );
+    assert!(
+        !fs::read_dir(directory.path())
+            .unwrap()
+            .any(|entry| is_backup_dir(&entry.unwrap().path()))
     );
     let cancel = CancelToken::new();
     cancel.cancel();
@@ -122,6 +157,57 @@ fn failed_swap_restores_original_and_cancel_never_stages() {
         )
         .is_err()
     );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn legacy_cleanup_removes_only_matching_older_superfile_bundles() {
+    use std::os::unix::fs::PermissionsExt;
+
+    fn bundle(parent: &Path, version: &str, id: &str) -> PathBuf {
+        let target = old_target(parent);
+        let mut info = plist_parser::Dictionary::new();
+        for (key, value) in [
+            ("CFBundleIdentifier", id),
+            ("CFBundleExecutable", "superfile"),
+            ("CFBundleShortVersionString", version),
+        ] {
+            info.insert(key.into(), plist_parser::Value::String(value.into()));
+        }
+        plist_parser::Value::Dictionary(info)
+            .to_file_xml(target.join("Contents/Info.plist"))
+            .unwrap();
+        fs::set_permissions(executable(&target), fs::Permissions::from_mode(0o755)).unwrap();
+        target
+    }
+
+    let directory = tempfile::tempdir().unwrap();
+    let id = "app.superfile.desktop";
+    let target = bundle(directory.path(), "1.2.3", id);
+    let old_dir = directory.path().join(".superfile-previous-Old123");
+    let old = bundle(&old_dir, "1.2.2", id);
+    let other = bundle(
+        &directory.path().join(".superfile-previous-Bad123"),
+        "1.2.2",
+        "app.superfile.icon-preview",
+    );
+    let newer = bundle(
+        &directory.path().join(".superfile-previous-New123"),
+        "1.2.4",
+        id,
+    );
+    let outside = tempfile::tempdir().unwrap();
+    let outside_app = bundle(outside.path(), "1.2.2", id);
+    let link = directory.path().join(".superfile-previous-Lnk123");
+    std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+    let unrelated = old_dir.join("keep.txt");
+    fs::write(&unrelated, "unrelated file").unwrap();
+
+    cleanup_backups(&target, &Version::parse("1.2.3").unwrap()).unwrap();
+    assert!(!old.exists());
+    for preserved in [target, other, newer, outside_app, link, unrelated] {
+        assert!(preserved.exists());
+    }
 }
 
 #[test]

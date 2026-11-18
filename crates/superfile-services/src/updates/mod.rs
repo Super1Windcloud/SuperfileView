@@ -148,6 +148,10 @@ pub fn install(update: &PreparedUpdate) -> Result<Installed> {
     install::commit(update)
 }
 
+pub fn cleanup_backups_after_startup() -> Result<()> {
+    install::cleanup_running_backups()
+}
+
 pub fn relaunch(executable: &std::path::Path) -> Result<()> {
     // Spawn only our installed executable, after every application shutdown write.
     // GPUI's built-in restart uses shell scripts; this path needs no host utilities.
