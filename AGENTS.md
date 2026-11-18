@@ -50,6 +50,11 @@ Every implementation must run natively and reliably on Windows, macOS, and Linux
 8. **Internationalized Retained Views**:
    - Keep English and Simplified Chinese catalogs aligned. Language changes must update retained input placeholders as well as freshly rendered labels, without clearing queries, edits, selection, or navigation state.
    - Preserve language preferences across launches and test locale fallback and live updates without changing global locale state in parallel tests.
+9. **Cross-Platform UI Entry Points**:
+   - Every user-facing page and application action must have a discoverable mouse-accessible entry inside the window on Windows, macOS, and Linux. Native macOS menus and keyboard shortcuts are supplemental entry points; `App::set_menus` alone does not render a Windows/Linux menu bar.
+   - Share action definitions between native and in-window menus. Keep the application menu reachable with the sidebar collapsed, on the start page, and in file fullscreen; preserve the active workspace's focus and action routing.
+   - Use platform-neutral localized labels such as "This Computer…" for shared features. Use platform-specific labels only behind explicit platform adaptation.
+   - Verify rendered menu clicks and destination behavior, including narrow layouts and hidden-sidebar/fullscreen states. Cross-platform compilation and headless tests do not establish Windows/Linux visual acceptance; report native runtime checks separately.
 
 ---
 

@@ -2,8 +2,8 @@ use super::{DEFAULT_SIDEBAR_RATIO, Page, SIDEBAR_COLLAPSE_WIDTH, Workspace};
 use crate::{
     app::actions::{
         AddFolder, CloseWindow, CloseWorkspace, ManageConnections, NavigateBack, NavigateForward,
-        NewFile, NextTab, OpenFile, OpenFolder, OpenRemote, OpenSettings, PreviousTab, Refresh,
-        SaveFile, SearchWorkspace, TogglePreview, ToggleSidebar, ToggleWordWrap,
+        NewFile, NextTab, OpenFile, OpenFolder, OpenRemote, OpenSettings, OpenThemes, PreviousTab,
+        Refresh, SaveFile, SearchWorkspace, TogglePreview, ToggleSidebar, ToggleWordWrap,
     },
     views::welcome::welcome,
 };
@@ -407,6 +407,21 @@ impl Render for Workspace {
             .bg(cx.theme().sidebar)
             .text_color(cx.theme().foreground)
             .when(!self.file_fullscreen, |view| view.child(header))
+            .when(self.file_fullscreen, |view| {
+                view.child(
+                    deferred(
+                        div()
+                            .absolute()
+                            .top(px(8.))
+                            .right(px(12.))
+                            .rounded(px(6.))
+                            .bg(cx.theme().title_bar)
+                            .occlude()
+                            .child(self.application_menu(cx)),
+                    )
+                    .with_priority(2),
+                )
+            })
             .capture_key_down(cx.listener(|view, event: &KeyDownEvent, window, cx| {
                 if view.file_fullscreen && event.keystroke.key == "escape" {
                     view.set_file_fullscreen(false, window);
@@ -433,6 +448,10 @@ impl Render for Workspace {
             )
             .on_action(cx.listener(|v, _: &OpenSettings, window, cx| {
                 v.show_settings(window, cx);
+                cx.stop_propagation();
+            }))
+            .on_action(cx.listener(|v, _: &OpenThemes, window, cx| {
+                v.show_themes(window, cx);
                 cx.stop_propagation();
             }))
             .on_action(cx.listener(|v, _: &SearchWorkspace, w, cx| {

@@ -140,7 +140,7 @@ impl Workspace {
                 toolbar = toolbar.child(self.toolbar_button(item, cx));
             }
         }
-        toolbar.into_any_element()
+        toolbar.child(self.application_menu(cx)).into_any_element()
     }
 
     fn reader_view_menu(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -311,7 +311,10 @@ fn reader_menu_item(item: ToolbarItem, owner: WeakEntity<Workspace>) -> PopupMen
 #[cfg(test)]
 mod tests {
     use super::{Page, Workspace};
-    use crate::app::actions::{TogglePreview, ToggleWordWrap};
+    use crate::app::actions::{
+        About, CheckForUpdates, DefaultApplications, KeyboardShortcuts, TogglePreview,
+        ToggleWordWrap,
+    };
     use crate::views::reader::Reader;
     use gpui_kit::{
         AnyWindowHandle, AppContext, Bounds, Entity, Focusable, KeyBinding, Point, TestAppContext,
@@ -324,6 +327,10 @@ mod tests {
         cx.update(|cx| {
             gpui_kit::init(cx);
             crate::app::remote::init(Default::default(), cx);
+            cx.set_global(crate::app::AppearancePreference(
+                superfile_services::preferences::Appearance::System,
+            ));
+            cx.set_global(crate::app::LanguagePreference("system".into()));
             cx.bind_keys([
                 KeyBinding::new("secondary-shift-v", TogglePreview, None),
                 KeyBinding::new("alt-z", ToggleWordWrap, None),
@@ -460,5 +467,112 @@ mod tests {
             assert!(menu.origin.x >= px(0.) && menu.right() <= px(800.));
         })
         .unwrap();
+    }
+
+    fn click_application_entry(label: &str, window: &mut gpui_kit::Window, cx: &mut gpui_kit::App) {
+        window.click("application-menu", cx);
+        let bounds = window.find("popup-menu").bounds();
+        assert!(bounds.origin.x >= px(0.) && bounds.right() <= window.viewport_size().width);
+        assert!(bounds.origin.y >= px(0.) && bounds.bottom() <= window.viewport_size().height);
+        let index = (0usize..24)
+            .find(|index| {
+                window
+                    .within("popup-menu")
+                    .try_find(*index)
+                    .is_some_and(|item| item.label() == Some(tr(label).as_str()))
+            })
+            .unwrap_or_else(|| panic!("Missing application entry: {label}"));
+        window.within("popup-menu").click(index, cx);
+    }
+
+    #[gpui_kit::test]
+    fn application_menu_opens_preferences_with_sidebar_hidden_and_preserves_document(
+        cx: &mut TestAppContext,
+    ) {
+        let (handle, view) = open(cx);
+        let editor = cx.update(|cx| view.read(cx).active_reader().unwrap().editor().unwrap());
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |workspace, _| workspace.sidebar_visible = false);
+            window.render_frame(cx);
+            click_application_entry("Settings…", window, cx);
+        })
+        .unwrap();
+        cx.update_window(handle, |_, window, cx| {
+            assert!(view.read(cx).page == Page::Settings);
+            assert!(window.find("browse-community-themes").visible());
+            assert!(!view.read(cx).sidebar_visible);
+            click_application_entry("Browse themes…", window, cx);
+        })
+        .unwrap();
+        cx.update_window(handle, |_, _, cx| {
+            assert!(view.read(cx).page == Page::Themes);
+            assert_eq!(view.read(cx).active, Some(0));
+            assert_eq!(
+                view.read(cx).active_reader().unwrap().editor(),
+                Some(editor.clone())
+            );
+            assert_eq!(editor.read(cx).value().as_ref(), "{\"saved\":true}");
+        })
+        .unwrap();
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |workspace, _| workspace.page = Page::Document);
+            window.render_frame(cx);
+            window.click("application-menu", cx);
+            window.within("popup-menu").hover(1usize, cx);
+            window
+                .within("submenu")
+                .within("popup-menu")
+                .click(0usize, cx);
+        })
+        .unwrap();
+        cx.update(|cx| assert!(view.read(cx).sidebar_visible));
+    }
+
+    #[gpui_kit::test]
+    fn application_menu_dispatches_utilities_on_start_and_in_file_fullscreen(
+        cx: &mut TestAppContext,
+    ) {
+        let (handle, view) = open(cx);
+        let calls = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        cx.update(|cx| {
+            let log = calls.clone();
+            cx.on_action(move |_: &About, _| log.borrow_mut().push("About Superfile"));
+            let log = calls.clone();
+            cx.on_action(move |_: &CheckForUpdates, _| log.borrow_mut().push("Check for Updates…"));
+            let log = calls.clone();
+            cx.on_action(move |_: &DefaultApplications, _| {
+                log.borrow_mut().push("Default File Types…")
+            });
+            let log = calls.clone();
+            cx.on_action(move |_: &KeyboardShortcuts, _| {
+                log.borrow_mut().push("Keyboard Shortcuts…")
+            });
+        });
+        for (page, fullscreen) in [(Page::Start, false), (Page::Document, true)] {
+            cx.update_window(handle, |_, window, cx| {
+                view.update(cx, |workspace, _| {
+                    workspace.page = page;
+                    workspace.file_fullscreen = fullscreen;
+                    workspace.sidebar_visible = false;
+                });
+                window.render_frame(cx);
+                let trigger = window.find("application-menu").bounds();
+                assert!(trigger.origin.x >= px(0.) && trigger.right() <= px(800.));
+            })
+            .unwrap();
+            for label in [
+                "About Superfile",
+                "Check for Updates…",
+                "Default File Types…",
+                "Keyboard Shortcuts…",
+            ] {
+                cx.update_window(handle, |_, window, cx| {
+                    click_application_entry(label, window, cx);
+                })
+                .unwrap();
+                assert_eq!(calls.borrow().last(), Some(&label));
+            }
+        }
+        assert_eq!(calls.borrow().len(), 8);
     }
 }

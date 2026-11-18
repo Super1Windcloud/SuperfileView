@@ -1,13 +1,19 @@
 use super::actions::{
-    About, AddFolder, CheckForUpdates, CloseWorkspace, NewFile, NewWindow, OpenFile, OpenFolder,
-    OpenRemote, OpenSettings, Quit, SaveFile, TogglePreview, ToggleSidebar, ToggleWordWrap,
+    About, AddFolder, CheckForUpdates, CloseWindow, DefaultApplications, KeyboardShortcuts,
+    NewFile, NewWindow, OpenFile, OpenFolder, OpenRemote, OpenSettings, OpenThemes, Quit, SaveFile,
+    TogglePreview, ToggleSidebar, ToggleWordWrap,
 };
 use gpui_kit::{App, Menu, MenuItem};
 use superfile_services::locale::tr;
 
 pub(super) fn update(cx: &mut App) {
     cx.set_dock_menu(vec![MenuItem::action(tr("New Window"), NewWindow)]);
-    cx.set_menus(vec![
+    cx.set_menus(definitions());
+}
+
+// Native menus and the in-window menu must expose the same actions on every OS.
+pub(crate) fn definitions() -> Vec<Menu> {
+    vec![
         Menu {
             name: "Superfile".into(),
             disabled: false,
@@ -16,6 +22,9 @@ pub(super) fn update(cx: &mut App) {
                 MenuItem::action(tr("Check for Updates…"), CheckForUpdates),
                 MenuItem::separator(),
                 MenuItem::action(tr("Settings…"), OpenSettings),
+                MenuItem::action(tr("Browse themes…"), OpenThemes),
+                MenuItem::action(tr("Default File Types…"), DefaultApplications),
+                MenuItem::action(tr("Keyboard Shortcuts…"), KeyboardShortcuts),
                 MenuItem::separator(),
                 MenuItem::action(tr("Quit Superfile"), Quit),
             ],
@@ -34,7 +43,7 @@ pub(super) fn update(cx: &mut App) {
                 MenuItem::separator(),
                 MenuItem::action(tr("Save"), SaveFile),
                 MenuItem::separator(),
-                MenuItem::action(tr("Close Window"), CloseWorkspace),
+                MenuItem::action(tr("Close Window"), CloseWindow),
             ],
         },
         Menu {
@@ -47,5 +56,5 @@ pub(super) fn update(cx: &mut App) {
                 MenuItem::action(tr("Word wrap"), ToggleWordWrap),
             ],
         },
-    ]);
+    ]
 }

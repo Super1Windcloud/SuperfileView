@@ -11,7 +11,7 @@ mod icon;
 mod image_http;
 pub(crate) mod languages;
 pub(crate) mod media_prepare;
-mod menus;
+pub(crate) mod menus;
 pub(crate) mod reader_jobs;
 #[cfg(feature = "reader-measurements")]
 pub(crate) mod reader_measurement;
@@ -34,9 +34,9 @@ use crate::views::workspace::Workspace;
 use actions::{
     About, AddFolder, CheckForUpdates, CloseWindow, CloseWorkspace, DefaultApplications,
     KeyboardShortcuts, LanguageChinese, LanguageEnglish, LanguageSystem, NavigateBack,
-    NavigateForward, NewFile, NewWindow, NextTab, OpenFile, OpenFolder, OpenSettings, PreviousTab,
-    Quit, Refresh, SaveFile, SearchWorkspace, ToggleDarkMode, TogglePreview, ToggleSidebar,
-    ToggleWordWrap,
+    NavigateForward, NewFile, NewWindow, NextTab, OpenFile, OpenFolder, OpenSettings, OpenThemes,
+    PreviousTab, Quit, Refresh, SaveFile, SearchWorkspace, ToggleDarkMode, TogglePreview,
+    ToggleSidebar, ToggleWordWrap,
 };
 
 pub struct ReaderPreferences {
@@ -269,6 +269,10 @@ fn apply_appearance(appearance: superfile_services::preferences::Appearance, cx:
 }
 
 fn show_settings(cx: &mut App) {
+    show_preferences(false, cx);
+}
+
+fn show_preferences(themes: bool, cx: &mut App) {
     if updates::busy(cx) {
         return;
     }
@@ -292,7 +296,13 @@ fn show_settings(cx: &mut App) {
         .cloned();
     if let Some((view, handle)) = target {
         let _ = handle.update(cx, |_, window, cx| {
-            let _ = view.update(cx, |view, cx| view.show_settings(window, cx));
+            let _ = view.update(cx, |view, cx| {
+                if themes {
+                    view.show_themes(window, cx);
+                } else {
+                    view.show_settings(window, cx);
+                }
+            });
             window.activate_window();
         });
         cx.activate(true);
@@ -544,6 +554,7 @@ pub fn run() -> Result<()> {
         cx.on_action(|_: &ToggleDarkMode, cx| toggle_dark_mode(cx));
         cx.on_action(|_: &About, cx| show_about(cx));
         cx.on_action(|_: &OpenSettings, cx| show_settings(cx));
+        cx.on_action(|_: &OpenThemes, cx| show_preferences(true, cx));
         cx.on_action(|_: &LanguageSystem, cx| change_language("system", cx));
         cx.on_action(|_: &LanguageChinese, cx| change_language("zh-CN", cx));
         cx.on_action(|_: &LanguageEnglish, cx| change_language("en", cx));

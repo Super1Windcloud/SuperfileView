@@ -305,10 +305,12 @@ fn quick_actions(
                         ))
                         .dropdown_menu(move |mut menu, _, _| {
                             menu = menu.item(
-                                PopupMenuItem::new(superfile_services::locale::tr("This Mac…"))
-                                    .on_click(|_, window, cx| {
-                                        window.dispatch_action(Box::new(OpenFolder), cx)
-                                    }),
+                                PopupMenuItem::new(superfile_services::locale::tr(
+                                    "This Computer…",
+                                ))
+                                .on_click(|_, window, cx| {
+                                    window.dispatch_action(Box::new(OpenFolder), cx)
+                                }),
                             );
                             if !locations.is_empty() {
                                 menu = menu.separator();

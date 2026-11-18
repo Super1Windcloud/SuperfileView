@@ -1,3 +1,4 @@
+mod application_menu;
 mod editing;
 mod file_operations;
 mod gestures;
@@ -119,7 +120,7 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    fn show_themes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn show_themes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.page = Page::Themes;
         self.community_themes.update(cx, |view, cx| view.reload(cx));
         self.results.clear();

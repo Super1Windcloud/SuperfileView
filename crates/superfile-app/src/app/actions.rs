@@ -4,6 +4,7 @@ gpui_kit::actions!(
         NewWindow,
         NewFile,
         OpenSettings,
+        OpenThemes,
         About,
         CheckForUpdates,
         LanguageSystem,
