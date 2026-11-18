@@ -1,5 +1,7 @@
 //! Table presentation consumes admitted cells and emits semantic page requests.
 use crate::views::reader::contract::ReaderHost;
+#[cfg(test)]
+use gpui_kit::TestSupportExt as _;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     base::InteractiveElementExt as _,
@@ -32,6 +34,7 @@ pub(super) struct TableView {
     resume_scroll: Option<(Point<Pixels>, Point<Pixels>)>,
     scroll: UniformListScrollHandle,
     horizontal_scroll: ScrollHandle,
+    text_scale: f32,
 }
 impl EventEmitter<TableRequest> for TableView {}
 impl TableView {
@@ -56,10 +59,23 @@ impl TableView {
             resume_scroll: None,
             scroll: UniformListScrollHandle::new(),
             horizontal_scroll: ScrollHandle::new(),
+            text_scale: 1.,
         }
     }
     pub fn reset_position(&mut self) {
         self.resume_scroll = None;
+    }
+    pub fn set_text_scale(&mut self, scale: f32, cx: &mut Context<Self>) {
+        if self.text_scale == scale {
+            return;
+        }
+        let ratio = scale / self.text_scale;
+        self.text_scale = scale;
+        let handle = self.scroll.0.borrow().base_handle.clone();
+        handle.set_offset(point(px(0.), handle.offset().y * ratio));
+        self.horizontal_scroll
+            .set_offset(point(self.horizontal_scroll.offset().x * ratio, px(0.)));
+        cx.notify();
     }
     pub fn begin(&mut self, format: &'static str, row: usize, column: usize, has_previous: bool) {
         self.format = format;
@@ -131,7 +147,11 @@ impl Render for TableView {
             .columns
             .saturating_sub(self.column_start)
             .min(self.columns_limit);
-        let width = 64. + columns as f32 * 200.;
+        let scale = self.text_scale;
+        let row_height = px(32.) * scale;
+        let row_width = px(64.) * scale;
+        let cell_width = px(200.) * scale;
+        let width = row_width + cell_width * columns as f32;
         let geographic = matches!(self.format, "GPX" | "KML");
         let horizontal = self.horizontal_scroll.clone();
         let vertical = self.scroll.0.borrow().base_handle.clone();
@@ -172,20 +192,20 @@ impl Render for TableView {
             ).absolute().size_full())
 
             .child(div().id("csv-horizontal").flex_1().min_h_0().overflow_x_scroll().track_scroll(&self.horizontal_scroll).child(
-                v_flex().w(px(width)).h_full()
-                    .child(h_flex().h(px(32.)).child(div().w(px(64.)).child((self.host.translate)("Row")))
-                        .children((0..columns).map(|column| div().w(px(200.)).px_3().child(if geographic {
+                v_flex().w(width).h_full().text_size(cx.theme().font_size * scale)
+                    .child(h_flex().h(row_height).child(div().w(row_width).child((self.host.translate)("Row")))
+                        .children((0..columns).map(|column| div().w(cell_width).px_3().child(if geographic {
                             (self.host.translate)(match column { 0 => "Longitude", 1 => "Latitude", _ => "Altitude" })
                         } else { (self.column_start + column + 1).to_string() }))))
                     .child(uniform_list("csv-rows", self.page.rows.len() + 3, cx.processor(move |view, range: std::ops::Range<usize>, _, cx| {
                         range.map(|row| {
-                            if row >= view.page.rows.len() { return div().h(px(32.)).into_any_element(); }
-                            h_flex().h(px(32.)).w_full().overflow_hidden().border_b_1().border_color(cx.theme().border)
-                                .child(div().w(px(64.)).flex_shrink_0().px_2().text_color(cx.theme().muted_foreground)
+                            if row >= view.page.rows.len() { return div().h(row_height).into_any_element(); }
+                            h_flex().h(row_height).w_full().overflow_hidden().border_b_1().border_color(cx.theme().border)
+                                .child(div().w(row_width).flex_shrink_0().px_2().text_color(cx.theme().muted_foreground)
                                     .child((view.row_start + row + 1).to_string()))
                                 .children((0..columns).map(|column| {
                                     let value = view.page.rows[row].get(column).map(String::as_str).unwrap_or("");
-                                    div().id(("csv-cell", row * columns + column)).w(px(200.)).h_full().flex_shrink_0().px_3()
+                                    let cell = div().id(("csv-cell", row * columns + column)).w(cell_width).h_full().flex_shrink_0().px_3()
                                         .flex().items_center().overflow_hidden()
                                         .child(div().w_full().min_w_0().truncate().child(
                                             // Hard line breaks are not suppressed by nowrap.
@@ -194,7 +214,10 @@ impl Render for TableView {
                                                 .map(|ch| if matches!(ch, '\n' | '\r' | '\t' | '\u{0085}' | '\u{2028}' | '\u{2029}') { ' ' } else { ch })
                                                 .collect::<String>()
                                         ))
-                                        .on_double_click(cx.listener(move |view, _, window, cx| view.show_cell(row, column, window, cx)))
+                                        .on_double_click(cx.listener(move |view, _, window, cx| view.show_cell(row, column, window, cx)));
+                                    #[cfg(test)]
+                                    let cell = cell.test_support();
+                                    cell.into_any_element()
                                 })).into_any_element()
                         }).collect()
                     })).track_scroll(&self.scroll).flex_1().min_h_0())

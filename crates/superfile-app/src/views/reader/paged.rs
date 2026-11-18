@@ -16,6 +16,7 @@ pub(super) struct PagedReader {
     suspended: bool,
     expanded: bool,
     resume_scroll: Point<Pixels>,
+    text_scale: f32,
     pub source_editor: Option<super::source::SourceReader>,
     pub controls_bottom: Pixels,
     pub return_to_preview: Option<PreviewAction>,
@@ -67,6 +68,7 @@ impl PagedReader {
             suspended: false,
             expanded: page.end.saturating_sub(page.start) > superfile_services::paged::PAGE_BYTES,
             resume_scroll: point(px(0.), px(0.)),
+            text_scale: 1.,
             _source_owner: page.owner.take(),
             source_editor,
             controls_bottom: px(16.),
@@ -82,6 +84,23 @@ impl PagedReader {
         };
         reader.account();
         reader
+    }
+    pub fn set_text_scale(&mut self, scale: f32, cx: &mut Context<Self>) {
+        if self.text_scale == scale {
+            return;
+        }
+        let ratio = scale / self.text_scale;
+        self.text_scale = scale;
+        if let Some(editor) = &self.source_editor {
+            editor.scale_scroll(ratio, cx);
+        } else {
+            let handle = self.scroll.0.borrow().base_handle.clone();
+            let offset = handle.offset();
+            handle.set_offset(point(offset.x * ratio, offset.y * ratio));
+            self.resume_scroll.x *= ratio;
+            self.resume_scroll.y *= ratio;
+        }
+        cx.notify();
     }
     fn account(&mut self) {
         if self.source_editor.is_some() {
@@ -362,6 +381,8 @@ impl Render for PagedReader {
         let busy = self.task.is_some() || self.saving.get();
         let previous = self.previous.last().copied();
         let next = self.page.end;
+        let scale = self.text_scale;
+        let row_height = px(22.) * scale;
         v_flex()
             .relative()
             .size_full()
@@ -374,22 +395,23 @@ impl Render for PagedReader {
                     .child(e.clone())
             }))
             .child(if let Some(editor) = &mut self.source_editor {
-                editor.render(cx)
+                editor.render(scale, cx)
             } else {
                 uniform_list(
                     "large-text",
                     self.page.rows.len()
-                        + ((f32::from(self.controls_bottom) + 64.) / 22.).ceil() as usize,
-                    cx.processor(|v, range: Range<usize>, _, cx| {
+                        + ((f32::from(self.controls_bottom) + 64.) / f32::from(row_height)).ceil()
+                            as usize,
+                    cx.processor(move |v, range: Range<usize>, _, cx| {
                         range
                             .map(|i| {
                                 if i >= v.page.rows.len() {
-                                    return div().h(px(22.));
+                                    return div().h(row_height);
                                 }
                                 div()
-                                    .h(px(22.))
+                                    .h(row_height)
                                     .px_3()
-                                    .text_sm()
+                                    .text_size(rems(0.875 * scale))
                                     .font_family("Menlo")
                                     .whitespace_nowrap()
                                     .text_color(cx.theme().foreground)

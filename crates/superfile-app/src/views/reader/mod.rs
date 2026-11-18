@@ -75,6 +75,31 @@ pub(super) fn preview_loading(cx: &App) -> AnyElement {
     controls::loading(superfile_services::locale::tr("Loading preview…"), cx)
 }
 
+fn scaled_rich_text_style(
+    style: gpui_kit::base::TextViewStyle,
+    scale: f32,
+    monospace_size: Pixels,
+) -> gpui_kit::base::TextViewStyle {
+    if scale == 1. {
+        return style;
+    }
+    let original = style.clone();
+    let code = style.code_block().clone().text_size(monospace_size * scale);
+    style
+        .with_heading(move |level| {
+            // Match the rich-text renderer's default heading sizes.
+            let size = match level {
+                1 => 28.,
+                2 => 21.,
+                3 => 17.5,
+                4 => 15.75,
+                _ => 14.,
+            };
+            original.heading(level).text_size(px(size * scale))
+        })
+        .with_code_block(code)
+}
+
 pub use crate::views::reader::contract::ArchiveAction;
 
 pub type OpenLink = Arc<dyn Fn(PathBuf, Option<String>, &mut Window, &mut App) + Send + Sync>;
@@ -116,6 +141,27 @@ pub struct Reader {
     structured_controls: Option<Entity<json_format::JsonFormat>>,
 }
 impl Reader {
+    pub(crate) fn zoom_text(&mut self, factor: f32, cx: &mut App) -> bool {
+        let current = self.document.text_scale;
+        let scale = (current * factor).clamp(0.7, 2.5);
+        if let Some(projection) = &self.projection
+            && projection.visible()
+            && !projection.can_zoom_text()
+        {
+            return false;
+        }
+        if let Renderer::Surface(view) = &self.renderer {
+            return view.zoom_text(factor, cx);
+        }
+        if scale != current
+            && let Some(source) = self.source()
+        {
+            source.scale_scroll(scale / current, cx);
+        }
+        self.document.text_scale = scale;
+        true
+    }
+
     pub(crate) fn report_opened(&self, trigger: &'static str) {
         use superfile_services::telemetry::{file_event, flag, text};
         file_event(
@@ -322,12 +368,17 @@ impl Reader {
         .into_any_element()
     }
     fn render_content(&mut self, open: OpenLink, cx: &mut App) -> AnyElement {
-        if let Some(content) = self.projection.as_ref().and_then(Projection::render) {
+        let scale = self.document.text_scale;
+        if let Some(content) = self
+            .projection
+            .as_ref()
+            .and_then(|view| view.render(scale, cx))
+        {
             return content;
         }
         match &mut self.renderer {
-            Renderer::Source(s) => s.render(cx),
-            Renderer::Markup(m) => m.render(open, cx),
+            Renderer::Source(s) => s.render(scale, cx),
+            Renderer::Markup(m) => m.render(open, scale, cx),
             Renderer::Surface(view) => view.render(cx),
             Renderer::Paged {
                 html: Some((browser, true)),
@@ -335,11 +386,15 @@ impl Reader {
             } => {
                 browser.update(cx, |browser, cx| {
                     browser.set_html_open(open);
+                    browser.set_text_scale(scale, cx);
                     browser.open(cx);
                 });
                 browser.clone().into_any_element()
             }
-            Renderer::Paged { view, .. } => view.clone().into_any_element(),
+            Renderer::Paged { view, .. } => {
+                view.update(cx, |page, cx| page.set_text_scale(scale, cx));
+                view.clone().into_any_element()
+            }
         }
     }
 }

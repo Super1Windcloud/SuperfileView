@@ -19,6 +19,7 @@ pub(crate) struct DocumentSession {
     pub snapshot: ContentSnapshot,
     pub draft_directory: Option<PathBuf>,
     pub recovery_key: Option<String>,
+    pub text_scale: f32,
     version: DocumentVersion,
 }
 impl DocumentSession {
@@ -32,6 +33,7 @@ impl DocumentSession {
             snapshot,
             draft_directory: None,
             recovery_key: None,
+            text_scale: 1.,
             version: DocumentVersion {
                 id: NEXT.fetch_add(1, Ordering::Relaxed),
                 revision: 0,
@@ -54,6 +56,7 @@ impl DocumentSession {
         self.version = previous.version;
         self.version.revision += 1;
         self.recovery_key.clone_from(&previous.recovery_key);
+        self.text_scale = previous.text_scale;
     }
 }
 

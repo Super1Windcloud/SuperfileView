@@ -509,7 +509,12 @@ impl crate::views::reader::contract::ReaderView for BookSurface {
         }
     }
 }
-impl super::surface::ReaderSurface for BookSurface {}
+impl super::surface::ReaderSurface for BookSurface {
+    fn zoom_text(&self, factor: f32, cx: &mut App) -> bool {
+        let view = self.view.read(cx).view.clone();
+        view.update(cx, |view, cx| view.zoom_text(factor, cx))
+    }
+}
 impl crate::views::reader::contract::ReaderPersistence for BookSurface {
     fn is_persisting(&self) -> bool {
         self.writing.load(Ordering::SeqCst) || self.pending.lock().unwrap().is_some()

@@ -10,7 +10,7 @@ use crate::{
 use gpui_kit::{
     base::InteractiveElementExt as _,
     component::{
-        ActiveTheme, Icon, Sizable,
+        ActiveTheme, Icon, Sizable, WindowExt,
         button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
         menu::{ContextMenuExt, DropdownMenu, PopupMenuItem},
@@ -157,6 +157,7 @@ impl Render for Workspace {
             content
         };
         let document_page = self.page == Page::Document;
+        let zoom_view = cx.entity().downgrade();
         let gesture_view = cx.entity().downgrade();
         let viewer = v_flex()
             .size_full()
@@ -175,6 +176,35 @@ impl Render for Workspace {
                     .flex_1()
                     .min_h_0()
                     .w_full()
+                    .child(
+                        // Zoom must intercept the wheel before readers with their own
+                        // capture handlers, such as the two-axis CSV table.
+                        canvas(
+                            |bounds, window, _| {
+                                window.insert_hitbox(bounds, HitboxBehavior::Normal)
+                            },
+                            move |_, hitbox, window, _| {
+                                let view = zoom_view.clone();
+                                window.on_mouse_event(
+                                    move |event: &ScrollWheelEvent, phase, window, cx| {
+                                        if document_page
+                                            && phase == DispatchPhase::Capture
+                                            && hitbox.should_handle_scroll(window)
+                                            && !window.has_active_dialog(cx)
+                                        {
+                                            let _ = view.update(cx, |view, cx| {
+                                                if view.zoom_document_text(event, cx) {
+                                                    cx.stop_propagation();
+                                                }
+                                            });
+                                        }
+                                    },
+                                );
+                            },
+                        )
+                        .absolute()
+                        .size_full(),
+                    )
                     .child(content)
                     .child(
                         canvas(

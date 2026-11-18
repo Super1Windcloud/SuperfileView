@@ -21,6 +21,7 @@ pub(super) struct JsonView {
     rows: Vec<(usize, usize)>,
     pending: Vec<(usize, usize)>,
     scroll: UniformListScrollHandle,
+    text_scale: f32,
     memory: Option<WorkingReservation>,
     fold_memory: Option<WorkingReservation>,
 }
@@ -42,6 +43,7 @@ impl JsonView {
             rows: Vec::new(),
             pending: Vec::new(),
             scroll: UniformListScrollHandle::new(),
+            text_scale: 1.,
             memory: None,
         }
     }
@@ -106,6 +108,15 @@ impl JsonView {
         }
         self.clear(false);
     }
+    pub fn set_text_scale(&mut self, scale: f32, cx: &mut Context<Self>) {
+        if self.text_scale == scale {
+            return;
+        }
+        let handle = self.scroll.0.borrow().base_handle.clone();
+        handle.set_offset(point(px(0.), handle.offset().y * (scale / self.text_scale)));
+        self.text_scale = scale;
+        cx.notify();
+    }
     fn rebuild(&mut self) {
         self.rows.clear();
         self.pending.clear();
@@ -150,14 +161,14 @@ impl Render for JsonView {
                                 .flex()
                                 .items_center()
                                 .gap_2()
-                                .h(px(32.))
+                                .h(px(32.) * v.text_scale)
                                 .font_family("Menlo")
                                 .when(row % 2 == 1, |row| {
                                     row.bg(cx.theme().foreground.opacity(0.025))
                                 })
                                 .pl(px(12. + depth.min(20) as f32 * 16.))
                                 .pr_3()
-                                .text_sm()
+                                .text_size(rems(0.875 * v.text_scale))
                                 .on_double_click(cx.listener(move |view, _, window, cx| {
                                     (view.host.action)("data_tree", "value_detail", &[]);
                                     if let Some(node) = view.nodes.get(index) {

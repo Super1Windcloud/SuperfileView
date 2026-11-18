@@ -77,7 +77,13 @@ impl SourceReader {
             .editor()
             .update(cx, |s, cx| s.set_scroll_offset(offset, cx));
     }
-    pub fn render(&mut self, cx: &mut App) -> AnyElement {
+    pub fn scale_scroll(&self, ratio: f32, cx: &mut App) {
+        self.edit.editor().update(cx, |editor, cx| {
+            let offset = editor.scroll_offset();
+            editor.set_scroll_offset(point(offset.x * ratio, offset.y * ratio), cx);
+        });
+    }
+    pub fn render(&mut self, scale: f32, cx: &mut App) -> AnyElement {
         // The toolkit invokes custom menus while updating EditorState. Capture
         // capabilities during rendering instead of re-entering that entity.
         let capabilities = self.edit.editor().read(cx).context_menu_capabilities();
@@ -102,6 +108,7 @@ impl SourceReader {
                     .overflow_hidden()
                     .child(
                         Editor::new(self.edit.editor())
+                            .text_size(cx.theme().mono_font_size * scale)
                             .context_menu(move |menu, _, _| {
                                 super::editor_menu(menu, menu_editable, menu_copyable)
                             })
@@ -189,7 +196,7 @@ impl TextDialog {
 impl Render for TextDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if let Some(source) = &mut self.source {
-            return source.render(cx);
+            return source.render(1., cx);
         }
         if let Some(page) = &self.page {
             return page.clone().into_any_element();

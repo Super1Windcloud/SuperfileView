@@ -12,6 +12,9 @@ impl<T> std::ops::Deref for SurfaceEntity<T> {
 }
 
 pub(super) trait ReaderSurface: crate::views::reader::contract::ReaderView {
+    fn zoom_text(&self, _factor: f32, _cx: &mut App) -> bool {
+        false
+    }
     fn refresh_request(&self, path: &Path, _force: bool, _cx: &App) -> Option<RefreshRequest> {
         Some(RefreshRequest::Reload(path.to_path_buf()))
     }

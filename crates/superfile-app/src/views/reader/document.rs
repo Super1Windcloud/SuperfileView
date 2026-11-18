@@ -1,7 +1,7 @@
 //! Documents rendered with the same GPUI components on every desktop platform.
 use crate::app::reader_jobs::{self, JobClass, Priority};
 use gpui_kit::{
-    base::{TextView, TextViewState},
+    base::{TextView, TextViewState, TextViewStyle},
     component::{ActiveTheme, button::Button, h_flex, v_flex},
     *,
 };
@@ -22,6 +22,7 @@ pub(super) struct DocumentReader {
     pdf: Option<Entity<super::pdf::PdfReader>>,
     database: Option<PathBuf>,
     find: Option<Entity<super::find::FindBar>>,
+    text_scale: f32,
     error: Option<String>,
     history: Vec<u64>,
     html_open: Option<super::OpenLink>,
@@ -40,6 +41,7 @@ impl DocumentReader {
             pdf: None,
             database: None,
             find: None,
+            text_scale: 1.,
             error: None,
             history: Vec::new(),
             html_open: None,
@@ -104,6 +106,12 @@ impl DocumentReader {
     }
     pub fn set_html_open(&mut self, open: super::OpenLink) {
         self.html_open = Some(open);
+    }
+    pub fn set_text_scale(&mut self, scale: f32, cx: &mut Context<Self>) {
+        if self.text_scale != scale {
+            self.text_scale = scale;
+            cx.notify();
+        }
     }
     pub fn reveal_html_anchor(&mut self, _anchor: &str) {}
     pub fn playlist_shuffle(&self) -> Option<bool> {
@@ -247,7 +255,14 @@ impl Render for DocumentReader {
             };
             let base = url::Url::from_file_path(&self.path).ok();
             let open = self.html_open.clone();
+            let style = super::scaled_rich_text_style(
+                TextViewStyle::from_theme(&gpui_kit::base::Theme::global(cx)),
+                self.text_scale,
+                cx.theme().mono_font_size,
+            );
             let text = TextView::new(&state)
+                .text_size(cx.theme().font_size * self.text_scale)
+                .style(style)
                 .scrollable(true)
                 .size_full()
                 .px_6()
@@ -335,7 +350,17 @@ impl super::contract::ReaderView for super::surface::SurfaceEntity<DocumentReade
         }
     }
 }
-impl super::surface::ReaderSurface for super::surface::SurfaceEntity<DocumentReader> {}
+impl super::surface::ReaderSurface for super::surface::SurfaceEntity<DocumentReader> {
+    fn zoom_text(&self, factor: f32, cx: &mut App) -> bool {
+        self.update(cx, |reader, cx| {
+            if reader.state.is_none() {
+                return false;
+            }
+            reader.set_text_scale((reader.text_scale * factor).clamp(0.7, 2.5), cx);
+            true
+        })
+    }
+}
 impl super::contract::PlaybackState for super::surface::SurfaceEntity<DocumentReader> {
     fn playlist_shuffle(&self, cx: &App) -> Option<bool> {
         self.read(cx).playlist_shuffle()

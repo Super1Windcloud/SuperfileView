@@ -210,6 +210,28 @@ impl BookView {
         *self.pending.lock().unwrap() = Some(self.state.clone());
         cx.emit(Request::Persist);
     }
+    fn set_font_size(&mut self, requested: f32, cx: &mut Context<Self>) {
+        let font = requested.clamp(14., 32.);
+        if self.state.font_size == font {
+            return;
+        }
+        let action = if font < self.state.font_size {
+            "font_smaller"
+        } else {
+            "font_larger"
+        };
+        (self.host.action)("ebook", action, &[]);
+        self.state.font_size = font;
+        self.save(cx);
+        cx.notify();
+    }
+    pub fn zoom_text(&mut self, factor: f32, cx: &mut Context<Self>) -> bool {
+        if self.text.is_none() {
+            return false;
+        }
+        self.set_font_size(self.state.font_size * factor, cx);
+        true
+    }
     fn position(&mut self, cx: &mut Context<Self>) {
         if self.loading || self.restore.is_some() || !self.active {
             return;
@@ -339,7 +361,7 @@ impl Render for BookView {
                 })
                 .text_size(px(font))
                 .line_height(relative(self.state.line_height))
-                .style(
+                .style(super::super::scaled_rich_text_style(
                     TextViewStyle::default()
                         .with_foreground(cx.theme().foreground)
                         .with_muted_foreground(cx.theme().muted_foreground)
@@ -348,7 +370,9 @@ impl Render for BookView {
                         .with_border(cx.theme().border)
                         .with_code_background(cx.theme().muted)
                         .with_paragraph_gap(rems(1.2)),
-                )
+                    font / ReadingState::default().font_size,
+                    cx.theme().mono_font_size,
+                ))
                 .image_source(move |uri| images(uri.as_ref()))
                 .on_reveal(move |line, _, _| {
                     let bounds = scroll_reveal.bounds();
@@ -427,10 +451,7 @@ impl Render for BookView {
                             .label("A−")
                             .disabled(font <= 14.)
                             .on_click(cx.listener(|v, _, _, cx| {
-                                (v.host.action)("ebook", "font_smaller", &[]);
-                                v.state.font_size = (v.state.font_size - 2.).max(14.);
-                                v.save(cx);
-                                cx.notify();
+                                v.set_font_size(v.state.font_size - 2., cx);
                             })),
                     )
                     .child(div().text_xs().child(format!("{font:.0}")))
@@ -440,10 +461,7 @@ impl Render for BookView {
                             .label("A+")
                             .disabled(font >= 32.)
                             .on_click(cx.listener(|v, _, _, cx| {
-                                (v.host.action)("ebook", "font_larger", &[]);
-                                v.state.font_size = (v.state.font_size + 2.).min(32.);
-                                v.save(cx);
-                                cx.notify();
+                                v.set_font_size(v.state.font_size + 2., cx);
                             })),
                     )
                     .child(
