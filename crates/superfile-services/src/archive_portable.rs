@@ -1,6 +1,31 @@
 use super::*;
 use std::io::Write;
 
+enum Encoding {
+    Raw,
+    Gzip,
+    Bzip2,
+    Xz,
+    Zstd,
+    Lz4,
+}
+
+fn encoding(extension: &str) -> Option<Encoding> {
+    Some(match extension {
+        "gz" | "tgz" => Encoding::Gzip,
+        "bz2" | "tbz" | "tbz2" => Encoding::Bzip2,
+        "xz" | "txz" => Encoding::Xz,
+        "zst" | "zstd" | "tzst" => Encoding::Zstd,
+        "lz4" => Encoding::Lz4,
+        "tar" => Encoding::Raw,
+        _ => return None,
+    })
+}
+
+pub(super) fn supports(extension: &str) -> bool {
+    encoding(extension).is_some()
+}
+
 pub(super) fn native(
     path: &Path,
     destination: Option<&Path>,
@@ -17,14 +42,14 @@ pub(super) fn native(
         .to_string_lossy()
         .to_ascii_lowercase();
     let input = File::open(path)?;
-    let mut input: Box<dyn Read> = match extension.as_str() {
-        "gz" | "tgz" => Box::new(flate2::read::MultiGzDecoder::new(input)),
-        "bz2" | "tbz" | "tbz2" => Box::new(bzip2::read::MultiBzDecoder::new(input)),
-        "xz" | "txz" => Box::new(xz2::read::XzDecoder::new_multi_decoder(input)),
-        "zst" | "zstd" | "tzst" => Box::new(zstd::stream::read::Decoder::new(input)?),
-        "lz4" => Box::new(lz4_flex::frame::FrameDecoder::new(input)),
-        "tar" => Box::new(input),
-        _ => anyhow::bail!(
+    let mut input: Box<dyn Read> = match encoding(&extension) {
+        Some(Encoding::Gzip) => Box::new(flate2::read::MultiGzDecoder::new(input)),
+        Some(Encoding::Bzip2) => Box::new(bzip2::read::MultiBzDecoder::new(input)),
+        Some(Encoding::Xz) => Box::new(xz2::read::XzDecoder::new_multi_decoder(input)),
+        Some(Encoding::Zstd) => Box::new(zstd::stream::read::Decoder::new(input)?),
+        Some(Encoding::Lz4) => Box::new(lz4_flex::frame::FrameDecoder::new(input)),
+        Some(Encoding::Raw) => Box::new(input),
+        None => anyhow::bail!(
             "This archive format requires an external archive application on this platform"
         ),
     };

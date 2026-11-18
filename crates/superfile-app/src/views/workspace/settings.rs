@@ -1,5 +1,7 @@
 use super::Workspace;
-use crate::app::actions::{CheckForUpdates, DefaultApplications, KeyboardShortcuts};
+use crate::app::actions::{
+    CheckForUpdates, DefaultApplications, KeyboardShortcuts, SupportedFormats,
+};
 use gpui_kit::{
     component::{
         ActiveTheme, Disableable, Icon, Sizable,
@@ -274,6 +276,19 @@ impl Workspace {
                         .child(
                             group()
                                 .child(row("Keyboard Shortcuts…", "", shortcuts))
+                                .child(divider())
+                                .child(row(
+                                    "Supported File Formats",
+                                    "",
+                                    action_button("settings-supported-formats", "View…")
+                                        .accessibility_label(superfile_services::locale::tr(
+                                            "Supported File Formats",
+                                        ))
+                                        .on_click(|_, window, cx| {
+                                            window.dispatch_action(Box::new(SupportedFormats), cx)
+                                        })
+                                        .into_any_element(),
+                                ))
                                 .child(divider())
                                 .child(row(
                                     "Software Update",

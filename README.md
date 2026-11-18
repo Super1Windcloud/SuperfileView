@@ -20,6 +20,8 @@ The application does not use Swift, Quick Look, or WebView-based readers. Markdo
 
 ## Implementation status
 
+Open **Supported File Formats** from the application menu or Settings to search supported extensions, previews, and editing capabilities.
+
 | Area | Current implementation |
 | --- | --- |
 | Workspace | File tree, multiple folders, tabs, navigation, recent workspaces, and session state |

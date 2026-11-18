@@ -1,7 +1,7 @@
 use super::actions::{
     About, AddFolder, CheckForUpdates, CloseWindow, DefaultApplications, KeyboardShortcuts,
     NewFile, NewWindow, OpenFile, OpenFolder, OpenRemote, OpenSettings, OpenThemes, Quit, SaveFile,
-    TogglePreview, ToggleSidebar, ToggleWordWrap,
+    SupportedFormats, TogglePreview, ToggleSidebar, ToggleWordWrap,
 };
 use gpui_kit::{App, Menu, MenuItem};
 use superfile_services::locale::tr;
@@ -25,6 +25,7 @@ pub(crate) fn definitions() -> Vec<Menu> {
                 MenuItem::action(tr("Browse themes…"), OpenThemes),
                 MenuItem::action(tr("Default File Types…"), DefaultApplications),
                 MenuItem::action(tr("Keyboard Shortcuts…"), KeyboardShortcuts),
+                MenuItem::action(tr("Supported File Formats"), SupportedFormats),
                 MenuItem::separator(),
                 MenuItem::action(tr("Quit Superfile"), Quit),
             ],

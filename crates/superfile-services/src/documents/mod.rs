@@ -2,6 +2,7 @@
 use crate::limits as reader_limits;
 use std::path::{Path, PathBuf};
 use superfile_core::Document;
+pub mod format_help;
 pub mod presentation;
 pub mod refresh;
 mod registry;

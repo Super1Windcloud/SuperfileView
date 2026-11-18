@@ -118,6 +118,8 @@ def generated(data, languages, known, icons):
         ])
     rust.extend(['        }', '    }', '}', '', '#[rustfmt::skip]', 'static LANGUAGES: &[(&str, &str)] = &['])
     rust.extend(f'    ({quote(suffix)}, {quote(language)}),' for suffix, language in sorted(languages.items()))
+    rust.extend(['];', '', '#[rustfmt::skip]', 'pub const CATALOG_SUFFIXES: &[&str] = &['])
+    rust.extend(f'    {quote(suffix)},' for suffix in sorted(known))
     rust.extend(['];', ''])
     outputs = {'crates/superfile-core/src/formats_data.rs': '\n'.join(rust)}
     for chinese in (False, True):

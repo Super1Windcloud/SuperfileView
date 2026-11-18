@@ -12,6 +12,14 @@ pub enum PreparedDocument {
     Workbook(crate::spreadsheet::Spreadsheet),
 }
 
+pub(crate) fn is_workbook_extension(extension: &str) -> bool {
+    matches!(extension, "xlsx" | "xlsm")
+}
+
+pub(crate) fn is_text_document_extension(extension: &str) -> bool {
+    matches!(extension, "docx" | "pptx" | "odt" | "odp")
+}
+
 pub fn prepare(path: &Path, cancel: &Cancellation) -> Result<PreparedDocument> {
     cancel.check()?;
     let extension = path
@@ -19,7 +27,7 @@ pub fn prepare(path: &Path, cancel: &Cancellation) -> Result<PreparedDocument> {
         .unwrap_or_default()
         .to_string_lossy()
         .to_ascii_lowercase();
-    if matches!(extension.as_str(), "xlsx" | "xlsm") {
+    if is_workbook_extension(&extension) {
         return Ok(PreparedDocument::Workbook(
             crate::spreadsheet::prepare(path, cancel)?
                 .context("Workbook has no readable worksheets")?,
@@ -31,7 +39,7 @@ pub fn prepare(path: &Path, cancel: &Cancellation) -> Result<PreparedDocument> {
             html: true,
         });
     }
-    if matches!(extension.as_str(), "docx" | "pptx" | "odt" | "odp") {
+    if is_text_document_extension(&extension) {
         let mut archive = zip::ZipArchive::new(File::open(path)?)?;
         let parts = if extension == "docx" {
             vec!["word/document.xml".to_owned()]

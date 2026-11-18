@@ -35,8 +35,8 @@ use actions::{
     About, AddFolder, CheckForUpdates, CloseWindow, CloseWorkspace, DefaultApplications,
     KeyboardShortcuts, LanguageChinese, LanguageEnglish, LanguageSystem, NavigateBack,
     NavigateForward, NewFile, NewWindow, NextTab, OpenFile, OpenFolder, OpenSettings, OpenThemes,
-    PreviousTab, Quit, Refresh, SaveFile, SearchWorkspace, ToggleDarkMode, TogglePreview,
-    ToggleSidebar, ToggleWordWrap,
+    PreviousTab, Quit, Refresh, SaveFile, SearchWorkspace, SupportedFormats, ToggleDarkMode,
+    TogglePreview, ToggleSidebar, ToggleWordWrap,
 };
 
 pub struct ReaderPreferences {
@@ -559,6 +559,7 @@ pub fn run() -> Result<()> {
         cx.on_action(|_: &LanguageChinese, cx| change_language("zh-CN", cx));
         cx.on_action(|_: &LanguageEnglish, cx| change_language("en", cx));
         cx.on_action(|_: &KeyboardShortcuts, cx| shortcuts::open(cx));
+        cx.on_action(|_: &SupportedFormats, cx| crate::views::supported_formats::open(cx));
         cx.on_action(|_: &CheckForUpdates, cx| updates::open(cx));
         cx.bind_keys([
             KeyBinding::new("secondary-q", Quit, None),

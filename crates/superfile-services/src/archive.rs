@@ -27,6 +27,10 @@ pub fn supports(path: &Path) -> bool {
     superfile_core::formats::FormatSet::Archive.matches(path)
 }
 
+pub(crate) fn can_preview_extension(extension: &str) -> bool {
+    extension == "zip" || portable::supports(extension)
+}
+
 fn stem(path: &Path) -> String {
     let name = path.file_name().unwrap_or_default().to_string_lossy();
     let lower = name.to_ascii_lowercase();

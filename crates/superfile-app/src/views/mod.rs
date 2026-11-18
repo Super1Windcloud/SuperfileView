@@ -14,6 +14,7 @@ pub(crate) mod workspace_window;
 mod file_icons;
 pub(crate) mod integrations;
 pub(crate) mod software_update;
+pub(crate) mod supported_formats;
 
 /// Update translated hints without changing input contents or notifying every frame.
 pub(crate) fn sync_input_placeholder(

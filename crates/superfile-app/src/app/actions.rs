@@ -11,6 +11,7 @@ gpui_kit::actions!(
         LanguageChinese,
         LanguageEnglish,
         KeyboardShortcuts,
+        SupportedFormats,
         SearchWorkspace,
         ToggleSidebar,
         TogglePreview,
