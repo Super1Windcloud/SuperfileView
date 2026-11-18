@@ -303,9 +303,9 @@ pub fn prepare(path: &Path, text: Option<&str>, cancel: &Cancellation) -> Result
         "The document no longer declares OpenAPI 3.x or Swagger 2.0; use Source"
     );
     let database = directory.path().join("index.sqlite");
-    let connection = Connection::open(&database)?;
+    let mut connection = Connection::open(&database)?;
     let token = cancel.clone();
-    connection.progress_handler(1000, Some(move || token.check().is_err()));
+    connection.progress_handler(1000, Some(move || token.check().is_err()))?;
     connection.execute_batch(&format!(
         "PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF; PRAGMA cache_size=-{}; PRAGMA temp_store=FILE;
          CREATE TABLE nodes(id INTEGER PRIMARY KEY,parent INTEGER NOT NULL,name TEXT NOT NULL,name_complete INTEGER NOT NULL,kind TEXT NOT NULL,value TEXT NOT NULL DEFAULT '',value_complete INTEGER NOT NULL DEFAULT 1,start INTEGER NOT NULL,length INTEGER NOT NULL DEFAULT 0);

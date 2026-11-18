@@ -155,7 +155,7 @@ pub(crate) fn prepare(
     index.progress_handler(
         reader_limits::MKV_PARSER_OPERATIONS.min(i32::MAX as u64) as i32,
         Some(move || cancellation.check().is_err()),
-    );
+    )?;
     let transaction = index.transaction()?;
     let mut frame = Frame::default();
     let mut origin = u64::MAX;

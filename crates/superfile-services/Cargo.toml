@@ -70,7 +70,7 @@ base64 = "0.22"
 serde = { version = "1", features = ["derive"] }
 roxmltree = "0.21"
 encoding_rs = "0.8"
-rusqlite = { version = "=0.37.0", default-features = false, features = ["hooks", "bundled"] }
+rusqlite = { version = "=0.41.0", default-features = false, features = ["hooks", "bundled", "fallible_uint"] }
 
 # Unsafe is confined to snapshot mapping and native association APIs.
 [lints.rust]

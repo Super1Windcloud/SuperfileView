@@ -3,7 +3,6 @@ use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use std::path::{Path, PathBuf};
 
-use crate::platform::PrivateFileExt;
 mod migration;
 pub(crate) mod sessions;
 
@@ -21,12 +20,16 @@ pub(crate) fn open() -> Result<Connection> {
 pub(crate) fn open_at(directory: &Path) -> Result<Connection> {
     std::fs::create_dir_all(directory)?;
     let path = directory.join("superfile.sqlite3");
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .private_mode(0o600)
-        .open(&path)?;
+    if !path.try_exists()? {
+        // Close the private temporary file before publishing it. Opening and
+        // closing the live file outside SQLite can release its POSIX locks.
+        let empty = tempfile::NamedTempFile::new_in(directory)?.into_temp_path();
+        if let Err(error) = empty.persist_noclobber(&path)
+            && error.error.kind() != std::io::ErrorKind::AlreadyExists
+        {
+            return Err(error).context("Cannot create private Superfile application database");
+        }
+    }
     let mut db = Connection::open(&path).context("Cannot open Superfile application database")?;
     db.busy_timeout(std::time::Duration::from_secs(10))?;
     db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;")?;
@@ -124,6 +127,32 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
     use superfile_core::session::{SessionTab, WorkspaceSession};
+
+    #[test]
+    fn opening_another_wal_connection_preserves_the_active_transaction() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let mut writer = open_at(directory.path())?;
+        assert!(rusqlite::version_number() >= 3_051_003);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = directory
+                .path()
+                .join("superfile.sqlite3")
+                .metadata()?
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+
+        let transaction = writer.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        set_setting(&transaction, "appearance", "dark")?;
+        let reader = open_at(directory.path())?;
+        assert_eq!(setting(&reader, "appearance")?, None);
+        transaction.commit()?;
+        assert_eq!(setting(&reader, "appearance")?.as_deref(), Some("dark"));
+        Ok(())
+    }
 
     #[test]
     fn version_two_sessions_gain_selection_without_changing_tabs_or_recent_order() -> Result<()> {

@@ -49,7 +49,7 @@ pub fn open(path: &Path, cancel: &Cancellation) -> Result<Arc<Database>> {
         .as_ref()
         .ok_or_else(|| anyhow!(snapshot.information.clone()))?;
     // Recovery is allowed only on the private copy, then all browser connections are read-only.
-    let connection = Connection::open(path)?;
+    let mut connection = Connection::open(path)?;
     connection.busy_timeout(Duration::from_millis(
         limits::SQLITE_BUSY_MILLISECONDS as u64,
     ))?;
@@ -61,7 +61,7 @@ pub fn open(path: &Path, cancel: &Cancellation) -> Result<Arc<Database>> {
             token.check().is_err()
                 || started.elapsed() > Duration::from_secs(limits::SQLITE_QUERY_SECONDS)
         }),
-    );
+    )?;
     connection.execute_batch("PRAGMA query_only=ON;")?;
     let tables = connection
         .prepare("SELECT name FROM sqlite_schema WHERE type IN ('table','view') ORDER BY name")?
@@ -77,7 +77,7 @@ impl Database {
         self.snapshot.source_stamp.clone()
     }
     fn connection(&self, cancel: &Cancellation, seconds: u64) -> Result<Connection> {
-        let connection = Connection::open_with_flags(
+        let mut connection = Connection::open_with_flags(
             self.snapshot.database.as_ref().unwrap(),
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
         )?;
@@ -94,7 +94,7 @@ impl Database {
         connection.progress_handler(
             1000,
             Some(move || cancel.check().is_err() || started.elapsed() > allowance),
-        );
+        )?;
         Ok(connection)
     }
     pub fn columns(&self, table: &str, cancel: &Cancellation) -> Result<Columns> {

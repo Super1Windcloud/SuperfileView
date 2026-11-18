@@ -52,7 +52,7 @@ windows-collections = "=0.3.2"
 gpui-kit = { workspace = true, features = ["test-support"] }
 tempfile = "3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
-rusqlite = { version = "=0.37.0", default-features = false }
+rusqlite = { version = "=0.41.0", default-features = false }
 
 # Unsafe is confined to native desktop bridges.
 [lints.rust]
