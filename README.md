@@ -59,6 +59,8 @@ cargo run --locked -p superfile
 cargo run --locked -p superfile -- /absolute/path/to/file-or-folder
 ```
 
+Debug uses incremental compilation and skips debug symbols. For a debugger session, run `cargo --config 'profile.dev.debug=2' run --locked -p superfile`. Release keeps level-3 optimization and ThinLTO, with parallel code generation for the application crate. Run `cargo build --release --locked -p superfile --timings` to measure a release build.
+
 Windows example:
 
 ```powershell

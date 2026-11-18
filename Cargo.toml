@@ -64,10 +64,15 @@ dbg_macro = "deny"
 todo = "deny"
 
 [profile.dev]
-debug = "limited"
+# Omit symbol generation from the default edit/build/run loop.
+debug = 0
 
 [profile.release]
 panic = "unwind"
 lto = "thin"
 codegen-units = 1
 strip = "debuginfo"
+
+[profile.release.package.superfile]
+# Split the final executable's codegen without increasing dependency build work.
+codegen-units = 8

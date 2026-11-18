@@ -18,10 +18,9 @@ fn main() {
 
     println!("cargo:rerun-if-changed=../../assets/locales");
     println!("cargo:rerun-if-changed=../../scripts/check-locales.py");
-    println!("cargo:rerun-if-changed=../../crates/superfile-app/src");
-    println!("cargo:rerun-if-changed=src");
     let checked = python()
         .arg("../../scripts/check-locales.py")
+        .arg("--catalogs-only")
         .status()
         .expect("Check locale catalogs");
     assert!(checked.success(), "Locale catalog validation failed");

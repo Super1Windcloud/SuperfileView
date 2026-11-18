@@ -24,6 +24,14 @@ fn main() {
             .expect("Generate reader policy")
             .success()
     );
+    assert!(
+        python::python()
+            .arg("../../scripts/check-locales.py")
+            .status()
+            .expect("Check localized source strings")
+            .success(),
+        "Locale source validation failed"
+    );
 }
 
 fn embed_application_icon() {

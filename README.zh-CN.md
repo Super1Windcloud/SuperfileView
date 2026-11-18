@@ -59,6 +59,8 @@ cargo run --locked -p superfile
 cargo run --locked -p superfile -- /absolute/path/to/file-or-folder
 ```
 
+Debug 使用增量编译，默认跳过调试符号。需要定位源码或查看变量时，可用 `cargo --config 'profile.dev.debug=2' run --locked -p superfile` 临时开启。Release 保留三级优化和 ThinLTO，应用 crate 使用并行代码生成。可用 `cargo build --release --locked -p superfile --timings` 测量 Release 构建耗时。
+
 Windows 示例：
 
 ```powershell

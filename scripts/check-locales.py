@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Check shared catalogs, source message IDs and interpolation tokens."""
+import argparse
 import json
 import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 errors = []
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--catalogs-only', action='store_true', help='validate catalog data without scanning Rust sources')
+args = parser.parse_args()
 
 def catalog(path):
     def pairs(items):
@@ -39,27 +43,24 @@ for code, messages in catalogs.items():
                 errors.append(f'{code}: placeholder mismatch {key!r}')
         if code == 'en' and re.search(r'[\u4e00-\u9fff]', value):
             errors.append(f'en: Chinese UI text {key!r}')
-for folder, suffix in [('crates', '*.rs')]:
-    for path in (ROOT / folder).rglob(suffix):
-        if 'tests' in path.parts:
+paths = () if args.catalogs_only else (ROOT / 'crates').rglob('*.rs')
+for path in paths:
+    if 'tests' in path.parts:
+        continue
+    source = path.read_text(encoding='utf-8')
+    # User content and diagnostic strings are excluded; direct control labels
+    # must use the shared lookup (product/format names are invariant).
+    controls = r'(?:\.(?:label|tooltip|accessibility_label|menu|menu_with_disabled)|PopupMenuItem::new)\(\s*"([^"\n]+)"'
+    for label in re.findall(controls, source):
+        if re.search(r'[A-Za-z\u4e00-\u9fff]', label) and label not in {'Superfile', 'SQL', 'File', 'Edit', 'A−', 'A+', r'\(Int(size)) pt'}:
+            errors.append(f'{path.relative_to(ROOT)}: unlocalized control {label!r}')
+    for raw in re.findall(r'\b(?:tr|L)\(\s*"((?:[^"\\]|\\.)*)"', path.read_text(encoding='utf-8')):
+        try:
+            key = json.loads('"' + raw + '"')
+        except ValueError:
             continue
-        source = path.read_text(encoding='utf-8')
-        # User content and diagnostic strings are excluded; direct control labels
-        # must use the shared lookup (product/format names are invariant).
-        if path.suffix == '.rs':
-            controls = r'(?:\.(?:label|tooltip|accessibility_label|menu|menu_with_disabled)|PopupMenuItem::new)\(\s*"([^"\n]+)"'
-        else:
-            controls = r'(?:labelWithString:|wrappingLabelWithString:|checkboxWithTitle:|withTitle:|title:|messageText =|column.title =|window.title =)\s*"([^"\n]+)"'
-        for label in re.findall(controls, source):
-            if re.search(r'[A-Za-z\u4e00-\u9fff]', label) and label not in {'Superfile', 'SQL', 'File', 'Edit', 'A−', 'A+', r'\(Int(size)) pt'}:
-                errors.append(f'{path.relative_to(ROOT)}: unlocalized control {label!r}')
-        for raw in re.findall(r'\b(?:tr|L)\(\s*"((?:[^"\\]|\\.)*)"', path.read_text(encoding='utf-8')):
-            try:
-                key = json.loads('"' + raw + '"')
-            except ValueError:
-                continue
-            if key not in base:
-                errors.append(f'{path.relative_to(ROOT)}: missing message ID {key!r}')
+        if key not in base:
+            errors.append(f'{path.relative_to(ROOT)}: missing message ID {key!r}')
 if errors:
     raise SystemExit('\n'.join(errors))
 print(f'Locale catalogs OK: {len(catalogs)} languages, {len(base) - 1} message IDs')
