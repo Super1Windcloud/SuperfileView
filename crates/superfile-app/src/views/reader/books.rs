@@ -510,9 +510,8 @@ impl crate::views::reader::contract::ReaderView for BookSurface {
     }
 }
 impl super::surface::ReaderSurface for BookSurface {
-    fn zoom_text(&self, factor: f32, cx: &mut App) -> bool {
-        let view = self.view.read(cx).view.clone();
-        view.update(cx, |view, cx| view.zoom_text(factor, cx))
+    fn can_zoom_text(&self, cx: &App) -> bool {
+        self.view.read(cx).view.read(cx).has_content()
     }
 }
 impl crate::views::reader::contract::ReaderPersistence for BookSurface {

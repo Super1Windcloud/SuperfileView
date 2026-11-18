@@ -142,21 +142,15 @@ impl Projection {
     pub fn can_zoom_text(&self) -> bool {
         self.error.is_none() && !self.is_openapi()
     }
-    pub fn render(&self, scale: f32, cx: &mut App) -> Option<AnyElement> {
+    pub fn render(&self) -> Option<AnyElement> {
         self.visible.then(|| {
             if let Some(error) = &self.error {
                 return div().p_4().child(error.clone()).into_any_element();
             }
             match &self.view {
                 View::OpenApi(view) => view.clone().into_any_element(),
-                View::Table { view, .. } => {
-                    view.update(cx, |table, cx| table.set_text_scale(scale, cx));
-                    view.clone().into_any_element()
-                }
-                View::Json(view) => {
-                    view.update(cx, |tree, cx| tree.set_text_scale(scale, cx));
-                    view.clone().into_any_element()
-                }
+                View::Table { view, .. } => view.clone().into_any_element(),
+                View::Json(view) => view.clone().into_any_element(),
             }
         })
     }

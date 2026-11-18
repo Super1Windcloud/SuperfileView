@@ -15,6 +15,7 @@ pub(super) struct SourceReader {
     pub edit: crate::app::edit_session::EditSession,
     pub minimap: Entity<Minimap>,
     pub find: Entity<super::find::FindBar>,
+    font_size: Option<Pixels>,
     _minimap_subscription: Subscription,
 }
 impl SourceReader {
@@ -62,6 +63,7 @@ impl SourceReader {
             edit,
             minimap,
             find,
+            font_size: None,
             _minimap_subscription: subscription,
         }
     }
@@ -72,18 +74,23 @@ impl SourceReader {
         self.edit.mark_saved(text, cx);
     }
     pub fn inherit(&mut self, old: &Self, cx: &mut App) {
+        self.font_size = old.font_size;
         let offset = old.edit.editor().read(cx).scroll_offset();
         self.edit
             .editor()
             .update(cx, |s, cx| s.set_scroll_offset(offset, cx));
     }
-    pub fn scale_scroll(&self, ratio: f32, cx: &mut App) {
-        self.edit.editor().update(cx, |editor, cx| {
-            let offset = editor.scroll_offset();
-            editor.set_scroll_offset(point(offset.x * ratio, offset.y * ratio), cx);
-        });
-    }
-    pub fn render(&mut self, scale: f32, cx: &mut App) -> AnyElement {
+    pub fn render(&mut self, cx: &mut App) -> AnyElement {
+        let font_size = crate::app::text_zoom::font_size(cx.theme().mono_font_size, cx);
+        if let Some(previous) = self.font_size.replace(font_size)
+            && font_size != previous
+        {
+            let ratio = f32::from(font_size) / f32::from(previous);
+            self.edit.editor().update(cx, |editor, cx| {
+                let offset = editor.scroll_offset();
+                editor.set_scroll_offset(point(offset.x * ratio, offset.y * ratio), cx);
+            });
+        }
         // The toolkit invokes custom menus while updating EditorState. Capture
         // capabilities during rendering instead of re-entering that entity.
         let capabilities = self.edit.editor().read(cx).context_menu_capabilities();
@@ -108,7 +115,7 @@ impl SourceReader {
                     .overflow_hidden()
                     .child(
                         Editor::new(self.edit.editor())
-                            .text_size(cx.theme().mono_font_size * scale)
+                            .text_size(font_size)
                             .context_menu(move |menu, _, _| {
                                 super::editor_menu(menu, menu_editable, menu_copyable)
                             })
@@ -196,7 +203,7 @@ impl TextDialog {
 impl Render for TextDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if let Some(source) = &mut self.source {
-            return source.render(1., cx);
+            return source.render(cx);
         }
         if let Some(page) = &self.page {
             return page.clone().into_any_element();

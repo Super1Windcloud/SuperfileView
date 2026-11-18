@@ -19,11 +19,6 @@ pub(super) struct JsonTree {
     loaded_text: Option<Arc<TextSnapshot>>,
 }
 impl JsonTree {
-    pub(super) fn set_text_scale(&self, scale: f32, cx: &mut App) {
-        self.view
-            .update(cx, |view, cx| view.set_text_scale(scale, cx));
-    }
-
     pub fn new(format: String, cx: &mut Context<Self>) -> Self {
         Self {
             view: cx.new(|_| {

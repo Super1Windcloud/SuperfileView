@@ -8,6 +8,7 @@ pub type ArchiveAction = Arc<dyn Fn(&mut Window, &mut App) + Send + Sync>;
 pub struct ReaderHost {
     pub translate: fn(&str) -> String,
     pub action: fn(&'static str, &'static str, &[ReaderMetric]),
+    pub font_size: fn(Pixels, &App) -> Pixels,
     pub resources: superfile_core::resources::ResourcePool,
 }
 

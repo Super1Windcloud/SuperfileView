@@ -141,24 +141,15 @@ pub struct Reader {
     structured_controls: Option<Entity<json_format::JsonFormat>>,
 }
 impl Reader {
-    pub(crate) fn zoom_text(&mut self, factor: f32, cx: &mut App) -> bool {
-        let current = self.document.text_scale;
-        let scale = (current * factor).clamp(0.7, 2.5);
+    pub(crate) fn can_zoom_text(&self, cx: &App) -> bool {
         if let Some(projection) = &self.projection
             && projection.visible()
-            && !projection.can_zoom_text()
         {
-            return false;
+            return projection.can_zoom_text();
         }
         if let Renderer::Surface(view) = &self.renderer {
-            return view.zoom_text(factor, cx);
+            return view.can_zoom_text(cx);
         }
-        if scale != current
-            && let Some(source) = self.source()
-        {
-            source.scale_scroll(scale / current, cx);
-        }
-        self.document.text_scale = scale;
         true
     }
 
@@ -368,17 +359,12 @@ impl Reader {
         .into_any_element()
     }
     fn render_content(&mut self, open: OpenLink, cx: &mut App) -> AnyElement {
-        let scale = self.document.text_scale;
-        if let Some(content) = self
-            .projection
-            .as_ref()
-            .and_then(|view| view.render(scale, cx))
-        {
+        if let Some(content) = self.projection.as_ref().and_then(Projection::render) {
             return content;
         }
         match &mut self.renderer {
-            Renderer::Source(s) => s.render(scale, cx),
-            Renderer::Markup(m) => m.render(open, scale, cx),
+            Renderer::Source(s) => s.render(cx),
+            Renderer::Markup(m) => m.render(open, cx),
             Renderer::Surface(view) => view.render(cx),
             Renderer::Paged {
                 html: Some((browser, true)),
@@ -386,15 +372,11 @@ impl Reader {
             } => {
                 browser.update(cx, |browser, cx| {
                     browser.set_html_open(open);
-                    browser.set_text_scale(scale, cx);
                     browser.open(cx);
                 });
                 browser.clone().into_any_element()
             }
-            Renderer::Paged { view, .. } => {
-                view.update(cx, |page, cx| page.set_text_scale(scale, cx));
-                view.clone().into_any_element()
-            }
+            Renderer::Paged { view, .. } => view.clone().into_any_element(),
         }
     }
 }
@@ -402,6 +384,7 @@ impl Reader {
 pub(super) fn host() -> crate::views::reader::contract::ReaderHost {
     crate::views::reader::contract::ReaderHost {
         translate: superfile_services::locale::tr,
+        font_size: crate::app::text_zoom::font_size,
         action: |module, action, metrics| {
             use crate::views::reader::contract::ReaderMetric;
             use superfile_services::telemetry::{flag, number, reader_feature};

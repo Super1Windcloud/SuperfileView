@@ -633,6 +633,7 @@ mod tests {
                         ReaderHost {
                             translate: str::to_owned,
                             action: |_, _, _| {},
+                            font_size: |size, _| size,
                             resources: pool.clone(),
                         },
                         Policy {

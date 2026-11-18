@@ -237,10 +237,10 @@ impl MarkupReader {
             diagrams.update(cx, |diagrams, cx| diagrams.set_active(active, cx));
         }
     }
-    pub fn render(&mut self, open: OpenLink, scale: f32, cx: &mut App) -> AnyElement {
+    pub fn render(&mut self, open: OpenLink, cx: &mut App) -> AnyElement {
         self.set_images_active(self.preview, cx);
         if !self.preview {
-            return self.source.render(scale, cx);
+            return self.source.render(cx);
         }
         if let Some(text) = self.initial_preview.take() {
             let state = self.state.downgrade();
@@ -324,9 +324,11 @@ impl MarkupReader {
         });
         // The viewport owns a virtual block list; offscreen tables are not
         // rebuilt and laid out on every wheel event.
+        let base_size = px(14.);
+        let font_size = crate::app::text_zoom::font_size(base_size, cx);
         let style = super::scaled_rich_text_style(
             TextViewStyle::from_theme(&gpui_kit::base::Theme::global(cx)),
-            scale,
+            f32::from(font_size) / f32::from(base_size),
             cx.theme().mono_font_size,
         );
         let mut table_style = style.table().clone();
@@ -382,7 +384,7 @@ impl MarkupReader {
                 }
             });
         let text_view = TextView::new(&self.state)
-            .text_size(px(14.) * scale)
+            .text_size(font_size)
             .style(style.with_table(table_style))
             .scrollable(true)
             .size_full()

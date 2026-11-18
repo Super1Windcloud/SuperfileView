@@ -78,7 +78,20 @@ On macOS, startup sets the Dock icon from the embedded ICNS, including direct `c
 
 ## Tag releases
 
-Commit and push the workflow and packaging scripts first, then tag that commit:
+From the Superfile checkout, use `just` with Git, Rust, and `uv` (Python 3.11+):
+
+```sh
+just publish-plan           # Preview the next patch release
+just publish                # Publish the next stable patch
+just publish minor          # Increment minor and reset patch to zero
+just publish major          # Increment major and reset minor and patch to zero
+just publish v1.2.3         # Or publish an explicit stable version
+just publish-resume v1.2.3  # Continue an existing tag after an interruption
+```
+
+Use `just publish-plan minor` or `just publish-plan major` to check the target version. `just publish` runs the workspace checks, commits the version and lockfile, pushes `main` and the tag atomically, waits for GitHub Actions, verifies all release assets, and synchronizes Hyperscoop. The default Hyperscoop checkout is `~/demo/hyperscoop`; set `SUPERFILE_HYPERSCOOP` to use another location with its bucket submodule initialized. Git uses the repositories' configured credentials. The public GitHub reads can also use an existing `GH_TOKEN` to avoid anonymous rate limits. If Actions fails, rerun the failed workflow before resuming the same tag.
+
+To trigger the packaging workflow manually, push the workflow and packaging scripts first, then tag that commit:
 
 ```sh
 git tag v0.0.3

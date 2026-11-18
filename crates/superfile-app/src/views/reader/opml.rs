@@ -251,6 +251,7 @@ mod tests {
             ReaderHost {
                 translate: str::to_owned,
                 action: |_, _, _| {},
+                font_size: |size, _| size,
                 resources: superfile_core::resources::ResourcePool::new(0),
             },
         );

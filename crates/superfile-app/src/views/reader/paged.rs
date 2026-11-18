@@ -85,22 +85,17 @@ impl PagedReader {
         reader.account();
         reader
     }
-    pub fn set_text_scale(&mut self, scale: f32, cx: &mut Context<Self>) {
+    fn set_text_scale(&mut self, scale: f32) {
         if self.text_scale == scale {
             return;
         }
         let ratio = scale / self.text_scale;
         self.text_scale = scale;
-        if let Some(editor) = &self.source_editor {
-            editor.scale_scroll(ratio, cx);
-        } else {
-            let handle = self.scroll.0.borrow().base_handle.clone();
-            let offset = handle.offset();
-            handle.set_offset(point(offset.x * ratio, offset.y * ratio));
-            self.resume_scroll.x *= ratio;
-            self.resume_scroll.y *= ratio;
-        }
-        cx.notify();
+        let handle = self.scroll.0.borrow().base_handle.clone();
+        let offset = handle.offset();
+        handle.set_offset(point(offset.x * ratio, offset.y * ratio));
+        self.resume_scroll.x *= ratio;
+        self.resume_scroll.y *= ratio;
     }
     fn account(&mut self) {
         if self.source_editor.is_some() {
@@ -377,11 +372,14 @@ impl PagedReader {
     }
 }
 impl Render for PagedReader {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let busy = self.task.is_some() || self.saving.get();
         let previous = self.previous.last().copied();
         let next = self.page.end;
-        let scale = self.text_scale;
+        let base_size = window.rem_size() * 0.875;
+        let font_size = crate::app::text_zoom::font_size(base_size, cx);
+        let scale = f32::from(font_size) / f32::from(base_size);
+        self.set_text_scale(scale);
         let row_height = px(22.) * scale;
         v_flex()
             .relative()
@@ -395,7 +393,7 @@ impl Render for PagedReader {
                     .child(e.clone())
             }))
             .child(if let Some(editor) = &mut self.source_editor {
-                editor.render(scale, cx)
+                editor.render(cx)
             } else {
                 uniform_list(
                     "large-text",
@@ -411,7 +409,7 @@ impl Render for PagedReader {
                                 div()
                                     .h(row_height)
                                     .px_3()
-                                    .text_size(rems(0.875 * scale))
+                                    .text_size(font_size)
                                     .font_family("Menlo")
                                     .whitespace_nowrap()
                                     .text_color(cx.theme().foreground)

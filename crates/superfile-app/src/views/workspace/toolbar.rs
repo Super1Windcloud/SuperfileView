@@ -535,6 +535,7 @@ mod tests {
         let (handle, view) = open(cx);
         let calls = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         cx.update(|cx| {
+            crate::app::text_zoom::init_test(0, cx);
             let log = calls.clone();
             cx.on_action(move |_: &About, _| log.borrow_mut().push("About Superfile"));
             let log = calls.clone();
@@ -571,6 +572,30 @@ mod tests {
                 })
                 .unwrap();
                 assert_eq!(calls.borrow().last(), Some(&label));
+            }
+            for (label, size) in [
+                ("Increase text size", px(14.)),
+                ("Reset text size", px(13.)),
+            ] {
+                cx.update_window(handle, |_, window, cx| {
+                    window.click("application-menu", cx);
+                    window.within("popup-menu").hover(1usize, cx);
+                    let bounds = window.within("submenu").find("popup-menu").bounds();
+                    assert!(
+                        bounds.origin.x >= px(0.) && bounds.right() <= window.viewport_size().width
+                    );
+                    let mut submenu = window.within("submenu");
+                    let mut menu = submenu.within("popup-menu");
+                    let index = (0usize..10)
+                        .find(|index| {
+                            menu.try_find(*index)
+                                .is_some_and(|item| item.label() == Some(tr(label).as_str()))
+                        })
+                        .unwrap_or_else(|| panic!("Missing view entry: {label}"));
+                    menu.click(index, cx);
+                })
+                .unwrap();
+                cx.update(|cx| assert_eq!(crate::app::text_zoom::font_size(px(13.), cx), size));
             }
         }
         assert_eq!(calls.borrow().len(), 8);

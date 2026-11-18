@@ -65,7 +65,7 @@ impl TableView {
     pub fn reset_position(&mut self) {
         self.resume_scroll = None;
     }
-    pub fn set_text_scale(&mut self, scale: f32, cx: &mut Context<Self>) {
+    fn set_text_scale(&mut self, scale: f32) {
         if self.text_scale == scale {
             return;
         }
@@ -75,7 +75,6 @@ impl TableView {
         handle.set_offset(point(px(0.), handle.offset().y * ratio));
         self.horizontal_scroll
             .set_offset(point(self.horizontal_scroll.offset().x * ratio, px(0.)));
-        cx.notify();
     }
     pub fn begin(&mut self, format: &'static str, row: usize, column: usize, has_previous: bool) {
         self.format = format;
@@ -147,7 +146,10 @@ impl Render for TableView {
             .columns
             .saturating_sub(self.column_start)
             .min(self.columns_limit);
-        let scale = self.text_scale;
+        let base_size = cx.theme().font_size;
+        let font_size = (self.host.font_size)(base_size, cx);
+        let scale = f32::from(font_size) / f32::from(base_size);
+        self.set_text_scale(scale);
         let row_height = px(32.) * scale;
         let row_width = px(64.) * scale;
         let cell_width = px(200.) * scale;
@@ -192,7 +194,7 @@ impl Render for TableView {
             ).absolute().size_full())
 
             .child(div().id("csv-horizontal").flex_1().min_h_0().overflow_x_scroll().track_scroll(&self.horizontal_scroll).child(
-                v_flex().w(width).h_full().text_size(cx.theme().font_size * scale)
+                v_flex().w(width).h_full().text_size(font_size)
                     .child(h_flex().h(row_height).child(div().w(row_width).child((self.host.translate)("Row")))
                         .children((0..columns).map(|column| div().w(cell_width).px_3().child(if geographic {
                             (self.host.translate)(match column { 0 => "Longitude", 1 => "Latitude", _ => "Altitude" })
@@ -281,6 +283,7 @@ mod tests {
         let host = ReaderHost {
             translate: str::to_owned,
             action: |_, _, _| {},
+            font_size: |size, _| size,
             resources: pool.clone(),
         };
         let mut view = TableView::new(host, 3, 10, |_, _, _, _| {});

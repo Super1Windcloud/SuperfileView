@@ -1,7 +1,8 @@
 use super::actions::{
-    About, AddFolder, CheckForUpdates, CloseWindow, DefaultApplications, KeyboardShortcuts,
-    NewFile, NewWindow, OpenFile, OpenFolder, OpenRemote, OpenSettings, OpenThemes, Quit, SaveFile,
-    SupportedFormats, TogglePreview, ToggleSidebar, ToggleWordWrap,
+    About, AddFolder, CheckForUpdates, CloseWindow, DecreaseTextSize, DefaultApplications,
+    IncreaseTextSize, KeyboardShortcuts, NewFile, NewWindow, OpenFile, OpenFolder, OpenRemote,
+    OpenSettings, OpenThemes, Quit, ResetTextSize, SaveFile, SupportedFormats, TogglePreview,
+    ToggleSidebar, ToggleWordWrap,
 };
 use gpui_kit::{App, Menu, MenuItem};
 use superfile_services::locale::tr;
@@ -55,6 +56,10 @@ pub(crate) fn definitions() -> Vec<Menu> {
                 MenuItem::separator(),
                 MenuItem::action(tr("Toggle Preview"), TogglePreview),
                 MenuItem::action(tr("Word wrap"), ToggleWordWrap),
+                MenuItem::separator(),
+                MenuItem::action(tr("Increase text size"), IncreaseTextSize),
+                MenuItem::action(tr("Decrease text size"), DecreaseTextSize),
+                MenuItem::action(tr("Reset text size"), ResetTextSize),
             ],
         },
     ]

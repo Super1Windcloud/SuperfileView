@@ -24,6 +24,7 @@ mod shortcuts;
 pub(crate) mod spreadsheet_prepare;
 pub(crate) mod system_open;
 pub(crate) mod telemetry;
+pub(crate) mod text_zoom;
 pub(crate) mod theme;
 pub(crate) mod updates;
 pub(crate) mod workspace_sessions;
@@ -370,6 +371,7 @@ pub fn run() -> Result<()> {
             Default::default()
         });
     let word_wrap = superfile_services::preferences::word_wrap();
+    let reader_font_offset = superfile_services::preferences::reader_font_offset();
     let appearance = superfile_services::preferences::appearance();
     let theme_preferences = superfile_services::preferences::theme_preferences();
     let theme_scheme = theme_preferences
@@ -453,6 +455,7 @@ pub fn run() -> Result<()> {
                 .take();
             let telemetry = telemetry::shutdown(cx);
             let accent_write = theme::take_write(cx);
+            let text_zoom_write = text_zoom::take_write(cx);
             let recovery = recovery::shutdown(cx);
             let pending = cx.global_mut::<ExplorerSaveTask>().0.take();
             let workspace = cx.global_mut::<WorkspaceSaveTask>().0.take();
@@ -466,6 +469,9 @@ pub fn run() -> Result<()> {
                 .take();
             async move {
                 if let Some(write) = accent_write {
+                    write.await;
+                }
+                if let Some(write) = text_zoom_write {
                     write.await;
                 }
                 for write in reader_writes {
@@ -528,6 +534,7 @@ pub fn run() -> Result<()> {
             csv_preview,
             preview_save_task: None,
         });
+        text_zoom::init(reader_font_offset, cx);
         cx.set_global(OpenWorkspaces::default());
         remote::monitor_status(cx);
         cx.set_global(QuitSession::default());

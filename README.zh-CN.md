@@ -78,6 +78,19 @@ macOS 启动时会从内嵌 ICNS 设置 Dock 图标，因此直接 `cargo run` �
 
 ## Tag 自动发布
 
+在 Superfile 仓库使用 `just`、Git、Rust 和 `uv`（Python 3.11+）：
+
+```sh
+just publish-plan           # 预览下一个补丁版
+just publish                # 发布下一个稳定补丁版
+just publish minor          # 次版本加一，补丁版本归零
+just publish major          # 主版本加一，次版本和补丁版本归零
+just publish v1.2.3         # 指定稳定版本
+just publish-resume v1.2.3  # 中断后从原 tag 继续
+```
+
+可用 `just publish-plan minor` 或 `just publish-plan major` 确认目标版本。`just publish` 会运行工作区检查，提交版本和锁文件，原子推送 `main` 与 tag，等待 GitHub Actions，校验发布附件，并同步 Hyperscoop。默认使用 `~/demo/hyperscoop` 及其 bucket 子模块，可通过 `SUPERFILE_HYPERSCOOP` 指定其他检出路径。Git 使用仓库已有的认证。GitHub 公开数据也可通过已有的 `GH_TOKEN` 读取，以免遇到匿名限流。Actions 失败时，重跑失败的任务后用原 tag 继续。
+
 先将工作流和相关脚本提交、推送到 GitHub，再在该提交上建立版本 tag：
 
 ```sh

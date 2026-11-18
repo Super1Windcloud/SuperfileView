@@ -161,6 +161,44 @@ pub fn word_wrap() -> bool {
 pub fn save_word_wrap(enabled: bool) -> Result<()> {
     set("word-wrap", &enabled.to_string())
 }
+
+pub const MIN_READER_FONT_SIZE: i16 = 6;
+pub const MAX_READER_FONT_SIZE: i16 = 100;
+// The default source editor uses 13 px. Other readers keep their own base sizes.
+const READER_FONT_REFERENCE: i16 = 13;
+const READER_FONT_OFFSET_KEY: &str = "reader-font-offset";
+
+pub fn clamp_reader_font_offset(offset: i16) -> i16 {
+    offset.clamp(
+        MIN_READER_FONT_SIZE - READER_FONT_REFERENCE,
+        MAX_READER_FONT_SIZE - READER_FONT_REFERENCE,
+    )
+}
+
+pub fn reader_font_offset() -> i16 {
+    storage::open()
+        .and_then(|db| reader_font_offset_in(&db))
+        .unwrap_or_default()
+}
+
+fn reader_font_offset_in(db: &rusqlite::Connection) -> Result<i16> {
+    Ok(setting(db, READER_FONT_OFFSET_KEY)?
+        .and_then(|value| value.trim().parse().ok())
+        .map_or(0, clamp_reader_font_offset))
+}
+
+pub fn save_reader_font_offset(offset: i16) -> Result<()> {
+    save_reader_font_offset_in(&storage::open()?, offset)
+}
+
+fn save_reader_font_offset_in(db: &rusqlite::Connection, offset: i16) -> Result<()> {
+    set_setting(
+        db,
+        READER_FONT_OFFSET_KEY,
+        &clamp_reader_font_offset(offset).to_string(),
+    )
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Appearance {
     #[default]
@@ -399,6 +437,28 @@ fn save_groups(
     storage::sessions::save(&tx, scope, groups)?;
     tx.commit()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod reader_font_tests {
+    use super::*;
+
+    #[test]
+    fn reader_font_offset_and_reset_survive_reopening() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut db = storage::open_at(directory.path()).unwrap();
+        assert_eq!(reader_font_offset_in(&db).unwrap(), 0);
+        for offset in [3, -2, 0] {
+            save_reader_font_offset_in(&db, offset).unwrap();
+            drop(db);
+            db = storage::open_at(directory.path()).unwrap();
+            assert_eq!(reader_font_offset_in(&db).unwrap(), offset);
+        }
+        set_setting(&db, READER_FONT_OFFSET_KEY, "999").unwrap();
+        assert_eq!(reader_font_offset_in(&db).unwrap(), 87);
+        set_setting(&db, READER_FONT_OFFSET_KEY, "invalid").unwrap();
+        assert_eq!(reader_font_offset_in(&db).unwrap(), 0);
+    }
 }
 
 #[cfg(test)]

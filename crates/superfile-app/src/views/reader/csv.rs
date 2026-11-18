@@ -27,11 +27,6 @@ pub(super) struct CsvTable {
     _subscription: Subscription,
 }
 impl CsvTable {
-    pub(super) fn set_text_scale(&self, scale: f32, cx: &mut App) {
-        self.view
-            .update(cx, |view, cx| view.set_text_scale(scale, cx));
-    }
-
     pub fn new(cx: &mut Context<Self>) -> Self {
         let view = cx.new(|_| {
             TableView::new(

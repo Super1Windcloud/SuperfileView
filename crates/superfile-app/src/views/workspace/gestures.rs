@@ -22,25 +22,20 @@ impl Workspace {
         {
             return false;
         }
-        let steps = match event.delta {
-            ScrollDelta::Lines(delta) if delta.y != 0. && delta.y.is_finite() => delta.y.signum(),
-            ScrollDelta::Pixels(delta) => f32::from(delta.y) / 40.,
-            _ => return false,
+        let delta_y = match event.delta {
+            ScrollDelta::Lines(delta) => delta.y,
+            ScrollDelta::Pixels(delta) => f32::from(delta.y),
         };
-        if steps == 0. || !steps.is_finite() {
+        if delta_y == 0.
+            || !delta_y.is_finite()
+            || !self
+                .active_reader()
+                .is_some_and(|reader| reader.can_zoom_text(cx))
+        {
             return false;
         }
-        let Some(reader) = self.active.and_then(|index| self.tabs.get_mut(index)) else {
-            return false;
-        };
-        let previous = reader.document.text_scale;
-        if !reader.zoom_text(1.12_f32.powf(steps.clamp(-3., 3.)), cx) {
-            return false;
-        }
+        crate::app::text_zoom::adjust(if delta_y > 0. { 1 } else { -1 }, cx);
         self.history_swipe = None;
-        if reader.document.text_scale != previous {
-            cx.notify();
-        }
         true
     }
 
@@ -105,6 +100,7 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::Workspace;
+    use crate::app::text_zoom;
     use crate::views::{reader::Reader, workspace::Page};
     use gpui_kit::{
         AppContext, Bounds, InputEvent, Modifiers, Pixels, PlatformInput, Point, ScrollDelta,
@@ -114,9 +110,13 @@ mod tests {
     use superfile_core::{Document, DocumentKind};
 
     fn wheel(position: Point<Pixels>, y: f32, modifiers: Modifiers) -> PlatformInput {
+        scroll(position, ScrollDelta::Lines(point(0., y)), modifiers)
+    }
+
+    fn scroll(position: Point<Pixels>, delta: ScrollDelta, modifiers: Modifiers) -> PlatformInput {
         ScrollWheelEvent {
             position,
-            delta: ScrollDelta::Lines(point(0., y)),
+            delta,
             modifiers,
             touch_phase: TouchPhase::Moved,
         }
@@ -124,7 +124,7 @@ mod tests {
     }
 
     #[gpui_kit::test]
-    fn modifier_wheel_changes_the_rendered_text_size_only_in_the_active_document(
+    fn modifier_scroll_steps_and_reset_update_text_across_tabs_and_windows(
         cx: &mut TestAppContext,
     ) {
         let text = "Readable document text\n".repeat(200);
@@ -133,43 +133,59 @@ mod tests {
             platform: cfg!(target_os = "macos"),
             ..Modifiers::default()
         };
-        let (handle, workspace) = cx.update(|cx| {
+        let (handle, workspace, other_handle, other_workspace) = cx.update(|cx| {
             gpui_kit::init(cx);
             crate::app::remote::init(Default::default(), cx);
-            gpui_kit::open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(Bounds::new(
-                        point(px(0.), px(0.)),
-                        size(px(1000.), px(700.)),
-                    ))),
-                    ..Default::default()
-                },
+            text_zoom::init_test(0, cx);
+            let open = |files: &[(&str, &str)], cx: &mut gpui_kit::App| {
+                gpui_kit::open_window(
+                    WindowOptions {
+                        window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                            point(px(0.), px(0.)),
+                            size(px(1000.), px(700.)),
+                        ))),
+                        ..Default::default()
+                    },
+                    cx,
+                    |window, cx| {
+                        cx.new(|cx| {
+                            let mut workspace = Workspace::new(None, window, cx);
+                            workspace.page = Page::Document;
+                            workspace.active = Some(0);
+                            for &(path, text) in files {
+                                workspace.tabs.push(Reader::new(
+                                    Document {
+                                        path: path.into(),
+                                        kind: DocumentKind::Text,
+                                        text: text.into(),
+                                    },
+                                    window,
+                                    cx,
+                                ));
+                            }
+                            workspace
+                        })
+                    },
+                )
+                .unwrap()
+            };
+            let (handle, workspace) = open(
+                &[
+                    ("first.txt", &text),
+                    ("second.csv", "name,value\nexample,123\n"),
+                ],
                 cx,
-                |window, cx| {
-                    cx.new(|cx| {
-                        let mut workspace = Workspace::new(None, window, cx);
-                        workspace.page = Page::Document;
-                        workspace.active = Some(0);
-                        for (path, text) in [
-                            ("first.txt", text.clone()),
-                            ("second.csv", "name,value\nexample,123\n".into()),
-                        ] {
-                            workspace.tabs.push(Reader::new(
-                                Document {
-                                    path: path.into(),
-                                    kind: DocumentKind::Text,
-                                    text,
-                                },
-                                window,
-                                cx,
-                            ));
-                        }
-                        workspace
-                    })
-                },
-            )
-            .unwrap()
+            );
+            let (other_handle, other_workspace) = open(&[("other.txt", &text)], cx);
+            (handle, workspace, other_handle, other_workspace)
         });
+        let other_initial_height = cx
+            .update_window(other_handle, |_, window, cx| {
+                window.render_frame(cx);
+                let editor = other_workspace.read(cx).tabs[0].editor().unwrap();
+                editor.read(cx).line_height().unwrap()
+            })
+            .unwrap();
         cx.update_window(handle, |_, window, cx| {
             window.render_frame(cx);
             let editor = workspace.read(cx).tabs[0].editor().unwrap();
@@ -181,19 +197,36 @@ mod tests {
             assert!(editor.read(cx).scroll_offset().y < px(0.));
 
             window.dispatch_event(wheel(point(px(1.), px(1.)), 3., primary), cx);
-            assert_eq!(workspace.read(cx).tabs[0].document.text_scale, 1.);
+            assert_eq!(text_zoom::font_size(px(13.), cx), px(13.));
 
             window.dispatch_event(wheel(viewport.center(), 3., primary), cx);
             window.render_frame(cx);
             let enlarged = editor.read(cx).line_height().unwrap();
             assert!(enlarged > initial_height);
-            assert_eq!(workspace.read(cx).tabs[1].document.text_scale, 1.);
+            assert_eq!(text_zoom::font_size(px(13.), cx), px(14.));
             assert_eq!(editor.read(cx).text().to_string(), text);
             assert!(!workspace.read(cx).tabs[0].is_dirty());
 
-            window.dispatch_event(wheel(viewport.center(), -3., primary), cx);
+            window.dispatch_event(
+                scroll(
+                    viewport.center(),
+                    ScrollDelta::Pixels(point(px(0.), px(-160.))),
+                    primary,
+                ),
+                cx,
+            );
             window.render_frame(cx);
-            assert!(editor.read(cx).line_height().unwrap() < enlarged);
+            assert_eq!(editor.read(cx).line_height(), Some(initial_height));
+            assert_eq!(text_zoom::font_size(px(13.), cx), px(13.));
+            window.dispatch_event(
+                scroll(
+                    viewport.center(),
+                    ScrollDelta::Pixels(point(px(0.), px(0.25))),
+                    primary,
+                ),
+                cx,
+            );
+            assert_eq!(text_zoom::font_size(px(13.), cx), px(14.));
             workspace.update(cx, |view, cx| {
                 view.active = Some(1);
                 view.tabs[1].set_preview(true, cx);
@@ -202,6 +235,12 @@ mod tests {
         })
         .unwrap();
         cx.run_until_parked();
+        cx.update_window(other_handle, |_, window, cx| {
+            window.render_frame(cx);
+            let editor = other_workspace.read(cx).tabs[0].editor().unwrap();
+            assert!(editor.read(cx).line_height().unwrap() > other_initial_height);
+        })
+        .unwrap();
         cx.update_window(handle, |_, window, cx| {
             window.render_frame(cx);
             let cell = window.find(("csv-cell", 0usize)).bounds();
@@ -209,7 +248,22 @@ mod tests {
             window.render_frame(cx);
             let resized = window.find(("csv-cell", 0usize)).bounds();
             assert!(resized.size.height > cell.size.height);
-            assert!(workspace.read(cx).tabs[1].document.text_scale > 1.);
+            assert_eq!(text_zoom::font_size(px(13.), cx), px(15.));
+        })
+        .unwrap();
+        cx.simulate_keystrokes(
+            handle,
+            if cfg!(target_os = "macos") {
+                "cmd-0"
+            } else {
+                "ctrl-0"
+            },
+        );
+        cx.update_window(other_handle, |_, window, cx| {
+            window.render_frame(cx);
+            let editor = other_workspace.read(cx).tabs[0].editor().unwrap();
+            assert_eq!(editor.read(cx).line_height(), Some(other_initial_height));
+            assert_eq!(text_zoom::font_size(px(13.), cx), px(13.));
         })
         .unwrap();
     }

@@ -225,13 +225,6 @@ impl BookView {
         self.save(cx);
         cx.notify();
     }
-    pub fn zoom_text(&mut self, factor: f32, cx: &mut Context<Self>) -> bool {
-        if self.text.is_none() {
-            return false;
-        }
-        self.set_font_size(self.state.font_size * factor, cx);
-        true
-    }
     fn position(&mut self, cx: &mut Context<Self>) {
         if self.loading || self.restore.is_some() || !self.active {
             return;
@@ -308,7 +301,8 @@ impl BookView {
 impl Render for BookView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let tr = self.host.translate;
-        let font = self.state.font_size;
+        let base_size = self.state.font_size;
+        let font = (self.host.font_size)(px(base_size), cx);
         let paper = if self.state.paper {
             cx.theme()
                 .background
@@ -359,7 +353,7 @@ impl Render for BookView {
                 } else {
                     cx.theme().font_family.clone()
                 })
-                .text_size(px(font))
+                .text_size(font)
                 .line_height(relative(self.state.line_height))
                 .style(super::super::scaled_rich_text_style(
                     TextViewStyle::default()
@@ -370,7 +364,7 @@ impl Render for BookView {
                         .with_border(cx.theme().border)
                         .with_code_background(cx.theme().muted)
                         .with_paragraph_gap(rems(1.2)),
-                    font / ReadingState::default().font_size,
+                    f32::from(font) / ReadingState::default().font_size,
                     cx.theme().mono_font_size,
                 ))
                 .image_source(move |uri| images(uri.as_ref()))
@@ -449,17 +443,17 @@ impl Render for BookView {
                         Button::new("book-font-smaller")
                             .small()
                             .label("A−")
-                            .disabled(font <= 14.)
+                            .disabled(base_size <= 14.)
                             .on_click(cx.listener(|v, _, _, cx| {
                                 v.set_font_size(v.state.font_size - 2., cx);
                             })),
                     )
-                    .child(div().text_xs().child(format!("{font:.0}")))
+                    .child(div().text_xs().child(format!("{base_size:.0}")))
                     .child(
                         Button::new("book-font-larger")
                             .small()
                             .label("A+")
-                            .disabled(font >= 32.)
+                            .disabled(base_size >= 32.)
                             .on_click(cx.listener(|v, _, _, cx| {
                                 v.set_font_size(v.state.font_size + 2., cx);
                             })),
@@ -858,6 +852,7 @@ mod tests {
                         ReaderHost {
                             translate: str::to_owned,
                             action: |_, _, _| {},
+                            font_size: |size, _| size,
                             resources: pool.clone(),
                         },
                         Policy {

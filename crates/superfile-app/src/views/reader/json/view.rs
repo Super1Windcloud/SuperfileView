@@ -108,14 +108,13 @@ impl JsonView {
         }
         self.clear(false);
     }
-    pub fn set_text_scale(&mut self, scale: f32, cx: &mut Context<Self>) {
+    fn set_text_scale(&mut self, scale: f32) {
         if self.text_scale == scale {
             return;
         }
         let handle = self.scroll.0.borrow().base_handle.clone();
         handle.set_offset(point(px(0.), handle.offset().y * (scale / self.text_scale)));
         self.text_scale = scale;
-        cx.notify();
     }
     fn rebuild(&mut self) {
         self.rows.clear();
@@ -138,12 +137,16 @@ impl JsonView {
     }
 }
 impl Render for JsonView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let base_size = window.rem_size() * 0.875;
+        let font_size = (self.host.font_size)(base_size, cx);
+        let scale = f32::from(font_size) / f32::from(base_size);
+        self.set_text_scale(scale);
         v_flex().size_full().min_h_0().child(
             uniform_list(
                 "json-tree",
                 self.rows.len(),
-                cx.processor(|v, range: std::ops::Range<usize>, _, cx| {
+                cx.processor(move |v, range: std::ops::Range<usize>, _, cx| {
                     range
                         .map(|row| {
                             let (index, depth) = v.rows[row];
@@ -161,14 +164,14 @@ impl Render for JsonView {
                                 .flex()
                                 .items_center()
                                 .gap_2()
-                                .h(px(32.) * v.text_scale)
+                                .h(px(32.) * scale)
                                 .font_family("Menlo")
                                 .when(row % 2 == 1, |row| {
                                     row.bg(cx.theme().foreground.opacity(0.025))
                                 })
                                 .pl(px(12. + depth.min(20) as f32 * 16.))
                                 .pr_3()
-                                .text_size(rems(0.875 * v.text_scale))
+                                .text_size(font_size)
                                 .on_double_click(cx.listener(move |view, _, window, cx| {
                                     (view.host.action)("data_tree", "value_detail", &[]);
                                     if let Some(node) = view.nodes.get(index) {
@@ -247,6 +250,7 @@ mod tests {
             resources: pool.clone(),
             translate: str::to_owned,
             action: |_, _, _| {},
+            font_size: |size, _| size,
         };
         let mut view = JsonView::new(host, 8, |_, _, _, _| {});
         let mut nodes = TreeBuilder::new(&pool);

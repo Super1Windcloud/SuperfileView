@@ -14,7 +14,7 @@ use superfile_services::{
 struct ValueEditor(super::source::SourceReader);
 impl Render for ValueEditor {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.0.render(1., cx)
+        self.0.render(cx)
     }
 }
 
