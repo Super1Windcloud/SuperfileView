@@ -122,3 +122,16 @@ cargo run --locked -p superfile
   - Motivation and implementation background
   - Defensive design and cross-platform handling
   - Automated verification evidence and test results
+
+---
+
+## 7. Required Hyperscoop Bucket Synchronization After Releases
+
+Every Superfile release task includes updating its Hyperscoop bucket after successful publication. An authorized release also authorizes these associated manifest and submodule-pointer commits and pushes; do not ask for a separate confirmation solely for this synchronization. A status-only request does not authorize publication or bucket changes.
+
+1. Confirm the GitHub Release and Windows x64 portable ZIP are published. Read the actual version, asset URL and SHA-256 from the release metadata, `latest.json` and `SHA256SUMS.txt`. Failed, cancelled or incomplete releases must not advance the bucket; the stable manifest must follow the published stable channel.
+2. Update `/Users/super/demo/hyperscoop/hyperscoop_source_bucket/bucket/superfile.json`. Preserve its command shim, Start menu shortcut and working `checkver`/`autoupdate` rules. Use the portable ZIP and its verified hash, without inventing asset names or checksum sidecars.
+3. Download and hash the ZIP, verify its x64 PE architecture and the executable paths referenced by `bin` and `shortcuts`, and validate the official Scoop schema and update URL/checksum extraction rules. Report Windows installation as unverified unless it was actually exercised.
+4. Inspect both repositories for unrelated changes. Commit only the Superfile manifest in the `hyperscoop_source_bucket` submodule and push its configured upstream (currently `master`) first.
+5. Update, commit and push only the submodule pointer in `/Users/super/demo/hyperscoop` to its configured upstream (currently `main`). A bucket addition alone does not require releasing a new Hyperscoop binary.
+6. Verify both remote refs, the remote manifest content and the parent pointer. Report the released version, bucket commit, parent commit and validation results. The release task is incomplete until both pushes are verified, or a concrete blocker is reported.
