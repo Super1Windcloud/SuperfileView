@@ -12,7 +12,7 @@ fn application(id: String, cancel: &Cancellation) -> Application {
     let path = native::application_path(&id);
     let info = path
         .as_ref()
-        .and_then(|path| read_info(&path.join("Contents/Info.plist"), cancel).ok());
+        .and_then(|path| read_application_info(path, cancel).ok());
     let name = info
         .as_ref()
         .and_then(Value::as_dictionary)
@@ -179,6 +179,25 @@ fn read_info(path: &Path, cancel: &Cancellation) -> Result<Value> {
         .with_context(|| format!("Cannot read {}", path.display()))
 }
 
+fn read_application_info(bundle: &Path, cancel: &Cancellation) -> Result<Value> {
+    for relative in [
+        "Contents/Info.plist",
+        "WrappedBundle/Info.plist",
+        "Info.plist",
+    ] {
+        cancel.check()?;
+        let path = bundle.join(relative);
+        match read_info(&path, cancel) {
+            Err(error)
+                if error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) => {}
+            result => return result,
+        }
+    }
+    anyhow::bail!("No Info.plist found in application bundle");
+}
+
 fn discover_applications(
     root: PathBuf,
     paths: &mut BTreeSet<PathBuf>,
@@ -246,12 +265,11 @@ pub(super) fn scan(cancel: &Cancellation) -> Result<Snapshot> {
     }
     for application in paths {
         cancel.check()?;
-        let path = application.join("Contents/Info.plist");
-        match read_info(&path, cancel) {
+        match read_application_info(&application, cancel) {
             Ok(info) => types.read(&info),
             Err(error) => {
                 cancel.check()?;
-                super::warning(&mut snapshot, format!("{}: {error}", path.display()));
+                super::warning(&mut snapshot, format!("{}: {error}", application.display()));
             }
         }
     }
@@ -287,27 +305,7 @@ pub(super) fn scan(cancel: &Cancellation) -> Result<Snapshot> {
         let application = native::handler(&identifier).map(|id| {
             applications
                 .entry(id.clone())
-                .or_insert_with(|| {
-                    let path = native::application_path(&id);
-                    let info = path
-                        .as_ref()
-                        .and_then(|path| read_info(&path.join("Contents/Info.plist"), cancel).ok());
-                    let name = info
-                        .as_ref()
-                        .and_then(Value::as_dictionary)
-                        .and_then(|info| {
-                            info.get("CFBundleDisplayName")
-                                .or_else(|| info.get("CFBundleName"))
-                        })
-                        .and_then(Value::as_string)
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| id.clone());
-                    Application {
-                        name,
-                        identifier: Some(id),
-                        path,
-                    }
-                })
+                .or_insert_with(|| application(id, cancel))
                 .clone()
         });
         snapshot.associations.push(Association {
@@ -324,6 +322,37 @@ pub(super) fn scan(cancel: &Cancellation) -> Result<Snapshot> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_wrapped_and_flat_application_metadata_with_native_layout_precedence() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let bundle = directory.path().join("Example.app");
+        let wrapped = bundle.join("Wrapper/Runner.app");
+        std::fs::create_dir_all(&wrapped)?;
+        std::os::unix::fs::symlink("Wrapper/Runner.app", bundle.join("WrappedBundle"))?;
+        let cancel = Cancellation::default();
+        assert!(read_application_info(&bundle, &cancel).is_err());
+
+        let mut metadata = plist_parser::Dictionary::new();
+        metadata.insert(
+            "CFBundleDisplayName".into(),
+            Value::String("Wrapped".into()),
+        );
+        let wrapped_info = Value::Dictionary(metadata.clone());
+        wrapped_info.to_file_xml(wrapped.join("Info.plist"))?;
+        assert_eq!(read_application_info(&wrapped, &cancel)?, wrapped_info);
+        assert_eq!(read_application_info(&bundle, &cancel)?, wrapped_info);
+
+        let contents = bundle.join("Contents");
+        std::fs::create_dir(&contents)?;
+        metadata.insert("CFBundleDisplayName".into(), Value::String("Native".into()));
+        let native_info = Value::Dictionary(metadata);
+        native_info.to_file_xml(contents.join("Info.plist"))?;
+        assert_eq!(read_application_info(&bundle, &cancel)?, native_info);
+        std::fs::write(contents.join("Info.plist"), "malformed plist")?;
+        assert!(read_application_info(&bundle, &cancel).is_err());
+        Ok(())
+    }
 
     #[test]
     fn system_and_application_declarations_include_legacy_types_and_user_overrides() {
