@@ -2,7 +2,7 @@
 mod install;
 #[cfg(test)]
 mod tests;
-pub use gpui_updater_core::{CancelToken, Release, Version};
+pub use gpui_updater_core::{Asset, CancelToken, Release, Version};
 pub use install::{Installed, PreparedUpdate};
 
 use anyhow::{Context, Result, ensure};
@@ -10,10 +10,7 @@ use gpui_updater_core::{
     BundleVersion, CodeSigning, EngineConfig, StaticManifestSource, UpdateEngine, UpdateSource,
     Verification,
 };
-use std::{
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::path::PathBuf;
 
 pub const DEFAULT_MANIFEST_URL: &str =
     "https://github.com/Super1Windcloud/SuperfileView/releases/latest/download/latest.json";
@@ -164,19 +161,9 @@ pub fn relaunch(executable: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-#[derive(Clone, Debug)]
-pub struct Preferences {
-    pub startup: bool,
-    pub last_check: u64,
-}
-pub fn preferences() -> Result<Preferences> {
+pub fn startup_enabled() -> Result<bool> {
     let db = crate::storage::open()?;
-    Ok(Preferences {
-        startup: crate::storage::setting(&db, "update-startup")?.as_deref() != Some("false"),
-        last_check: crate::storage::setting(&db, "update-last-check")?
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(0),
-    })
+    Ok(crate::storage::setting(&db, "update-startup")?.as_deref() != Some("false"))
 }
 pub fn save_startup(enabled: bool) -> Result<()> {
     crate::storage::set_setting(
@@ -185,19 +172,6 @@ pub fn save_startup(enabled: bool) -> Result<()> {
         &enabled.to_string(),
     )
 }
-pub fn record_check() -> Result<()> {
-    crate::storage::set_setting(
-        &crate::storage::open()?,
-        "update-last-check",
-        &now().to_string(),
-    )
-}
-pub fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs())
-}
-
 fn cancelled(cancel: &CancelToken) -> Result<()> {
     ensure!(!cancel.is_cancelled(), "Update cancelled");
     Ok(())

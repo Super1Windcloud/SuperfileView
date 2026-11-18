@@ -1,7 +1,7 @@
 use crate::app::updates::{Phase, State};
 use gpui_kit::{
     component::{
-        ActiveTheme, Disableable,
+        ActiveTheme, Disableable, WindowExt,
         button::{Button, ButtonVariants},
         v_flex,
     },
@@ -87,6 +87,11 @@ impl Render for SoftwareUpdate {
                         .child(tr(&message)),
                 )
             })
+            .when(phase == Phase::Ready && can_install, |view| {
+                view.child(div().text_sm().child(tr(
+                    "The update has been downloaded. Restart Superfile to finish updating.",
+                )))
+            })
             .when(
                 matches!(phase, Phase::Downloading | Phase::Cancelling),
                 |view| {
@@ -141,6 +146,14 @@ impl Render for SoftwareUpdate {
                         }),
                 )
             })
+            .when(phase == Phase::Ready, |view| {
+                view.child(
+                    Button::new("update-later")
+                        .ghost()
+                        .label(tr("Later"))
+                        .on_click(|_, window, cx| window.close_dialog(cx)),
+                )
+            })
             .when_some(artifact, |view, artifact| {
                 view.child(
                     Button::new("update-show-download")
@@ -169,7 +182,7 @@ impl Render for SoftwareUpdate {
             .child(
                 Button::new("update-startup")
                     .ghost()
-                    .label(tr("Check for updates on startup"))
+                    .label(tr("Check and download updates on startup"))
                     .icon(if startup {
                         gpui_kit::assets::IconName::Check
                     } else {

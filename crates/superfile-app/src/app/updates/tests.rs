@@ -2,8 +2,100 @@ use super::{
     CancelToken, Phase, State, Updates, busy, interrupt_for_files, prepare_quit, queue_files,
 };
 use gpui_kit::{
-    AppContext, Bounds, TestAppContext, WindowBounds, WindowOptions, px, size, test::TestWindowExt,
+    AppContext, Bounds, TestAppContext, WindowBounds, WindowOptions, component::WindowExt, px,
+    size, test::TestWindowExt,
 };
+
+#[gpui_kit::test]
+fn startup_check_starts_a_download_while_a_manual_check_waits_for_confirmation(
+    cx: &mut TestAppContext,
+) {
+    use superfile_services::updates::{Asset, Release, Version};
+
+    let release = Release::new(
+        Version::parse("99.0.0").unwrap(),
+        Asset::new("test.zip", "https://example.invalid/test.zip", 123),
+    );
+    cx.update(|cx| {
+        for (automatic, enabled, expected) in [
+            (true, true, Phase::Downloading),
+            (true, false, Phase::Available),
+            (false, true, Phase::Available),
+        ] {
+            let model = cx.new(|_| State {
+                phase: Phase::Checking,
+                startup: enabled,
+                ..Default::default()
+            });
+            model.update(cx, |state, cx| {
+                // Merge a startup request into a check already running.
+                state.start_check(automatic, cx);
+                state.finish_check(Ok(Some(release.clone())), cx);
+                assert_eq!(state.phase, expected);
+                // Stop before the simulated result would perform any network I/O.
+                state.task.take();
+                state.progress_task.take();
+            });
+        }
+    });
+}
+
+#[gpui_kit::test]
+fn downloaded_update_waits_for_existing_dialog_and_can_be_deferred(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let model = cx.new(|_| State {
+        phase: Phase::Ready,
+        ..Default::default()
+    });
+    let handle = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None,
+                    size(px(650.), px(650.)),
+                    cx,
+                ))),
+                ..Default::default()
+            },
+            cx,
+            |_, cx| cx.new(|_| gpui_kit::Empty),
+        )
+        .unwrap()
+        .0
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.activate_window();
+        window.open_dialog(cx, |dialog, _, _| dialog.title("Existing dialog"));
+    })
+    .unwrap();
+    let prompt = model.update(cx, |_, cx| cx.spawn(super::show_download_ready));
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        assert!(window.has_active_dialog(cx));
+        assert!(model.read(cx).dialog.is_none());
+        window.close_dialog(cx);
+    })
+    .unwrap();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_secs(1));
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        assert!(window.has_active_dialog(cx));
+        window.render_frame(cx);
+        window.click("update-later", cx);
+        assert!(!window.has_active_dialog(cx));
+        assert_eq!(model.read(cx).phase, Phase::Ready);
+    })
+    .unwrap();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_secs(1));
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        assert!(!window.has_active_dialog(cx))
+    })
+    .unwrap();
+    drop(prompt);
+}
 
 #[gpui_kit::test]
 fn prepared_restart_can_be_cancelled_and_unlocks_workspaces_before_quit(cx: &mut TestAppContext) {

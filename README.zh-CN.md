@@ -105,7 +105,7 @@ python -m unittest discover -s scripts/package -p 'test_*.py' -v
 
 ## 应用更新
 
-应用菜单与设置 → 应用 → 软件更新均可打开更新对话框。使用 [`gpui-updater-core`](https://github.com/AprilNEA/gpui-updater) 的 `StaticManifestSource` 读取固定 [latest.json](https://github.com/Super1Windcloud/SuperfileView/releases/latest/download/latest.json)，不调用 GitHub API，不内置 Token。默认每 24 小时最多自动检查一次，可关闭；下载和安装由用户确认。下载强制 HTTPS 与 SHA-256 校验，安装前保护未保存文件并保存会话，替换失败恢复原版本。开发构建仅允许检查和下载；包管理器安装使用原安装方式更新。首次发布含 Manifest 的版本后线上入口才可用。签名和平台验收边界见[更新说明](docs/updates.md)。
+更新功能使用 [`gpui-updater-core`](https://github.com/AprilNEA/gpui-updater) 读取固定 [latest.json](https://github.com/Super1Windcloud/SuperfileView/releases/latest/download/latest.json)，不调用 GitHub API，不内置 Token。默认每次启动都检查新版，后台下载并校验后再弹窗，用户可选择“重启并更新”或“稍后”。应用菜单与设置 → 应用 → 软件更新均可重新打开对话框、手动检查或关闭启动更新。安装需要用户确认并保存工作区修改。开发构建和包管理器安装可查看下载包并按适用方式更新。详见[更新说明](docs/updates.md)。
 
 ## 检查
 

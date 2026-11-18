@@ -49,6 +49,8 @@ pub(crate) struct State {
     restart: Option<PathBuf>,
     queued_urls: Vec<String>,
     preferences_changed: bool,
+    auto_download: bool,
+    dialog: Option<WeakEntity<crate::views::software_update::SoftwareUpdate>>,
 }
 impl Default for State {
     fn default() -> Self {
@@ -69,6 +71,8 @@ impl Default for State {
             restart: None,
             queued_urls: vec![],
             preferences_changed: false,
+            auto_download: false,
+            dialog: None,
         }
     }
 }
@@ -78,24 +82,23 @@ pub(crate) fn init(cx: &mut App) {
     cx.set_global(Updates(state.clone()));
     let task = state.update(cx, |_, cx| {
         cx.spawn(async move |state, cx| {
-            let preferences = cx
+            let startup = cx
                 .background_executor()
-                .spawn(async { service::preferences() })
+                .spawn(async { service::startup_enabled() })
                 .await;
             let _ = state.update(cx, |state, cx| {
-                if let Ok(preferences) = preferences
-                    && !state.preferences_changed
-                {
-                    state.startup = preferences.startup;
-                    let now = service::now();
-                    if state.startup
-                        && (now < preferences.last_check
-                            || now.saturating_sub(preferences.last_check) >= 86400)
-                    {
-                        state.check(cx);
+                if !state.preferences_changed {
+                    match startup {
+                        Ok(enabled) => state.startup = enabled,
+                        Err(error) => {
+                            log::warn!("Cannot read startup update preference: {error:#}")
+                        }
                     }
-                    cx.notify();
                 }
+                if state.startup && matches!(state.phase, Phase::Idle | Phase::Checking) {
+                    state.start_check(true, cx);
+                }
+                cx.notify();
             });
         })
     });
@@ -115,22 +118,67 @@ pub(crate) fn open(cx: &mut App) {
         }
     });
     cx.defer(move |cx| {
-        if let Some(handle) = cx.active_window().or_else(|| cx.windows().last().copied()) {
-            let _ = handle.update(cx, |_, window, cx| {
+        show_dialog(&model, true, cx);
+    });
+}
+
+fn show_dialog(model: &Entity<State>, allow_inactive: bool, cx: &mut App) -> bool {
+    if model
+        .read(cx)
+        .dialog
+        .as_ref()
+        .and_then(WeakEntity::upgrade)
+        .is_some()
+    {
+        return true;
+    }
+    let handle = cx.active_window().or_else(|| {
+        if allow_inactive {
+            cx.windows().last().copied()
+        } else {
+            None
+        }
+    });
+    handle.is_some_and(|handle| {
+        handle
+            .update(cx, |_, window, cx| {
                 if window.has_active_dialog(cx) {
-                    return;
+                    return false;
                 }
-                let view =
-                    cx.new(|cx| crate::views::software_update::SoftwareUpdate::new(model, cx));
+                let view = cx.new(|cx| {
+                    crate::views::software_update::SoftwareUpdate::new(model.clone(), cx)
+                });
+                model.update(cx, |state, _| state.dialog = Some(view.downgrade()));
                 window.open_dialog(cx, move |dialog, _, _| {
                     dialog
                         .title(tr("Software Update"))
                         .width(px(520.))
                         .child(view.clone())
                 });
-            });
+                true
+            })
+            .unwrap_or(false)
+    })
+}
+
+// Wait for an available foreground window instead of covering another dialog.
+async fn show_download_ready(view: WeakEntity<State>, cx: &mut AsyncApp) {
+    loop {
+        let done = cx.update(|cx| {
+            let Some(model) = view.upgrade() else {
+                return true;
+            };
+            model.read(cx).phase != Phase::Ready
+                || cx
+                    .try_global::<super::QuitSession>()
+                    .is_some_and(|quit| quit.0)
+                || show_dialog(&model, false, cx)
+        });
+        if done {
+            return;
         }
-    });
+        cx.background_executor().timer(Duration::from_secs(1)).await;
+    }
 }
 
 pub(crate) fn busy(cx: &App) -> bool {
@@ -197,6 +245,13 @@ impl State {
         self.staged.as_ref().map(|update| update.artifact.as_path())
     }
     pub fn check(&mut self, cx: &mut Context<Self>) {
+        self.start_check(false, cx);
+    }
+    fn start_check(&mut self, automatic: bool, cx: &mut Context<Self>) {
+        if self.phase == Phase::Checking {
+            self.auto_download |= automatic;
+            return;
+        }
         if self.working() || self.installed.is_some() {
             return;
         }
@@ -208,41 +263,43 @@ impl State {
                 .detach();
         }
         self.phase = Phase::Checking;
+        self.auto_download = automatic;
         self.release = None;
         self.message = None;
         self.task = Some(cx.spawn(async move |view, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async {
-                    let result = service::check();
-                    if let Err(error) = service::record_check() {
-                        log::warn!("Cannot record update check: {error:#}");
-                    }
-                    result
-                })
+                .spawn(async { service::check() })
                 .await;
-            let _ = view.update(cx, |view, cx| {
-                match result {
-                    Ok(Some(release)) => {
-                        view.release = Some(release);
-                        view.phase = Phase::Available;
-                    }
-                    Ok(None) => {
-                        view.release = None;
-                        view.phase = Phase::Current;
-                        view.message = Some("You’re up to date.".into());
-                    }
-                    Err(error) => {
-                        view.phase = Phase::Failed;
-                        view.message = Some(format!("{error:#}"));
-                    }
-                }
-                cx.notify();
-            });
+            let _ = view.update(cx, |view, cx| view.finish_check(result, cx));
         }));
         cx.notify();
     }
+    fn finish_check(&mut self, result: anyhow::Result<Option<Release>>, cx: &mut Context<Self>) {
+        let automatic = std::mem::take(&mut self.auto_download) && self.startup;
+        match result {
+            Ok(Some(release)) => {
+                self.release = Some(release);
+                self.phase = Phase::Available;
+                if automatic {
+                    self.start_download(true, cx);
+                }
+            }
+            Ok(None) => {
+                self.phase = Phase::Current;
+                self.message = Some("You’re up to date.".into());
+            }
+            Err(error) => {
+                self.phase = Phase::Failed;
+                self.message = Some(format!("{error:#}"));
+            }
+        }
+        cx.notify();
+    }
     pub fn download(&mut self, cx: &mut Context<Self>) {
+        self.start_download(false, cx);
+    }
+    fn start_download(&mut self, automatic: bool, cx: &mut Context<Self>) {
         if self.phase != Phase::Available {
             return;
         }
@@ -266,7 +323,7 @@ impl State {
                     })
                 })
                 .await;
-            let _ = view.update(cx, |view, cx| {
+            let ready = view.update(cx, |view, cx| {
                 view.progress_task = None;
                 view.cancel = None;
                 if cancelled.is_cancelled() {
@@ -293,7 +350,11 @@ impl State {
                     }
                 }
                 cx.notify();
+                view.phase == Phase::Ready
             });
+            if automatic && matches!(ready, Ok(true)) {
+                show_download_ready(view, cx).await;
+            }
         }));
         self.progress_task = Some(cx.spawn(async move |view, cx| {
             loop {
