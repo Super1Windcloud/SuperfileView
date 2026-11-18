@@ -9,6 +9,7 @@ mod remote;
 mod render;
 mod session;
 mod settings;
+mod sharing;
 mod tabs;
 mod toolbar;
 mod updates;
@@ -101,6 +102,7 @@ pub struct Workspace {
     incoming_files: std::collections::VecDeque<PathBuf>,
     incoming_file_task: Option<Task<()>>,
     picker_task: Option<Task<()>>,
+    file_sharing: sharing::FileSharing,
     picking: bool,
     save_task: Option<Task<()>>,
     save_cancel: Option<superfile_services::work::CancelOnDrop>,
@@ -340,6 +342,7 @@ impl Workspace {
             incoming_files: std::collections::VecDeque::new(),
             incoming_file_task: None,
             picker_task: None,
+            file_sharing: sharing::FileSharing::default(),
             picking: false,
             save_task: None,
             save_cancel: None,

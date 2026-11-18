@@ -473,14 +473,40 @@ pub fn save_page_cancellable(
         .path
         .canonicalize()
         .context("The file was moved or deleted; your edits have not been saved")?;
-    let mut source = File::open(&target)?;
-    let before = source.metadata()?;
     ensure!(
-        before.is_file() && !before.permissions().readonly(),
+        !std::fs::metadata(&target)?.permissions().readonly(),
         "File is read-only"
     );
+    let mut output =
+        tempfile::NamedTempFile::new_in(target.parent().context("File has no parent folder")?)?;
+    let permissions = copy_page_edit(page, &target, text, output.as_file_mut(), cancel)?;
+    ensure!(!permissions.readonly(), "File is read-only");
+    output.as_file().set_permissions(permissions)?;
+    output.as_file().sync_all()?;
+    cancel.check()?;
+    output.persist(&target).map_err(|error| error.error)?;
+    let saved = std::fs::metadata(&target)?;
+    Ok(PageSaved {
+        end: page.start + text.len() as u64,
+        total: saved.len(),
+        modified: saved.modified().ok(),
+        identity: crate::platform::file_identity(&File::open(&target)?)?,
+    })
+}
+
+pub(crate) fn copy_page_edit(
+    page: &PageEdit,
+    target: &Path,
+    text: &str,
+    output: &mut File,
+    cancel: &crate::work::Cancellation,
+) -> Result<std::fs::Permissions> {
+    ensure!(!text.contains('\0'), "Text contains a null byte");
+    let mut source = File::open(target)?;
+    let before = source.metadata()?;
     ensure!(
-        before.len() == page.total
+        before.is_file()
+            && before.len() == page.total
             && before.modified().ok() == page.modified
             && crate::platform::file_identity(&source)? == page.identity,
         "File changed on disk. Save canceled; your edits are still open."
@@ -505,15 +531,13 @@ pub fn save_page_cancellable(
             "File changed on disk. Save canceled; your edits are still open."
         );
     }
-    let mut output =
-        tempfile::NamedTempFile::new_in(target.parent().context("File has no parent folder")?)?;
     source.seek(SeekFrom::Start(0))?;
-    cancel.copy((&mut source).take(page.start), output.as_file_mut())?;
-    cancel.copy(std::io::Cursor::new(text.as_bytes()), output.as_file_mut())?;
+    cancel.copy((&mut source).take(page.start), &mut *output)?;
+    cancel.copy(std::io::Cursor::new(text.as_bytes()), &mut *output)?;
     source.seek(SeekFrom::Start(page.end))?;
-    cancel.copy(&mut source, output.as_file_mut())?;
+    cancel.copy(&mut source, output)?;
     drop(source);
-    let check = File::open(&target)?;
+    let check = File::open(target)?;
     let after = check.metadata()?;
     ensure!(
         after.len() == before.len()
@@ -521,18 +545,7 @@ pub fn save_page_cancellable(
             && crate::platform::file_identity(&check)? == page.identity,
         "File changed while saving; your edits are still open."
     );
-    drop(check);
-    output.as_file().set_permissions(before.permissions())?;
-    output.as_file().sync_all()?;
-    cancel.check()?;
-    output.persist(&target).map_err(|error| error.error)?;
-    let saved = std::fs::metadata(&target)?;
-    Ok(PageSaved {
-        end: page.start + text.len() as u64,
-        total: saved.len(),
-        modified: saved.modified().ok(),
-        identity: crate::platform::file_identity(&File::open(&target)?)?,
-    })
+    Ok(before.permissions())
 }
 
 /// Read a text member without extracting its complete uncompressed contents.

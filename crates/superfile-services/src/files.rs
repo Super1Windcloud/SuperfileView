@@ -121,6 +121,15 @@ pub fn prepare_draft_destination(
         is_text_save_path(path),
         "This note is plain text. Choose .txt, .md or a source-code filename."
     );
+    prepare_file_destination(path, open_files, cancel)
+}
+
+pub(crate) fn prepare_file_destination(
+    path: &Path,
+    open_files: &[std::path::PathBuf],
+    cancel: &crate::work::Cancellation,
+) -> Result<DraftDestination> {
+    cancel.check()?;
     let parent = path
         .parent()
         .context("File has no parent folder")?
@@ -163,8 +172,19 @@ pub fn save_new_document(
     text: &str,
     cancel: &crate::work::Cancellation,
 ) -> Result<std::path::PathBuf> {
-    let _guard = save_lock(cancel)?;
     ensure!(!text.contains('\0'), "Text contains a null byte");
+    publish_file(destination, cancel, |output| {
+        cancel.copy(std::io::Cursor::new(text.as_bytes()), output)?;
+        Ok(())
+    })
+}
+
+pub(crate) fn publish_file(
+    destination: &DraftDestination,
+    cancel: &crate::work::Cancellation,
+    write: impl FnOnce(&mut File) -> Result<()>,
+) -> Result<std::path::PathBuf> {
+    let _guard = save_lock(cancel)?;
     let parent = destination
         .target
         .parent()
@@ -185,10 +205,7 @@ pub fn save_new_document(
         )
     );
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-    cancel.copy(
-        std::io::Cursor::new(text.as_bytes()),
-        temporary.as_file_mut(),
-    )?;
+    write(temporary.as_file_mut())?;
     if destination.existing.is_some() {
         let metadata = std::fs::metadata(&destination.target)?;
         ensure!(

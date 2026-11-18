@@ -444,13 +444,14 @@ impl Render for Workspace {
             .when(self.file_fullscreen, |view| {
                 view.child(
                     deferred(
-                        div()
+                        h_flex()
                             .absolute()
                             .top(px(8.))
                             .right(px(12.))
                             .rounded(px(6.))
                             .bg(cx.theme().title_bar)
                             .occlude()
+                            .children(self.share_file_button(cx))
                             .child(self.application_menu(cx)),
                     )
                     .with_priority(2),

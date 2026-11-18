@@ -140,7 +140,10 @@ impl Workspace {
                 toolbar = toolbar.child(self.toolbar_button(item, cx));
             }
         }
-        toolbar.child(self.application_menu(cx)).into_any_element()
+        toolbar
+            .children(self.share_file_button(cx))
+            .child(self.application_menu(cx))
+            .into_any_element()
     }
 
     fn reader_view_menu(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -467,6 +470,77 @@ mod tests {
             assert!(menu.origin.x >= px(0.) && menu.right() <= px(800.));
         })
         .unwrap();
+    }
+
+    #[gpui_kit::test]
+    fn share_menu_is_reachable_in_the_document_and_in_fullscreen(cx: &mut TestAppContext) {
+        let (handle, view) = open(cx);
+        cx.update_window(handle, |_, window, cx| {
+            for fullscreen in [false, true] {
+                view.update(cx, |workspace, _| {
+                    workspace.file_fullscreen = fullscreen;
+                    workspace.sidebar_visible = false;
+                });
+                window.render_frame(cx);
+                assert!(
+                    window.find("share-file").bounds().right()
+                        <= window.find("application-menu").bounds().origin.x
+                );
+                window.click("share-file", cx);
+                let menu = window.within("popup-menu");
+                let mut index = 0usize;
+                if cfg!(any(target_os = "macos", windows)) {
+                    assert_eq!(menu.find(index).label(), Some(tr("System Share…").as_str()));
+                    index += 1;
+                }
+                assert_eq!(menu.find(index).label(), Some(tr("Copy File").as_str()));
+                assert_eq!(
+                    menu.find(index + 1).label(),
+                    Some(tr("Save a Copy…").as_str())
+                );
+                window.click("share-file", cx);
+            }
+            view.update(cx, |workspace, cx| workspace.show_home(cx));
+            window.render_frame(cx);
+            assert!(window.try_find("share-file").is_none());
+        })
+        .unwrap();
+    }
+
+    #[gpui_kit::test]
+    fn share_menu_saves_unsaved_text_to_the_selected_copy(cx: &mut TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("copy.txt");
+        let (handle, view) = open(cx);
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            view.update(cx, |workspace, cx| workspace.activate_tab(1, window, cx));
+            window.render_frame(cx);
+            window.press("secondary-a", cx);
+            window.input("草稿\nUnsaved", cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| {
+            assert!(view.read(cx).active_reader().unwrap().is_dirty());
+            window.render_frame(cx);
+            window.click("share-file", cx);
+            let index = 1 + usize::from(cfg!(any(target_os = "macos", windows)));
+            window.within("popup-menu").click(index, cx);
+        })
+        .unwrap();
+        cx.simulate_new_path_selection(|_| Some(destination.clone()));
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let workspace = view.read(cx);
+            assert!(workspace.error.is_none(), "{:?}", workspace.error);
+            assert!(!workspace.picking);
+            assert!(workspace.active_reader().unwrap().is_dirty());
+        });
+        assert_eq!(
+            std::fs::read_to_string(destination).unwrap(),
+            "草稿\nUnsaved"
+        );
     }
 
     #[gpui_kit::test]

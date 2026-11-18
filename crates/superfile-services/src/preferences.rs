@@ -152,12 +152,42 @@ fn get(key: &str) -> Result<Option<String>> {
 fn set(key: &str, value: &str) -> Result<()> {
     set_setting(&storage::open()?, key, value)
 }
+
+const SHORTCUT_OVERRIDES_KEY: &str = "shortcut-overrides";
+
+pub fn shortcut_overrides() -> Result<BTreeMap<String, String>> {
+    shortcut_overrides_in(&storage::open()?)
+}
+
+fn shortcut_overrides_in(db: &rusqlite::Connection) -> Result<BTreeMap<String, String>> {
+    Ok(setting(db, SHORTCUT_OVERRIDES_KEY)?
+        .map(|value| serde_json::from_str(&value))
+        .transpose()?
+        .unwrap_or_default())
+}
+
+pub fn save_shortcut_overrides(overrides: &BTreeMap<String, String>) -> Result<()> {
+    save_shortcut_overrides_in(&storage::open()?, overrides)
+}
+
+fn save_shortcut_overrides_in(
+    db: &rusqlite::Connection,
+    overrides: &BTreeMap<String, String>,
+) -> Result<()> {
+    set_setting(
+        db,
+        SHORTCUT_OVERRIDES_KEY,
+        &serde_json::to_string(overrides)?,
+    )
+}
+
 pub fn word_wrap() -> bool {
     get("word-wrap")
         .ok()
         .flatten()
         .is_some_and(|v| v.trim() == "true")
 }
+
 pub fn save_word_wrap(enabled: bool) -> Result<()> {
     set("word-wrap", &enabled.to_string())
 }
@@ -437,6 +467,23 @@ fn save_groups(
     storage::sessions::save(&tx, scope, groups)?;
     tx.commit()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod shortcut_tests {
+    use super::*;
+
+    #[test]
+    fn shortcut_overrides_and_reset_survive_reopening() {
+        let directory = tempfile::tempdir().unwrap();
+        let open = || storage::open_at(directory.path()).unwrap();
+        let changed = BTreeMap::from([("superfile::NewFile".into(), "ctrl-alt-n".into())]);
+        assert!(shortcut_overrides_in(&open()).unwrap().is_empty());
+        save_shortcut_overrides_in(&open(), &changed).unwrap();
+        assert_eq!(shortcut_overrides_in(&open()).unwrap(), changed);
+        save_shortcut_overrides_in(&open(), &BTreeMap::new()).unwrap();
+        assert!(shortcut_overrides_in(&open()).unwrap().is_empty());
+    }
 }
 
 #[cfg(test)]

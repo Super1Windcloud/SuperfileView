@@ -20,7 +20,8 @@ pub(crate) mod recent_paths;
 pub(crate) mod recovery;
 pub(crate) mod remote;
 mod remote_open;
-mod shortcuts;
+pub(crate) mod sharing;
+pub(crate) mod shortcuts;
 pub(crate) mod spreadsheet_prepare;
 pub(crate) mod system_open;
 pub(crate) mod telemetry;
@@ -379,6 +380,11 @@ pub fn run() -> Result<()> {
             Default::default()
         });
     let word_wrap = superfile_services::preferences::word_wrap();
+    let shortcut_overrides =
+        superfile_services::preferences::shortcut_overrides().unwrap_or_else(|error| {
+            log::warn!("Cannot load keyboard shortcuts: {error:#}");
+            Default::default()
+        });
     let reader_font_offset = superfile_services::preferences::reader_font_offset();
     let appearance = superfile_services::preferences::appearance();
     let theme_preferences = superfile_services::preferences::theme_preferences();
@@ -445,6 +451,7 @@ pub fn run() -> Result<()> {
         });
         cx.on_app_quit(|cx| {
             let instance = instance::stop(cx);
+            sharing::close_clipboard(cx);
             log::info!("application quit requested");
             log::logger().flush();
             let mut reader_writes = Vec::new();
@@ -464,6 +471,7 @@ pub fn run() -> Result<()> {
             let telemetry = telemetry::shutdown(cx);
             let accent_write = theme::take_write(cx);
             let text_zoom_write = text_zoom::take_write(cx);
+            let shortcut_write = shortcuts::take_write(cx);
             let recovery = recovery::shutdown(cx);
             let pending = cx.global_mut::<ExplorerSaveTask>().0.take();
             let workspace = cx.global_mut::<WorkspaceSaveTask>().0.take();
@@ -480,6 +488,9 @@ pub fn run() -> Result<()> {
                     write.await;
                 }
                 if let Some(write) = text_zoom_write {
+                    write.await;
+                }
+                if let Some(write) = shortcut_write {
                     write.await;
                 }
                 for write in reader_writes {
@@ -615,6 +626,7 @@ pub fn run() -> Result<()> {
             KeyBinding::new("secondary-alt-t", ToggleDarkMode, None),
             KeyBinding::new("f1", KeyboardShortcuts, None),
         ]);
+        shortcuts::install(shortcut_overrides, cx);
         menus::update(cx);
         cx.on_window_closed(|cx, closed| {
             cx.global_mut::<OpenWorkspaces>()

@@ -58,6 +58,7 @@ gpui_kit::assets::icon_assets!(
         CircleAlert,
         CircleCheck,
         Copy,
+        Share,
         Check,
         Globe,
         Maximize,

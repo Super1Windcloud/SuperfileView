@@ -27,17 +27,26 @@ gpui-kit.workspace = true
 anyhow.workspace = true
 url = "2"
 serde_json = "1"
+arboard = { version = "=3.6.1", default-features = false }
 
 [build-dependencies]
 embed-resource = "=3.0.12"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
+arboard = { version = "=3.6.1", default-features = false, features = ["wayland-data-control"] }
+
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
+raw-window-handle = "0.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "=0.6.5"
-objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSApplication", "NSImage"] }
-objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSData"] }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSApplication", "NSImage", "NSResponder", "NSSharingService", "NSView"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSArray", "NSData", "NSGeometry", "NSURL"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "=0.62.2", features = ["ApplicationModel_DataTransfer", "Foundation", "Storage_Streams", "Win32_Foundation", "Win32_UI_Shell"] }
+windows-collections = "=0.3.2"
 
 [dev-dependencies]
 gpui-kit = { workspace = true, features = ["test-support"] }
@@ -45,7 +54,7 @@ tempfile = "3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 rusqlite = { version = "=0.37.0", default-features = false }
 
-# Unsafe is confined to the macOS URL delivery and Dock icon bridges.
+# Unsafe is confined to native desktop bridges.
 [lints.rust]
 unsafe_code = "deny"
 

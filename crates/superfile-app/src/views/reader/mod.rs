@@ -29,6 +29,7 @@ mod pdf;
 mod pictures;
 mod projection;
 mod refresh;
+pub(super) mod sharing;
 mod source;
 mod sqlite;
 pub(super) mod statistics;

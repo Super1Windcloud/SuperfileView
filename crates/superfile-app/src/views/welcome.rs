@@ -1,12 +1,12 @@
 use crate::app::actions::{NewFile, OpenFile, OpenFolder};
 use crate::app::recent_paths::{Kind, RecentPaths};
+use crate::app::shortcuts::format_shortcut_for_display;
 use gpui_kit::{
     assets::IconName,
     component::{
         ActiveTheme, Icon, Sizable,
         button::{Button, ButtonCustomVariant, ButtonVariants},
         h_flex,
-        kbd::Kbd,
         menu::{ContextMenuExt, DropdownMenu, PopupMenuItem},
         v_flex,
     },
@@ -17,6 +17,7 @@ use gpui_kit::{
 fn quick_action(
     id: &'static str,
     label: &'static str,
+    action: &dyn Action,
     shortcut: &'static str,
     icon: IconName,
     cx: &App,
@@ -57,15 +58,9 @@ fn quick_action(
                         .flex_shrink_0()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child(format_shortcut_for_display(shortcut)),
+                        .child(format_shortcut_for_display(action, shortcut, cx)),
                 ),
         )
-}
-
-fn format_shortcut_for_display(shortcut: &str) -> String {
-    Keystroke::parse(shortcut)
-        .map(|key| Kbd::format(&key))
-        .unwrap_or_default()
 }
 
 fn section_heading(id: &'static str, label: &'static str, cx: &App) -> impl IntoElement {
@@ -268,6 +263,7 @@ fn quick_actions(
             quick_action(
                 "welcome-new-file",
                 "New File",
+                &NewFile,
                 "secondary-n",
                 IconName::FilePlus,
                 cx,
@@ -283,6 +279,7 @@ fn quick_actions(
                     quick_action(
                         "welcome-new-workspace",
                         "Open Workspace…",
+                        &OpenFolder,
                         "secondary-shift-o",
                         IconName::FolderOpen,
                         cx,
@@ -350,6 +347,7 @@ fn quick_actions(
             quick_action(
                 "welcome-open-file",
                 "Open File…",
+                &OpenFile,
                 "secondary-o",
                 IconName::FileText,
                 cx,

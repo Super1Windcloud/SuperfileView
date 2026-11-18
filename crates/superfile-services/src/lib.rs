@@ -35,6 +35,7 @@ mod report;
 pub mod resources;
 pub mod rich_documents;
 pub mod safetensors;
+pub mod sharing;
 mod snapshot;
 pub mod spreadsheet;
 pub mod sqlite;

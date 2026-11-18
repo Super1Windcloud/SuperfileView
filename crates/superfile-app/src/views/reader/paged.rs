@@ -201,8 +201,13 @@ impl PagedReader {
         cx.notify();
     }
     pub fn save_request(&mut self) -> Option<superfile_services::paged::PageEdit> {
-        self.source_editor.as_ref()?;
+        let request = self.edit_snapshot()?;
         self.saving.set(true);
+        Some(request)
+    }
+
+    pub(super) fn edit_snapshot(&self) -> Option<superfile_services::paged::PageEdit> {
+        self.source_editor.as_ref()?;
         Some(superfile_services::paged::PageEdit {
             path: self.page.path.clone(),
             start: self.page.start,

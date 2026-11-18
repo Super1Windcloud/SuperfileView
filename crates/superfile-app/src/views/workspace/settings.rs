@@ -164,7 +164,7 @@ impl Workspace {
                 cx.listener(|view, _, window, cx| view.show_remote(None, true, false, window, cx)),
             )
             .into_any_element();
-        let shortcuts = action_button("settings-shortcuts", "View…")
+        let shortcuts = action_button("settings-shortcuts", "Edit…")
             .accessibility_label(superfile_services::locale::tr("Keyboard Shortcuts…"))
             .on_click(|_, window, cx| window.dispatch_action(Box::new(KeyboardShortcuts), cx))
             .into_any_element();
