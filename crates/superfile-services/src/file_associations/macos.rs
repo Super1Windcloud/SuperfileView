@@ -8,6 +8,42 @@ use std::{
 };
 mod native;
 
+pub(super) fn offer_type(path: &Path, _: &str) -> Result<Option<(String, Application)>> {
+    const BUNDLE_ID: &str = "app.superfile.desktop";
+
+    let executable = std::env::current_exe()?.canonicalize()?;
+    let Some(bundle) = executable.ancestors().find(|path| {
+        path.extension().is_some_and(|extension| extension == "app")
+            && executable.starts_with(path.join("Contents/MacOS"))
+    }) else {
+        return Ok(None);
+    };
+    let Some(identifier) = native::file_type(path) else {
+        return Ok(None);
+    };
+    if matches!(
+        identifier.as_str(),
+        "public.data" | "public.item" | "public.content"
+    ) || native::handler(&identifier).as_deref() == Some(BUNDLE_ID)
+        || !native::handlers(&identifier)
+            .iter()
+            .any(|id| id == BUNDLE_ID)
+    {
+        return Ok(None);
+    }
+    let candidate = application(BUNDLE_ID.into(), &Cancellation::default());
+    if candidate
+        .path
+        .as_ref()
+        .and_then(|path| path.canonicalize().ok())
+        .as_deref()
+        != Some(bundle)
+    {
+        return Ok(None);
+    }
+    Ok(Some((identifier, candidate)))
+}
+
 fn application(id: String, cancel: &Cancellation) -> Application {
     let path = native::application_path(&id);
     let info = path

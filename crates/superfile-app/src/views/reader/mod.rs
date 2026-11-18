@@ -31,6 +31,7 @@ mod projection;
 mod refresh;
 mod source;
 mod sqlite;
+pub(super) mod statistics;
 mod surface;
 mod xmind;
 use crate::app::document_session::DocumentSession;

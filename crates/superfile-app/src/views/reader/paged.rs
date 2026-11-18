@@ -180,6 +180,10 @@ impl PagedReader {
         self.revision
     }
 
+    pub(super) fn text_region(&self) -> Option<superfile_services::text_statistics::TextRegion> {
+        superfile_services::text_statistics::TextRegion::from_page(&self.page)
+    }
+
     pub fn refresh_request(&self) -> Option<superfile_services::paged::PageRefresh> {
         self.source_editor.as_ref()?;
         Some(superfile_services::paged::PageRefresh {

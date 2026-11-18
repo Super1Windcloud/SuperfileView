@@ -633,7 +633,10 @@ pub(crate) fn start_application(path: Option<PathBuf>, urls: Vec<String>, cx: &m
     if !urls.is_empty() {
         super::open_system_files(urls, cx);
     } else if let Some(path) = path {
+        #[cfg(target_os = "macos")]
         super::open_workspace(Some(path), cx);
+        #[cfg(not(target_os = "macos"))]
+        super::open_external_workspace(path, cx);
     } else if !restored && cx.windows().is_empty() {
         super::open_workspace(None, cx);
     }

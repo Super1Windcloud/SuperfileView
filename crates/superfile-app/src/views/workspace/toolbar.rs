@@ -469,6 +469,100 @@ mod tests {
         .unwrap();
     }
 
+    #[gpui_kit::test]
+    fn document_footer_follows_the_active_tab_and_unsaved_edits(cx: &mut TestAppContext) {
+        use std::time::Duration;
+        use superfile_services::text_statistics::TextStatistics;
+
+        let (handle, view) = open(cx);
+        cx.update_window(handle, |_, window, cx| window.render_frame(cx))
+            .unwrap();
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            let counts = view.read(cx).file_statistics.read(cx).counts();
+            assert_eq!(counts, Some(TextStatistics { words: 2, lines: 1 }));
+            let footer = window.find("file-statistics").bounds();
+            assert!(footer.bottom() <= window.viewport_size().height);
+            assert!(footer.bottom() >= window.viewport_size().height - px(1.));
+            view.update(cx, |workspace, cx| workspace.activate_tab(1, window, cx));
+            window.render_frame(cx);
+            window.press("secondary-a", cx);
+            window.input("中文 hello\nlast line", cx);
+        })
+        .unwrap();
+        cx.executor().advance_clock(Duration::from_millis(140));
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| {
+            let workspace = view.read(cx);
+            assert_eq!(
+                workspace.file_statistics.read(cx).counts(),
+                Some(TextStatistics { words: 5, lines: 2 })
+            );
+            assert!(workspace.active_reader().unwrap().is_dirty());
+            view.update(cx, |workspace, cx| workspace.activate_tab(0, window, cx));
+            window.render_frame(cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| {
+            assert_eq!(
+                view.read(cx).file_statistics.read(cx).counts(),
+                Some(TextStatistics { words: 2, lines: 1 })
+            );
+            view.update(cx, |workspace, cx| workspace.show_home(cx));
+            window.render_frame(cx);
+            assert!(window.try_find("file-statistics").is_none());
+        })
+        .unwrap();
+    }
+
+    #[gpui_kit::test]
+    fn document_footer_counts_past_the_end_of_the_editable_page(cx: &mut TestAppContext) {
+        use std::time::Duration;
+        use superfile_services::{paged, text_statistics::TextStatistics};
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("paged.txt");
+        let text = format!("{} 中\nend\n", "a".repeat(paged::PAGE_BYTES as usize + 4));
+        std::fs::write(&path, text).unwrap();
+        let first = paged::read_page(&path, 0, false).unwrap();
+        assert!(first.more);
+        let (handle, view) = open(cx);
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |workspace, cx| {
+                workspace.tabs.push(Reader::from_page(first, window, cx));
+                workspace.activate_tab(workspace.tabs.len() - 1, window, cx);
+            });
+            window.render_frame(cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| {
+            assert_eq!(
+                view.read(cx).file_statistics.read(cx).counts(),
+                Some(TextStatistics { words: 3, lines: 2 })
+            );
+            let editor = view.read(cx).active_reader().unwrap().editor().unwrap();
+            window.render_frame(cx);
+            window.click(("input", editor.entity_id()), cx);
+            window.press("secondary-a", cx);
+            window.input("word\n更", cx);
+            assert_eq!(editor.read(cx).text().to_string(), "word\n更");
+        })
+        .unwrap();
+        cx.executor().advance_clock(Duration::from_millis(140));
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let workspace = view.read(cx);
+            assert_eq!(
+                workspace.file_statistics.read(cx).counts(),
+                Some(TextStatistics { words: 5, lines: 3 })
+            );
+            assert!(workspace.active_reader().unwrap().is_dirty());
+        });
+    }
+
     fn click_application_entry(label: &str, window: &mut gpui_kit::Window, cx: &mut gpui_kit::App) {
         window.click("application-menu", cx);
         let bounds = window.find("popup-menu").bounds();

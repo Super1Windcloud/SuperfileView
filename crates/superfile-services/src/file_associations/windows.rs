@@ -145,6 +145,34 @@ fn query(extension: &str, kind: u32) -> std::result::Result<Option<String>, i32>
     Ok((!value.is_empty()).then_some(value))
 }
 
+pub(super) fn offer_type(_: &Path, extension: &str) -> Result<Option<(String, Application)>> {
+    let identifier = format!(".{extension}");
+    let executable = std::env::current_exe()?.canonicalize()?;
+    let is_running_app = |path: &Path| {
+        path.canonicalize().is_ok_and(|path| {
+            path.to_string_lossy()
+                .eq_ignore_ascii_case(&executable.to_string_lossy())
+        })
+    };
+    let current = query(&identifier, 2).map_err(|code| {
+        anyhow::anyhow!(
+            "Cannot check the Windows default handler: 0x{:08X}",
+            code as u32
+        )
+    })?;
+    if current
+        .as_deref()
+        .map(Path::new)
+        .is_some_and(is_running_app)
+    {
+        return Ok(None);
+    }
+    let candidate = applications(&identifier, &Cancellation::default())?
+        .into_iter()
+        .find(|app| app.path.as_deref().is_some_and(is_running_app));
+    Ok(candidate.map(|app| (identifier, app)))
+}
+
 pub(super) fn scan(cancel: &Cancellation) -> Result<Snapshot> {
     let _com = Com::new()?;
     let mut snapshot = Snapshot::default();

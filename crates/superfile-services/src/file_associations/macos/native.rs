@@ -5,7 +5,8 @@ use crate::work::Cancellation;
 use anyhow::{Context, Result, ensure};
 use std::{
     ffi::{c_char, c_void},
-    path::PathBuf,
+    os::unix::ffi::OsStrExt,
+    path::{Path, PathBuf},
     ptr,
 };
 
@@ -30,6 +31,14 @@ unsafe extern "C" {
     fn CFArrayGetCount(value: Ref) -> isize;
     fn CFArrayGetValueAtIndex(value: Ref, index: isize) -> Ref;
     fn CFURLCopyFileSystemPath(url: Ref, style: isize) -> Ref;
+    fn CFURLCreateFromFileSystemRepresentation(
+        allocator: Ref,
+        bytes: *const u8,
+        length: isize,
+        is_directory: u8,
+    ) -> Ref;
+    fn CFURLCopyResourcePropertyForKey(url: Ref, key: Ref, value: *mut Ref, error: *mut Ref) -> u8;
+    static kCFURLTypeIdentifierKey: Ref;
 }
 
 #[link(name = "CoreServices", kind = "framework")]
@@ -106,6 +115,30 @@ fn strings(array: &Owned) -> Vec<String> {
     (0..unsafe { CFArrayGetCount(array.0) })
         .filter_map(|index| string(unsafe { CFArrayGetValueAtIndex(array.0, index) }))
         .collect()
+}
+
+pub(super) fn file_type(path: &Path) -> Option<String> {
+    let path = path.as_os_str().as_bytes();
+    let url = Owned::new(unsafe {
+        CFURLCreateFromFileSystemRepresentation(ptr::null(), path.as_ptr(), path.len() as isize, 0)
+    })?;
+    let mut value = ptr::null();
+    let success = unsafe {
+        CFURLCopyResourcePropertyForKey(url.0, kCFURLTypeIdentifierKey, &mut value, ptr::null_mut())
+    };
+    let value = Owned::new(value).filter(|_| success != 0)?;
+    string(value.0)
+}
+
+#[cfg(test)]
+#[test]
+fn identifies_the_system_type_of_a_file_url_with_unicode() {
+    let file = tempfile::Builder::new()
+        .prefix("文档 ")
+        .suffix(".PDF")
+        .tempfile()
+        .unwrap();
+    assert_eq!(file_type(file.path()).as_deref(), Some("com.adobe.pdf"));
 }
 
 pub(super) fn identifiers(extension: &str) -> Vec<String> {

@@ -157,6 +157,9 @@ impl Render for Workspace {
             content
         };
         let document_page = self.page == Page::Document;
+        self.file_statistics.update(cx, |view, cx| {
+            view.set_reader(self.active_reader().filter(|_| document_page), cx);
+        });
         let zoom_view = cx.entity().downgrade();
         let gesture_view = cx.entity().downgrade();
         let viewer = v_flex()
@@ -229,7 +232,8 @@ impl Render for Workspace {
                         .absolute()
                         .size_full(),
                     ),
-            );
+            )
+            .child(self.file_statistics.clone());
         let panel_content = self
             .explorer
             .as_ref()

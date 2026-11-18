@@ -7,6 +7,7 @@ use std::io::Read;
 use std::{
     collections::BTreeMap,
     ffi::{CStr, CString, c_char, c_void},
+    os::unix::ffi::OsStrExt,
     path::PathBuf,
     sync::OnceLock,
 };
@@ -27,6 +28,7 @@ type Free = unsafe extern "C" fn(*mut c_void);
 struct Gio {
     _libraries: [Library; 3],
     types: unsafe extern "C" fn() -> *mut List,
+    guess: unsafe extern "C" fn(*const c_char, *const u8, usize, *mut i32) -> *mut c_char,
     default: unsafe extern "C" fn(*const c_char, i32) -> *mut c_void,
     name: unsafe extern "C" fn(*mut c_void) -> *const c_char,
     identifier: unsafe extern "C" fn(*mut c_void) -> *const c_char,
@@ -50,6 +52,7 @@ impl Gio {
                 .context("GIO is required to read system file associations")?;
             Ok(Self {
                 types: *gio.get(b"g_content_types_get_registered\0")?,
+                guess: *gio.get(b"g_content_type_guess\0")?,
                 default: *gio.get(b"g_app_info_get_default_for_type\0")?,
                 name: *gio.get(b"g_app_info_get_display_name\0")?,
                 identifier: *gio.get(b"g_app_info_get_id\0")?,
@@ -156,6 +159,36 @@ fn describe(api: &Gio, app: *mut c_void) -> Application {
         identifier: id,
         path: string(unsafe { (api.executable)(app) }).map(PathBuf::from),
     }
+}
+
+pub(super) fn offer_type(path: &Path, _: &str) -> Result<Option<(String, Application)>> {
+    const DESKTOP_ID: &str = "superfile.desktop";
+
+    let Some(name) = path.file_name() else {
+        return Ok(None);
+    };
+    let api = api()?;
+    let name = CString::new(name.as_bytes())?;
+    let mut uncertain = 0;
+    let guess = unsafe { (api.guess)(name.as_ptr(), std::ptr::null(), 0, &mut uncertain) };
+    let mime = string(guess);
+    unsafe { (api.free)(guess.cast()) };
+    let Some(mime) = mime.filter(|mime| uncertain == 0 && mime != "application/octet-stream")
+    else {
+        return Ok(None);
+    };
+    let native_type = CString::new(mime.as_str())?;
+    let current = unsafe { (api.default)(native_type.as_ptr(), 0) };
+    if !current.is_null() {
+        let current = AppInfo(current, api);
+        if string(unsafe { (api.identifier)(current.0) }).as_deref() == Some(DESKTOP_ID) {
+            return Ok(None);
+        }
+    }
+    let candidate = applications(&mime, &Cancellation::default())?
+        .into_iter()
+        .find(|app| app.identifier.as_deref() == Some(DESKTOP_ID));
+    Ok(candidate.map(|app| (mime, app)))
 }
 
 pub(super) fn applications(identifier: &str, cancel: &Cancellation) -> Result<Vec<Application>> {

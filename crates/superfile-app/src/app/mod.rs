@@ -2,7 +2,7 @@ mod about;
 pub mod actions;
 mod askpass;
 mod assets;
-mod default_applications;
+pub(crate) mod default_applications;
 pub(crate) mod diagram_engine;
 pub(crate) mod document_session;
 pub(crate) mod edit_session;
@@ -336,6 +336,14 @@ pub fn run() -> Result<()> {
     let startup = reader_measurement::StartupMeasurement::start();
     let mut arguments = std::env::args_os().skip(1);
     let path = arguments.next().map(std::path::PathBuf::from);
+    #[cfg(target_os = "linux")]
+    let path = path.map(|path| {
+        path.to_str()
+            .filter(|value| value.starts_with("file://"))
+            .and_then(|value| url::Url::parse(value).ok())
+            .and_then(|url| url.to_file_path().ok())
+            .unwrap_or(path)
+    });
     if arguments.next().is_some() {
         bail!("Usage: superfile [file-or-folder]");
     }
@@ -627,6 +635,15 @@ pub(crate) fn reveal_existing_file(
     exclude: Option<EntityId>,
     cx: &mut App,
 ) -> bool {
+    reveal_open_file(path, exclude, false, cx)
+}
+
+fn reveal_open_file(
+    path: &std::path::Path,
+    exclude: Option<EntityId>,
+    from_system: bool,
+    cx: &mut App,
+) -> bool {
     let windows = OpenWorkspaces::windows(cx);
     windows
         .into_iter()
@@ -634,8 +651,14 @@ pub(crate) fn reveal_existing_file(
         .any(|(view, handle)| {
             handle
                 .update(cx, |_, window, cx| {
-                    view.update(cx, |v, cx| v.reveal_file_path(path, window, cx))
-                        .unwrap_or(false)
+                    view.update(cx, |view, cx| {
+                        let revealed = view.reveal_file_path(path, window, cx);
+                        if revealed && from_system {
+                            view.offer_external_association(path, window, cx);
+                        }
+                        revealed
+                    })
+                    .unwrap_or(false)
                 })
                 .unwrap_or(false)
         })
@@ -661,7 +684,7 @@ fn open_system_files(urls: Vec<String>, cx: &mut App) {
             && url.scheme() == "file"
             && let Ok(path) = url.to_file_path()
         {
-            if reveal_existing_file(&path, None, cx) {
+            if reveal_open_file(&path, None, true, cx) {
                 continue;
             }
             let windows = OpenWorkspaces::windows(cx);
@@ -679,9 +702,20 @@ fn open_system_files(urls: Vec<String>, cx: &mut App) {
             if reused {
                 cx.activate(true);
             } else {
-                open_workspace(Some(path), cx);
+                open_external_workspace(path, cx);
             }
         }
+    }
+}
+
+fn open_external_workspace(path: std::path::PathBuf, cx: &mut App) {
+    let result = open_detached_window(cx).and_then(|(view, handle)| {
+        handle.update(cx, |_, window, cx| {
+            view.update(cx, |view, cx| view.open_system_file(path, window, cx));
+        })
+    });
+    if let Err(error) = result {
+        log::error!("Cannot open Superfile window for an external file: {error:#}");
     }
 }
 

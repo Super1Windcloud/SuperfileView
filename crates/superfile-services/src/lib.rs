@@ -43,6 +43,7 @@ pub mod streamed;
 mod svg_preview;
 pub mod telemetry;
 pub mod text_formats;
+pub mod text_statistics;
 pub mod themes;
 pub mod updates;
 pub mod vector_formats;

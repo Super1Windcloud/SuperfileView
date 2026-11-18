@@ -22,7 +22,10 @@ use gpui_kit::component::{
 use gpui_kit::*;
 use std::path::PathBuf;
 
-use super::{explorer::Explorer, reader::Reader};
+use super::{
+    explorer::Explorer,
+    reader::{Reader, statistics::FileStatistics},
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
@@ -88,6 +91,7 @@ pub struct Workspace {
     subscriptions: Vec<Subscription>,
     tabs: Vec<Reader>,
     active: Option<usize>,
+    file_statistics: Entity<FileStatistics>,
     tab_scroll: ScrollHandle,
     error: Option<SharedString>,
     refresh_notice: Option<(SharedString, SharedString)>,
@@ -264,6 +268,7 @@ impl Workspace {
             .unwrap_or(true)
         });
         let mut workspace = Self {
+            file_statistics: cx.new(|_| FileStatistics::default()),
             community_themes: cx
                 .new(|cx| super::community_themes::CommunityThemes::new(window, cx)),
             integrations: cx.new(|_| super::integrations::Integrations::default()),

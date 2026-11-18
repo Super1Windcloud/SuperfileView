@@ -1,4 +1,5 @@
 //! Searchable default applications with native choices and verified updates.
+pub(crate) mod offer;
 mod picker;
 use gpui_kit::{
     component::{
@@ -34,6 +35,13 @@ pub(super) fn take_write(cx: &mut App) -> Option<Task<()>> {
     } else {
         None
     }
+}
+
+fn retain_write(task: Task<()>, cx: &mut App) {
+    if !cx.has_global::<PendingWrite>() {
+        cx.set_global(PendingWrite::default());
+    }
+    cx.global_mut::<PendingWrite>().0 = Some(task);
 }
 
 fn application_name(application: &Application) -> String {
@@ -194,10 +202,7 @@ impl Associations {
         self.picker = None;
         self.change_error = None;
         self.status = None;
-        if !cx.has_global::<PendingWrite>() {
-            cx.set_global(PendingWrite::default());
-        }
-        let previous = cx.global_mut::<PendingWrite>().0.take();
+        let previous = take_write(cx);
         let setter = self.setter;
         let task = cx.spawn(async move |view, cx| {
             if let Some(previous) = previous {
@@ -234,7 +239,7 @@ impl Associations {
                 cx.notify();
             });
         });
-        cx.global_mut::<PendingWrite>().0 = Some(task);
+        retain_write(task, cx);
         cx.notify();
     }
 

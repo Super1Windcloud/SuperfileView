@@ -1,10 +1,11 @@
 //! Blocking system association queries and explicit updates. Run on a background executor.
-use crate::work::Cancellation;
+use crate::{storage, work::Cancellation};
 use anyhow::Result;
 #[cfg(target_os = "linux")]
 use linux as platform;
 #[cfg(target_os = "macos")]
 use macos as platform;
+use std::path::Path;
 pub use superfile_core::file_associations::{Application, Association, Snapshot};
 #[cfg(windows)]
 use windows as platform;
@@ -22,6 +23,60 @@ mod windows;
 pub enum ChangeResult {
     Applied(Application),
     SystemSettingsRequired,
+}
+
+const OFFER_RECORD: &str = "default-application-offer";
+
+pub struct DefaultOffer {
+    identifier: String,
+    extension: String,
+    application: Application,
+}
+
+impl DefaultOffer {
+    pub fn identifier(&self) -> &str {
+        &self.identifier
+    }
+
+    pub fn extension(&self) -> &str {
+        &self.extension
+    }
+
+    pub fn remember(&self) -> Result<()> {
+        storage::set_record(&storage::open()?, OFFER_RECORD, &self.identifier, "shown")
+    }
+
+    pub fn apply(&self) -> Result<ChangeResult> {
+        set_default(&self.identifier, &self.application)
+    }
+}
+
+pub fn default_offer(path: &Path) -> Result<Option<DefaultOffer>> {
+    let Some(extension) = offered_extension(path) else {
+        return Ok(None);
+    };
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let Some((identifier, application)) = platform::offer_type(path, &extension)? else {
+        return Ok(None);
+    };
+    validate_identifier(&identifier)?;
+    if storage::record(&storage::open()?, OFFER_RECORD, &identifier)?.is_some() {
+        return Ok(None);
+    }
+    Ok(Some(DefaultOffer {
+        identifier,
+        extension,
+        application,
+    }))
+}
+
+fn offered_extension(path: &Path) -> Option<String> {
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    superfile_core::formats::CATALOG_SUFFIXES
+        .contains(&extension.as_str())
+        .then_some(extension)
 }
 
 pub fn applications(identifier: &str, cancel: &Cancellation) -> Result<Vec<Application>> {
@@ -103,6 +158,17 @@ fn warning(snapshot: &mut Snapshot, message: impl Into<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn offers_only_use_named_extensions_from_the_supported_format_catalog() {
+        assert_eq!(
+            offered_extension(Path::new("paper.PDF")).as_deref(),
+            Some("pdf")
+        );
+        for name in ["README", ".gitignore", "file.unknown-type", "program.exe"] {
+            assert_eq!(offered_extension(Path::new(name)), None);
+        }
+    }
 
     #[test]
     fn cancelled_scan_does_not_enter_native_discovery() {

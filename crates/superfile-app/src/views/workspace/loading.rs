@@ -147,6 +147,7 @@ impl Workspace {
         // All Finder file types share one queue. Extension-based routing here
         // would split ordinary text/images and native formats across windows.
         if self.reveal_file_path(&path, window, cx) {
+            self.offer_external_association(&path, window, cx);
             return true;
         }
         if !self.incoming_files.contains(&path) {
@@ -156,6 +157,27 @@ impl Workspace {
         window.activate_window();
         true
     }
+
+    pub(crate) fn offer_external_association(
+        &self,
+        path: &std::path::Path,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.active_reader().is_some_and(|reader| {
+            reader.document.path == path
+                && reader.document.remote.is_none()
+                && reader.document.draft_directory.is_none()
+                && !reader.is_unavailable()
+        }) {
+            crate::app::default_applications::offer::enqueue(
+                path.to_owned(),
+                window.window_handle(),
+                cx,
+            );
+        }
+    }
+
     pub(super) fn load_incoming_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.incoming_file_task.is_some() || self.loading {
             return;
@@ -214,6 +236,9 @@ impl Workspace {
                         ),
                         Err(error) => view.error = Some(format!("{error:#}").into()),
                     }
+                }
+                if let Some(path) = path {
+                    view.offer_external_association(&path, window, cx);
                 }
                 view.load_incoming_file(window, cx);
                 cx.notify();
