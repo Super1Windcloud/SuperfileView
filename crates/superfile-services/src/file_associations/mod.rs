@@ -22,6 +22,7 @@ mod windows;
 #[derive(Clone, Debug)]
 pub enum ChangeResult {
     Applied(Application),
+    ConfirmationPending,
     SystemSettingsRequired,
 }
 
@@ -116,7 +117,7 @@ fn validate_identifier(identifier: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_os = "linux")]
 fn verified(application: Application, expected: &Application) -> Result<ChangeResult> {
     anyhow::ensure!(
         application.same_handler(expected),
@@ -191,7 +192,7 @@ mod tests {
         }
     }
 
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(target_os = "linux")]
     #[test]
     fn updates_require_the_native_handler_to_match_the_requested_application() {
         let expected = Application {

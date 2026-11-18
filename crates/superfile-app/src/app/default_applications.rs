@@ -25,6 +25,11 @@ type Loader = fn(&Cancellation) -> anyhow::Result<Snapshot>;
 type ChoicesLoader = fn(&str, &Cancellation) -> anyhow::Result<Vec<Application>>;
 type Setter = fn(&str, &Application) -> anyhow::Result<ChangeResult>;
 
+const CONFIRMATION_PENDING: &str =
+    "Default application change requested. Waiting for macOS confirmation.";
+const WINDOWS_CONFIRMATION: &str =
+    "Confirm the file type and application in Windows Settings, then refresh.";
+
 #[derive(Default)]
 struct PendingWrite(Option<Task<()>>);
 impl Global for PendingWrite {}
@@ -101,7 +106,7 @@ struct Associations {
     picker: Option<(String, Entity<ApplicationPicker>)>,
     applying: bool,
     change_error: Option<String>,
-    status: Option<(bool, String)>,
+    status: Option<(&'static str, String)>,
     _subscription: Subscription,
 }
 
@@ -227,11 +232,19 @@ impl Associations {
                             entry.application = Some(application);
                             entry.issue = None;
                         }
-                        view.status = Some((false, format!("{identifier} → {name}")));
+                        view.status = Some((
+                            "Default application updated.",
+                            format!("{identifier} → {name}"),
+                        ));
                         view.filter(cx);
                     }
+                    Ok(ChangeResult::ConfirmationPending) => {
+                        view.status =
+                            Some((CONFIRMATION_PENDING, format!("{identifier} → {name}")));
+                    }
                     Ok(ChangeResult::SystemSettingsRequired) => {
-                        view.status = Some((true, format!("{identifier} → {name}")));
+                        view.status =
+                            Some((WINDOWS_CONFIRMATION, format!("{identifier} → {name}")));
                         cx.open_url("ms-settings:defaultapps");
                     }
                     Err(error) => view.change_error = Some(format!("{error:#}")),
@@ -409,8 +422,8 @@ impl Render for Associations {
             .when(self.applying, |column| column.child(div().text_sm().child(tr("Updating default application…"))))
             .when_some(self.change_error.clone(), |column, error| column.child(v_flex().text_sm().text_color(cx.theme().danger)
                 .child(tr("Could not change the default application.")).child(error)))
-            .when_some(self.status.clone(), |column, (system, detail)| column.child(v_flex().text_xs().text_color(cx.theme().muted_foreground)
-                .child(tr(if system { "Confirm the file type and application in Windows Settings, then refresh." } else { "Default application updated." })).child(detail)))
+            .when_some(self.status.clone(), |column, (message, detail)| column.child(v_flex().text_xs().text_color(cx.theme().muted_foreground)
+                .child(tr(message)).child(detail)))
             .when_some(error, |column, error| column.child(v_flex().gap_1().text_sm().text_color(cx.theme().danger)
                 .child(tr("Could not read system file associations.")).child(error)))
             .when(!warnings.is_empty(), |column| column.child(div().id("association-warnings").text_xs().text_color(cx.theme().warning)
@@ -432,7 +445,10 @@ impl Render for Associations {
 
 #[cfg(test)]
 mod tests {
-    use super::{Association, Associations, ChangeResult, Snapshot, open_with_loader, show};
+    use super::{
+        Association, Associations, CONFIRMATION_PENDING, ChangeResult, Snapshot,
+        WINDOWS_CONFIRMATION, open_with_loader, show,
+    };
     use gpui_kit::{
         AppContext, TestAppContext, WindowOptions,
         component::{WindowExt, input::InputEvent},
@@ -482,6 +498,9 @@ mod tests {
     }
     fn reject(_: &str, _: &Application) -> anyhow::Result<ChangeResult> {
         anyhow::bail!("Permission denied")
+    }
+    fn pending(_: &str, _: &Application) -> anyhow::Result<ChangeResult> {
+        Ok(ChangeResult::ConfirmationPending)
     }
     fn system(_: &str, _: &Application) -> anyhow::Result<ChangeResult> {
         Ok(ChangeResult::SystemSettingsRequired)
@@ -601,6 +620,27 @@ mod tests {
                         .name,
                     "Alternate Viewer"
                 );
+                view.setter = pending;
+                view.apply_default(
+                    "example/0".into(),
+                    choices("", &Default::default()).unwrap()[0].clone(),
+                    cx,
+                );
+            })
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            view.update(cx, |view, cx| {
+                assert_eq!(view.status.as_ref().unwrap().0, CONFIRMATION_PENDING);
+                assert!(view.change_error.is_none());
+                assert_eq!(
+                    view.snapshot.associations[0]
+                        .application
+                        .as_ref()
+                        .unwrap()
+                        .name,
+                    "Alternate Viewer"
+                );
                 view.setter = system;
                 view.apply_default(
                     "example/0".into(),
@@ -613,7 +653,7 @@ mod tests {
         assert_eq!(cx.opened_url().as_deref(), Some("ms-settings:defaultapps"));
         cx.update(|cx| {
             view.update(cx, |view, cx| {
-                assert!(view.status.as_ref().unwrap().0);
+                assert_eq!(view.status.as_ref().unwrap().0, WINDOWS_CONFIRMATION);
                 assert_eq!(
                     view.snapshot.associations[0]
                         .application

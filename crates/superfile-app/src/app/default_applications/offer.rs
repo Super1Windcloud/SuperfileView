@@ -1,4 +1,4 @@
-use super::{retain_write, take_write};
+use super::{CONFIRMATION_PENDING, retain_write, take_write};
 use gpui_kit::{AnyWindowHandle, App, Global, PromptButton, PromptLevel, component::WindowExt};
 use std::{
     collections::{HashSet, VecDeque},
@@ -98,18 +98,22 @@ fn complete(offer: DefaultOffer, confirmed: bool, handle: AnyWindowHandle, cx: &
             })
             .await;
         let Some(change) = change else { return };
-        cx.update(|cx| match change {
-            Ok(ChangeResult::SystemSettingsRequired) => cx.open_url("ms-settings:defaultapps"),
-            result => {
-                let _ = handle.update(cx, |_, window, cx| match result {
-                    Ok(_) => window.push_notification(tr("Default application updated."), cx),
-                    Err(error) => {
-                        log::warn!("Cannot set Superfile as the default application: {error:#}");
-                        window
-                            .push_notification(tr("Could not change the default application."), cx);
-                    }
-                });
-            }
+        cx.update(|cx| {
+            let message = match change {
+                Ok(ChangeResult::SystemSettingsRequired) => {
+                    cx.open_url("ms-settings:defaultapps");
+                    return;
+                }
+                Ok(ChangeResult::Applied(_)) => "Default application updated.",
+                Ok(ChangeResult::ConfirmationPending) => CONFIRMATION_PENDING,
+                Err(error) => {
+                    log::warn!("Cannot set Superfile as the default application: {error:#}");
+                    "Could not change the default application."
+                }
+            };
+            let _ = handle.update(cx, |_, window, cx| {
+                window.push_notification(tr(message), cx)
+            });
         });
     });
     retain_write(task, cx);

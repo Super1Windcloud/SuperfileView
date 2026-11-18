@@ -5,6 +5,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     io::Read,
     path::{Path, PathBuf},
+    time::Duration,
 };
 mod native;
 
@@ -83,12 +84,34 @@ pub(super) fn set_default(identifier: &str, selected: &Application) -> Result<Ch
         .identifier
         .as_deref()
         .context("Application bundle identifier is missing")?;
-    if native::handler(identifier).as_deref() != Some(id) {
-        native::set_handler(identifier, id)?;
+    if native::handler(identifier).as_deref() == Some(id) {
+        return Ok(ChangeResult::Applied(selected.clone()));
     }
-    let id = native::handler(identifier)
-        .context("macOS did not return a default handler after the change")?;
-    super::verified(application(id, &Cancellation::default()), selected)
+    native::set_handler(identifier, id)?;
+    // Launch Services can still report the previous handler after accepting the write.
+    Ok(confirm_change(
+        selected,
+        &[0, 50, 100, 200, 450, 700],
+        || native::handler(identifier),
+    ))
+}
+
+fn confirm_change(
+    selected: &Application,
+    delays_ms: &[u64],
+    mut handler: impl FnMut() -> Option<String>,
+) -> ChangeResult {
+    for &delay in delays_ms {
+        if delay != 0 {
+            std::thread::sleep(Duration::from_millis(delay));
+        }
+        if let Some(current) = handler()
+            && selected.identifier.as_deref() == Some(current.as_str())
+        {
+            return ChangeResult::Applied(selected.clone());
+        }
+    }
+    ChangeResult::ConfirmationPending
 }
 
 #[derive(Default)]
@@ -358,6 +381,31 @@ pub(super) fn scan(cancel: &Cancellation) -> Result<Snapshot> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn confirmation_retries_stale_or_missing_handlers_and_distinguishes_pending() {
+        let selected = Application {
+            name: "Superfile".into(),
+            identifier: Some("app.superfile.desktop".into()),
+            path: None,
+        };
+        let mut responses = [
+            Some("previous.handler"),
+            None,
+            Some("app.superfile.desktop"),
+        ]
+        .into_iter();
+        let confirmed = confirm_change(&selected, &[0; 4], || {
+            responses
+                .next()
+                .expect("stop polling after confirmation")
+                .map(str::to_owned)
+        });
+        assert!(matches!(confirmed, ChangeResult::Applied(application) if application == selected));
+
+        let pending = confirm_change(&selected, &[0; 2], || Some("previous.handler".into()));
+        assert!(matches!(pending, ChangeResult::ConfirmationPending));
+    }
 
     #[test]
     fn reads_wrapped_and_flat_application_metadata_with_native_layout_precedence() -> Result<()> {
