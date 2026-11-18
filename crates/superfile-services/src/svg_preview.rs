@@ -82,18 +82,15 @@ fn embedded(value: &str, cancel: &Cancellation) -> Result<Option<String>> {
 }
 // Percent-sized exports have no intrinsic image dimensions. Resolve their
 // viewport from the viewBox instead of accepting the browser's 300×150 default.
-fn intrinsic_size(
-    start: &BytesStart<'_>,
-    decoder: quick_xml::encoding::Decoder,
-) -> Result<Option<(f64, f64)>> {
+fn intrinsic_size(start: &BytesStart<'_>) -> Result<Option<(f64, f64)>> {
     let (mut width, mut height, mut view_box) = (None, None, None);
     for attribute in start.attributes() {
         let attribute = attribute?;
-        let value = attribute.decode_and_unescape_value(decoder)?;
+        let value = quick_xml::escape::unescape(&attribute.value)?;
         match attribute.key.as_ref() {
-            b"width" => width = absolute_length(&value),
-            b"height" => height = absolute_length(&value),
-            b"viewBox" => {
+            "width" => width = absolute_length(&value),
+            "height" => height = absolute_length(&value),
+            "viewBox" => {
                 let mut parts = value
                     .split(|ch: char| ch.is_ascii_whitespace() || ch == ',')
                     .filter(|part| !part.is_empty());
@@ -155,10 +152,10 @@ pub(crate) fn dimensions(path: &Path, cancel: &Cancellation) -> Result<Option<(f
         reader.get_mut().get_mut().reset(limits::SVG_EVENT_BYTES);
         match event {
             Event::Start(start) | Event::Empty(start) => {
-                if start.local_name().as_ref() != b"svg" {
+                if start.local_name().as_ref() != "svg" {
                     return Ok(None);
                 }
-                return intrinsic_size(&start, reader.decoder());
+                return intrinsic_size(&start);
             }
             Event::Eof => return Ok(None),
             _ => buffer.clear(),
@@ -193,12 +190,8 @@ pub(crate) fn prepare_image(
                     Event::Start(start) | Event::Empty(start) => start,
                     _ => unreachable!(),
                 };
-                let name = String::from_utf8(start.name().as_ref().to_vec())?;
-                let local = name
-                    .rsplit(':')
-                    .next()
-                    .unwrap_or(&name)
-                    .to_ascii_lowercase();
+                let name = start.name().into_inner();
+                let local = name.rsplit(':').next().unwrap_or(name).to_ascii_lowercase();
                 let is_root = !root;
                 if is_root {
                     ensure!(local == "svg", "Not an SVG image");
@@ -224,18 +217,16 @@ pub(crate) fn prepare_image(
                     }
                 } else {
                     let intrinsic = if is_root {
-                        intrinsic_size(&start, reader.decoder())?
+                        intrinsic_size(&start)?
                     } else {
                         None
                     };
-                    let mut cleaned = BytesStart::new(name.as_str());
+                    let mut cleaned = BytesStart::new(name);
                     for attribute in start.attributes() {
                         let attribute = attribute?;
-                        let key = std::str::from_utf8(attribute.key.as_ref())?;
+                        let key = attribute.key.as_ref();
                         let local_key = key.rsplit(':').next().unwrap_or(key).to_ascii_lowercase();
-                        let value = attribute
-                            .decode_and_unescape_value(reader.decoder())?
-                            .into_owned();
+                        let value = quick_xml::escape::unescape(&attribute.value)?;
                         if intrinsic.is_some() && matches!(local_key.as_str(), "width" | "height") {
                             continue;
                         }
@@ -248,17 +239,17 @@ pub(crate) fn prepare_image(
                             if value.starts_with('#')
                                 || (browser_image && embedded_image_uri(&value))
                             {
-                                cleaned.push_attribute((key, value.as_str()));
+                                cleaned.push_attribute((key, value.as_ref()));
                             } else if let Some(value) = embedded(&value, cancel).ok().flatten() {
                                 cleaned.push_attribute((key, value.as_str()));
                             }
                         } else if local_key == "style" || value.to_ascii_lowercase().contains("url")
                         {
                             if browser_image || local_css(&value) {
-                                cleaned.push_attribute((key, value.as_str()));
+                                cleaned.push_attribute((key, value.as_ref()));
                             }
                         } else {
-                            cleaned.push_attribute((key, value.as_str()));
+                            cleaned.push_attribute((key, value.as_ref()));
                         }
                     }
                     if let Some((width, height)) = intrinsic {
@@ -282,12 +273,12 @@ pub(crate) fn prepare_image(
                 }
             }
             Event::Text(text) if skipped == 0 => {
-                if browser_image || !style || local_css(&text.decode()?) {
+                if browser_image || !style || local_css(&text) {
                     writer.write_event(Event::Text(text))?;
                 }
             }
             Event::CData(text) if skipped == 0 => {
-                if browser_image || !style || local_css(&text.decode()?) {
+                if browser_image || !style || local_css(&text) {
                     writer.write_event(Event::CData(text))?;
                 }
             }
@@ -300,7 +291,7 @@ pub(crate) fn prepare_image(
                 // internal subsets could define entities and remain unsupported.
                 ensure!(!root, "SVG document type must precede the root element");
                 ensure!(
-                    !declaration.contains(&b'['),
+                    !declaration.contains('['),
                     "SVG internal document type subsets are unsupported"
                 );
             }

@@ -49,10 +49,11 @@ pub fn read_preview_cancellable(path: &Path, cancel: &Cancellation) -> Result<Te
                 for index in 0..archive.len() {
                     cancel.check()?;
                     let mut entry = archive.by_index(index)?;
+                    let name = crate::archive::name(&entry)?;
                     writeln!(
                         text,
                         "{} · {} bytes{}",
-                        crate::archive::name(&entry),
+                        name,
                         entry.size(),
                         if entry.enclosed_name().is_some() {
                             String::new()
@@ -61,8 +62,8 @@ pub fn read_preview_cancellable(path: &Path, cancel: &Cancellation) -> Result<Te
                         }
                     )?;
                     if (matches!(ext.as_str(), "odt" | "ods" | "odp")
-                        && entry.name() == "content.xml")
-                        || (ext == "epub" && entry.name().ends_with(".xhtml"))
+                        && entry.name()? == "content.xml")
+                        || (ext == "epub" && entry.name()?.ends_with(".xhtml"))
                     {
                         // Preserve large XML completely in source form rather than rejecting it.
                         let mut prefix = Vec::new();
@@ -116,7 +117,7 @@ fn xml_text(bytes: &[u8]) -> Result<String> {
     loop {
         match reader.read_event()? {
             Event::Text(value) => {
-                text.push_str(&quick_xml::escape::unescape(&value.decode()?)?);
+                text.push_str(&quick_xml::escape::unescape(&value)?);
             }
             Event::End(_) => text.push('\n'),
             Event::DocType(_) => anyhow::bail!("Document type declarations are unsupported"),

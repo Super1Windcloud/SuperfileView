@@ -46,11 +46,12 @@ fn stem(path: &Path) -> String {
         .into_owned()
 }
 
-pub fn name(entry: &zip::read::ZipFile<'_>) -> String {
+pub fn name<R: Read + ?Sized>(entry: &zip::read::ZipFile<'_, R>) -> zip::result::ZipResult<String> {
     // Some macOS writers store UTF-8 without setting ZIP's UTF-8 flag.
-    std::str::from_utf8(entry.name_raw())
-        .map(str::to_owned)
-        .unwrap_or_else(|_| entry.name().to_owned())
+    match std::str::from_utf8(entry.name_raw()) {
+        Ok(name) => Ok(name.to_owned()),
+        Err(_) => entry.name().map(|name| name.into_owned()),
+    }
 }
 fn safe(name: &str) -> Result<PathBuf> {
     let path = Path::new(name);
@@ -108,7 +109,7 @@ pub fn read(path: &Path, cancel: &Cancellation) -> Result<Archive> {
     for i in 0..zip.len() {
         cancel.check()?;
         let entry = zip.by_index(i)?;
-        let name = name(&entry);
+        let name = name(&entry)?;
         bytes = bytes.saturating_add(entry.size());
         entries.push(Entry {
             directory: name.ends_with('/'),
@@ -195,7 +196,7 @@ fn extract_zip(path: &Path, stage: &Path, cancel: &Cancellation) -> Result<()> {
     for i in 0..zip.len() {
         cancel.check()?;
         let mut entry = zip.by_index(i)?;
-        let relative = safe(&name(&entry))?;
+        let relative = safe(&name(&entry)?)?;
         let target = stage.join(&relative);
         if entry.is_dir() {
             fs::create_dir_all(&target)?;

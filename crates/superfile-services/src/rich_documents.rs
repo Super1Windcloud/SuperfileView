@@ -46,12 +46,13 @@ pub fn prepare(path: &Path, cancel: &Cancellation) -> Result<PreparedDocument> {
         } else if extension == "pptx" {
             let mut parts = archive
                 .file_names()
+                .flatten()
                 .filter(|name| {
                     name.starts_with("ppt/slides/slide")
                         && name.ends_with(".xml")
                         && !name.contains("/_rels/")
                 })
-                .map(str::to_owned)
+                .map(|name| name.into_owned())
                 .collect::<Vec<_>>();
             parts.sort_by_key(|name| {
                 name.trim_start_matches("ppt/slides/slide")
@@ -92,27 +93,27 @@ pub fn prepare(path: &Path, cancel: &Cancellation) -> Result<PreparedDocument> {
                     Event::Eof => break,
                     Event::DocType(_) => bail!("Document external entities are unsupported"),
                     Event::Start(tag) => {
-                        if tag.local_name().as_ref() == b"t"
+                        if tag.local_name().as_ref() == "t"
                             || (matches!(extension.as_str(), "odt" | "odp")
-                                && matches!(tag.local_name().as_ref(), b"p" | b"h"))
+                                && matches!(tag.local_name().as_ref(), "p" | "h"))
                         {
                             text = true;
                         }
                     }
                     Event::End(tag) => match tag.local_name().as_ref() {
-                        b"t" => text = false,
-                        b"p" | b"h" | b"tr" => {
+                        "t" => text = false,
+                        "p" | "h" | "tr" => {
                             output.write_all(b"\n\n")?;
                             text = false;
                         }
                         _ => {}
                     },
                     Event::Empty(tag)
-                        if matches!(tag.local_name().as_ref(), b"br" | b"line-break") =>
+                        if matches!(tag.local_name().as_ref(), "br" | "line-break") =>
                     {
                         output.write_all(b"\n")?
                     }
-                    Event::Empty(tag) if tag.local_name().as_ref() == b"tab" => {
+                    Event::Empty(tag) if tag.local_name().as_ref() == "tab" => {
                         output.write_all(b"\t")?
                     }
                     event if text => {

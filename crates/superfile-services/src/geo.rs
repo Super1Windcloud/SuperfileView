@@ -100,23 +100,23 @@ pub fn read_page(input: impl Read, start: usize, cancel: &Cancellation) -> Resul
             Event::Start(ref tag) | Event::Empty(ref tag) => {
                 let empty = matches!(event, Event::Empty(_));
                 match tag.local_name().as_ref() {
-                    b"coordinates" => {
+                    "coordinates" => {
                         in_coordinates = !empty;
                         token.clear();
                     }
-                    b"ele" => elevation = !empty,
-                    b"wpt" | b"trkpt" | b"rtept" => {
+                    "ele" => elevation = !empty,
+                    "wpt" | "trkpt" | "rtept" => {
                         let (mut longitude, mut latitude) = (None, None);
                         for attribute in tag.attributes() {
                             let attribute = attribute?;
-                            let value = attribute.decode_and_unescape_value(reader.decoder())?;
+                            let value = quick_xml::escape::unescape(&attribute.value)?;
                             let number = value
                                 .parse::<f64>()
                                 .ok()
                                 .filter(|number| number.is_finite());
                             match attribute.key.local_name().as_ref() {
-                                b"lon" => longitude = number,
-                                b"lat" => latitude = number,
+                                "lon" => longitude = number,
+                                "lat" => latitude = number,
                                 _ => {}
                             }
                         }
@@ -140,7 +140,7 @@ pub fn read_page(input: impl Read, start: usize, cancel: &Cancellation) -> Resul
                 }
             }
             Event::End(tag) => match tag.local_name().as_ref() {
-                b"coordinates" => {
+                "coordinates" => {
                     if let Some(row) = point(&token)
                         && emit(row)?
                     {
@@ -153,8 +153,8 @@ pub fn read_page(input: impl Read, start: usize, cancel: &Cancellation) -> Resul
                     token.clear();
                     in_coordinates = false;
                 }
-                b"ele" => elevation = false,
-                b"wpt" | b"trkpt" | b"rtept" => {
+                "ele" => elevation = false,
+                "wpt" | "trkpt" | "rtept" => {
                     if let Some(row) = pending.take()
                         && emit(row)?
                     {

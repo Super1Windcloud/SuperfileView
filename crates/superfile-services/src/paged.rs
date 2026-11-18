@@ -1,6 +1,6 @@
 //! Bounded UTF-8 windows; offsets are byte offsets, never character indices.
 use crate::limits as reader_limits;
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use std::{
     fs::File,
     io::{Read, Seek, SeekFrom},
@@ -574,7 +574,9 @@ fn zip_member_view(
         _ => anyhow::bail!("Unsupported ZIP compression method"),
     };
     let compression = crate::streamed::Compression::Zip {
-        offset: entry.data_start(),
+        offset: entry
+            .data_start()
+            .context("Missing ZIP entry data offset")?,
         compressed: entry.compressed_size(),
         size: entry.size(),
         crc: entry.crc32(),

@@ -103,17 +103,17 @@ fn coordinates(text: &str) -> String {
     loop {
         match reader.read_event() {
             Ok(Event::Start(tag) | Event::Empty(tag)) => {
-                if tag.local_name().as_ref() == b"coordinates" {
+                if tag.local_name().as_ref() == "coordinates" {
                     in_coordinates = true;
                 }
-                if matches!(tag.local_name().as_ref(), b"wpt" | b"trkpt" | b"rtept") {
+                if matches!(tag.local_name().as_ref(), "wpt" | "trkpt" | "rtept") {
                     let mut lat = String::new();
                     let mut lon = String::new();
                     for attr in tag.attributes().flatten() {
-                        let value = String::from_utf8_lossy(&attr.value).into_owned();
+                        let value = attr.value.into_owned();
                         match attr.key.as_ref() {
-                            b"lat" => lat = value,
-                            b"lon" => lon = value,
+                            "lat" => lat = value,
+                            "lon" => lon = value,
                             _ => {}
                         }
                     }
@@ -126,24 +126,22 @@ fn coordinates(text: &str) -> String {
                 }
             }
             Ok(Event::Text(value)) if in_coordinates => {
-                if let Ok(value) = value.decode() {
-                    for point in value.split_whitespace() {
-                        let values: Vec<_> = point
-                            .split(',')
-                            .filter_map(|v| v.parse::<f64>().ok())
-                            .collect();
-                        if values.len() >= 2 && values.iter().all(|v| v.is_finite()) {
-                            output.push_str(&format!(
-                                "| {} | {} | {} |\n",
-                                values[0],
-                                values[1],
-                                values.get(2).copied().unwrap_or(0.0)
-                            ));
-                        }
+                for point in value.split_whitespace() {
+                    let values: Vec<_> = point
+                        .split(',')
+                        .filter_map(|v| v.parse::<f64>().ok())
+                        .collect();
+                    if values.len() >= 2 && values.iter().all(|v| v.is_finite()) {
+                        output.push_str(&format!(
+                            "| {} | {} | {} |\n",
+                            values[0],
+                            values[1],
+                            values.get(2).copied().unwrap_or(0.0)
+                        ));
                     }
                 }
             }
-            Ok(Event::End(tag)) if tag.local_name().as_ref() == b"coordinates" => {
+            Ok(Event::End(tag)) if tag.local_name().as_ref() == "coordinates" => {
                 in_coordinates = false
             }
             Ok(Event::Eof) => break,

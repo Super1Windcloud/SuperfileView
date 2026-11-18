@@ -36,7 +36,10 @@ pub fn read_cancellable(path: &Path, cancel: &crate::work::Cancellation) -> Resu
         cancel: cancel.clone(),
     })
     .context(ReadStage("container"))?;
-    let modern = archive.file_names().any(|name| name == "content.json");
+    let modern = archive
+        .file_names()
+        .flatten()
+        .any(|name| name == "content.json");
     let mut entry = archive
         .by_name(if modern {
             "content.json"
@@ -253,13 +256,13 @@ fn legacy_content(bytes: &[u8], cancel: &crate::work::Cancellation) -> Result<Va
                     .map(|a| {
                         let a = a?;
                         Ok((
-                            String::from_utf8_lossy(a.key.local_name().as_ref()).into_owned(),
-                            a.decode_and_unescape_value(reader.decoder())?.into_owned(),
+                            a.key.local_name().as_ref().to_owned(),
+                            quick_xml::escape::unescape(&a.value)?.into_owned(),
                         ))
                     })
                     .collect::<Result<HashMap<_, _>>>()?;
                 nodes.push(XmlNode {
-                    name: String::from_utf8_lossy(e.local_name().as_ref()).into_owned(),
+                    name: e.local_name().as_ref().to_owned(),
                     attributes,
                     text: String::new(),
                     children: Vec::new(),
@@ -277,17 +280,17 @@ fn legacy_content(bytes: &[u8], cancel: &crate::work::Cancellation) -> Result<Va
             }
             Event::Text(e) => {
                 if let Some(&index) = stack.last() {
-                    nodes[index].text.push_str(&e.decode()?);
+                    nodes[index].text.push_str(&e);
                 }
             }
             Event::CData(e) => {
                 if let Some(&index) = stack.last() {
-                    nodes[index].text.push_str(&e.decode()?);
+                    nodes[index].text.push_str(&e);
                 }
             }
             Event::GeneralRef(e) => {
                 if let Some(&index) = stack.last() {
-                    let escaped = format!("&{};", e.decode()?);
+                    let escaped = format!("&{};", e.as_ref());
                     nodes[index]
                         .text
                         .push_str(&quick_xml::escape::unescape(&escaped)?);
@@ -296,7 +299,7 @@ fn legacy_content(bytes: &[u8], cancel: &crate::work::Cancellation) -> Result<Va
             Event::DocType(e) => {
                 // Accept only the root declaration, never a DTD or entity definitions.
                 ensure!(
-                    !doctype_seen && nodes.is_empty() && e.decode()?.trim() == "xmap-content",
+                    !doctype_seen && nodes.is_empty() && e.trim() == "xmap-content",
                     "XMind XML with external or internal DTD declarations is unsupported"
                 );
                 doctype_seen = true;
@@ -402,7 +405,10 @@ pub fn read_source(
         inner: std::fs::File::open(path)?,
         cancel: cancel.clone(),
     })?;
-    let modern = archive.file_names().any(|name| name == "content.json");
+    let modern = archive
+        .file_names()
+        .flatten()
+        .any(|name| name == "content.json");
     drop(archive);
     crate::paged::zip_member(
         path,

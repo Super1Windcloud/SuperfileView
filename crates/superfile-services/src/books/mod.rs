@@ -282,8 +282,9 @@ fn read_structured(path: &Path, cancel: &crate::work::Cancellation) -> Result<Bo
             let mut package = archive(path)?;
             let entries = package
                 .file_names()
+                .flatten()
                 .filter(|v| v.to_ascii_lowercase().ends_with(".fb2"))
-                .map(str::to_owned)
+                .map(|name| name.into_owned())
                 .collect::<Vec<_>>();
             ensure!(entries.len() == 1, "FB2 ZIP must contain exactly one book");
             entry(&mut package, &entries[0], TEXT_LIMIT)?
@@ -322,7 +323,11 @@ fn empty(path: &Path, format: Format) -> Result<Book> {
 }
 fn epub(path: &Path) -> Result<Book> {
     let mut package = archive(path)?;
-    if package.file_names().any(|v| v == "META-INF/encryption.xml") {
+    if package
+        .file_names()
+        .flatten()
+        .any(|name| name == "META-INF/encryption.xml")
+    {
         let value = decode(&entry(
             &mut package,
             "META-INF/encryption.xml",
@@ -483,6 +488,7 @@ fn comic(path: &Path) -> Result<Book> {
     let mut book = empty(path, Format::Comic)?;
     let mut images = package
         .file_names()
+        .flatten()
         .filter(|name| {
             matches!(
                 name.rsplit('.')
@@ -493,7 +499,7 @@ fn comic(path: &Path) -> Result<Book> {
                 "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp"
             )
         })
-        .map(str::to_owned)
+        .map(|name| name.into_owned())
         .collect::<Vec<_>>();
     images.sort_by_cached_key(|name| natural_key(name));
     for href in images {
@@ -507,7 +513,11 @@ fn comic(path: &Path) -> Result<Book> {
             html: None,
         });
     }
-    if package.file_names().any(|s| s == "ComicInfo.xml") {
+    if package
+        .file_names()
+        .flatten()
+        .any(|name| name == "ComicInfo.xml")
+    {
         let metadata = decode(&entry(&mut package, "ComicInfo.xml", CHAPTER_LIMIT)?)?;
         let doc = xml(&metadata)?;
         book.title = named(doc.root(), "Title")
@@ -933,11 +943,11 @@ fn source_book(path: &Path, cancel: &crate::work::Cancellation) -> Result<Book> 
         for index in 0..package.len() {
             cancel.check()?;
             let entry = package.by_index(index)?;
-            let name = entry.name();
             if !entry.is_dir() {
+                let name = entry.name()?.into_owned();
                 book.chapters.push(Chapter {
-                    href: name.to_owned(),
-                    title: name.to_owned(),
+                    href: name.clone(),
+                    title: name,
                     html: None,
                 });
             }

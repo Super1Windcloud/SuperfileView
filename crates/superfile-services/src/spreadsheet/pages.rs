@@ -71,30 +71,25 @@ pub(super) fn index_sheet(
             Event::Start(tag) | Event::Empty(tag) => {
                 let empty = matches!(event, Event::Empty(_));
                 let name = tag.local_name();
-                let a = attributes(tag, reader.decoder())?;
+                let a = attributes(tag)?;
                 match name.as_ref() {
-                    b"worksheet" => {
+                    "worksheet" => {
                         db.execute(
                             "INSERT INTO source_parts VALUES (?1,'root',?2,?3)",
                             params![sheet, start, end - start],
                         )?;
                     }
-                    b"sheetFormatPr" | b"pageMargins" if !empty => {
-                        part = Some((String::from_utf8_lossy(name.as_ref()).into_owned(), start));
+                    "sheetFormatPr" | "pageMargins" if !empty => {
+                        part = Some((name.as_ref().to_owned(), start));
                     }
-                    b"sheetFormatPr" | b"pageMargins" => {
+                    "sheetFormatPr" | "pageMargins" => {
                         db.execute(
                             "INSERT INTO source_parts VALUES (?1,?2,?3,?4)",
-                            params![
-                                sheet,
-                                String::from_utf8_lossy(name.as_ref()),
-                                start,
-                                end - start
-                            ],
+                            params![sheet, name.as_ref(), start, end - start],
                         )?;
                     }
-                    b"cols" if !empty => part = Some(("cols".into(), start)),
-                    b"row" => {
+                    "cols" if !empty => part = Some(("cols".into(), start)),
+                    "row" => {
                         row = attr(&a, "r").parse().unwrap_or(row.saturating_add(1));
                         column = 0;
                         row_start = start;
@@ -106,7 +101,7 @@ pub(super) fn index_sheet(
                             )?;
                         }
                     }
-                    b"c" => {
+                    "c" => {
                         if let Some((r, c)) = coordinate(attr(&a, "r")) {
                             row = r;
                             column = c;
@@ -123,7 +118,7 @@ pub(super) fn index_sheet(
                             )?;
                         }
                     }
-                    b"mergeCell" => {
+                    "mergeCell" => {
                         let value = attr(&a, "ref");
                         let (first, last) = value.split_once(':').unwrap_or((value, value));
                         if let (Some((r1, c1)), Some((r2, c2))) =
@@ -141,19 +136,19 @@ pub(super) fn index_sheet(
                 }
             }
             Event::End(tag) => match tag.local_name().as_ref() {
-                b"row" => {
+                "row" => {
                     db.execute(
                         "INSERT INTO source_rows VALUES (?1,?2,?3,?4)",
                         params![sheet, row, row_start, end - row_start],
                     )?;
                 }
-                b"c" => {
+                "c" => {
                     db.execute(
                         "INSERT INTO source_cells VALUES (?1,?2,?3,?4,?5)",
                         params![sheet, row, column, cell_start, end - cell_start],
                     )?;
                 }
-                b"cols" | b"sheetFormatPr" | b"pageMargins" => {
+                "cols" | "sheetFormatPr" | "pageMargins" => {
                     if let Some((kind, begin)) = part.take() {
                         db.execute(
                             "INSERT INTO source_parts VALUES (?1,?2,?3,?4)",
@@ -234,19 +229,18 @@ fn start_tag(
 }
 fn rewrite(
     tag: &BytesStart<'_>,
-    decoder: quick_xml::encoding::Decoder,
     changed: &[(&str, String)],
     removed: &[&str],
 ) -> Result<BytesStart<'static>> {
-    let name = String::from_utf8(tag.name().as_ref().to_vec())?;
+    let name = tag.name().as_ref().to_owned();
     let mut output = BytesStart::new(name);
     for a in tag.attributes() {
         let a = a?;
-        let key = std::str::from_utf8(a.key.as_ref())?;
+        let key = a.key.as_ref();
         if removed.contains(&key) || changed.iter().any(|(k, _)| *k == key) {
             continue;
         }
-        let value = a.decode_and_unescape_value(decoder)?;
+        let value = quick_xml::escape::unescape(&a.value)?;
         output.push_attribute((key, value.as_ref()));
     }
     for (key, value) in changed {
@@ -315,15 +309,15 @@ fn render_cell(
         let event = reader.read_event_into(&mut buffer)?;
         let empty_cell = matches!(&event, Event::Empty(_));
         match event {
-            Event::Start(tag) | Event::Empty(tag) if tag.local_name().as_ref() == b"c" => {
+            Event::Start(tag) | Event::Empty(tag) if tag.local_name().as_ref() == "c" => {
                 let empty = empty_cell;
-                let a = attributes(&tag, reader.decoder())?;
+                let a = attributes(&tag)?;
                 shared = attr(&a, "t") == "s";
                 let mut changed = vec![("r", address(row, column))];
                 if shared {
                     changed.push(("t", "inlineStr".into()));
                 }
-                let tag = rewrite(&tag, reader.decoder(), &changed, &[])?;
+                let tag = rewrite(&tag, &changed, &[])?;
                 // Empty cells are detected from the original source marker.
                 if empty {
                     output.write_event(Event::Empty(tag))?;
@@ -331,16 +325,16 @@ fn render_cell(
                     output.write_event(Event::Start(tag))?;
                 }
             }
-            Event::Start(tag) if tag.local_name().as_ref() == b"f" => skip = 1,
-            Event::Empty(tag) if tag.local_name().as_ref() == b"f" => {}
+            Event::Start(tag) if tag.local_name().as_ref() == "f" => skip = 1,
+            Event::Empty(tag) if tag.local_name().as_ref() == "f" => {}
             Event::Start(tag) if skip > 0 => {
                 let _ = tag;
                 skip += 1;
             }
             Event::End(_) if skip > 0 => skip -= 1,
-            Event::Start(tag) if shared && tag.local_name().as_ref() == b"v" => in_value = true,
-            Event::End(tag) if shared && tag.local_name().as_ref() == b"v" => in_value = false,
-            Event::End(tag) if tag.local_name().as_ref() == b"c" => {
+            Event::Start(tag) if shared && tag.local_name().as_ref() == "v" => in_value = true,
+            Event::End(tag) if shared && tag.local_name().as_ref() == "v" => in_value = false,
+            Event::End(tag) if tag.local_name().as_ref() == "c" => {
                 if shared && !string_id.is_empty() {
                     let value: String = db.query_row(
                         "SELECT value FROM strings WHERE id=?1",
@@ -457,11 +451,11 @@ pub fn render_page(
         ));
         let (start, length) = part(&db, sheet, "root")?.context("Missing worksheet root")?;
         let root = start_tag(source, start, length, cancel)?;
-        let root_name = String::from_utf8(root.name().as_ref().to_vec())?;
+        let root_name = root.name().as_ref().to_owned();
         let mut root = root;
         if !root
             .attributes()
-            .any(|a| a.is_ok_and(|a| a.key.as_ref() == b"xmlns"))
+            .any(|a| a.is_ok_and(|a| a.key.as_ref() == "xmlns"))
         {
             root.push_attribute((
                 "xmlns",
@@ -487,16 +481,13 @@ pub fn render_page(
                 reader.get_mut().get_mut().reset(limits::IO_RECORD_BYTES);
                 let event = reader.read_event_into(&mut buffer)?;
                 match event {
-                    Event::Start(tag) | Event::Empty(tag)
-                        if tag.local_name().as_ref() == b"col" =>
-                    {
-                        let a = attributes(&tag, reader.decoder())?;
+                    Event::Start(tag) | Event::Empty(tag) if tag.local_name().as_ref() == "col" => {
+                        let a = attributes(&tag)?;
                         let first = attr(&a, "min").parse::<u64>()?;
                         let last = attr(&a, "max").parse::<u64>()?;
                         if first <= column_end && last > column_start {
                             let tag = rewrite(
                                 &tag,
-                                reader.decoder(),
                                 &[
                                     (
                                         "min",
@@ -528,18 +519,13 @@ pub fn render_page(
                 .optional()?;
             let tag = if let Some((start, length)) = range {
                 let tag = start_tag(source, start, length, cancel)?;
-                rewrite(
-                    &tag,
-                    Reader::from_str("").decoder(),
-                    &[("r", (row - row_start).to_string())],
-                    &["spans"],
-                )?
+                rewrite(&tag, &[("r", (row - row_start).to_string())], &["spans"])?
             } else {
                 let mut tag = BytesStart::new("row");
                 tag.push_attribute(("r", (row - row_start).to_string().as_str()));
                 tag
             };
-            let row_name = String::from_utf8(tag.name().as_ref().to_vec())?;
+            let row_name = tag.name().as_ref().to_owned();
             output.write_event(Event::Start(tag))?;
             for (&(_, column), &(start, length)) in cells.range((row, 0)..=(row, u64::MAX)) {
                 render_cell(

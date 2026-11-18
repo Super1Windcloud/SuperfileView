@@ -35,7 +35,7 @@ fn scan(
     archive: &mut zip::ZipArchive<File>,
     name: &str,
     cancel: &Cancellation,
-    visit: impl FnMut(&Event<'_>, quick_xml::encoding::Decoder) -> Result<()>,
+    visit: impl FnMut(&Event<'_>) -> Result<()>,
 ) -> Result<()> {
     let entry = archive
         .by_name(name)
@@ -45,7 +45,7 @@ fn scan(
 fn scan_reader(
     input: impl std::io::Read,
     cancel: &Cancellation,
-    mut visit: impl FnMut(&Event<'_>, quick_xml::encoding::Decoder) -> Result<()>,
+    mut visit: impl FnMut(&Event<'_>) -> Result<()>,
 ) -> Result<()> {
     let input = crate::work::RecordReader::new(input, limits::IO_RECORD_BYTES, cancel);
     let mut reader = Reader::from_reader(BufReader::with_capacity(limits::IO_BUFFER_BYTES, input));
@@ -61,20 +61,17 @@ fn scan_reader(
         if matches!(event, Event::Eof) {
             break;
         }
-        visit(&event, reader.decoder())?;
+        visit(&event)?;
     }
     Ok(())
 }
-fn attributes(
-    tag: &quick_xml::events::BytesStart<'_>,
-    decoder: quick_xml::encoding::Decoder,
-) -> Result<Vec<(String, String)>> {
+fn attributes(tag: &quick_xml::events::BytesStart<'_>) -> Result<Vec<(String, String)>> {
     tag.attributes()
         .map(|attribute| {
             let attribute = attribute?;
             Ok((
-                String::from_utf8_lossy(attribute.key.local_name().as_ref()).into_owned(),
-                attribute.decode_and_unescape_value(decoder)?.into_owned(),
+                attribute.key.local_name().as_ref().to_owned(),
+                quick_xml::escape::unescape(&attribute.value)?.into_owned(),
             ))
         })
         .collect()
@@ -122,29 +119,30 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
     cache.execute_batch("BEGIN")?;
     if archive
         .file_names()
+        .flatten()
         .any(|name| name == "xl/sharedStrings.xml")
     {
         let (mut value, mut id, mut in_text) = (String::new(), 0_i64, false);
         let mut phonetic = 0_usize;
-        scan(&mut archive, "xl/sharedStrings.xml", cancel, |event, _| {
+        scan(&mut archive, "xl/sharedStrings.xml", cancel, |event| {
             match event {
-                Event::Start(tag) if tag.local_name().as_ref() == b"si" => value.clear(),
-                Event::Start(tag) if tag.local_name().as_ref() == b"rPh" => phonetic += 1,
-                Event::End(tag) if tag.local_name().as_ref() == b"rPh" => {
+                Event::Start(tag) if tag.local_name().as_ref() == "si" => value.clear(),
+                Event::Start(tag) if tag.local_name().as_ref() == "rPh" => phonetic += 1,
+                Event::End(tag) if tag.local_name().as_ref() == "rPh" => {
                     phonetic = phonetic.saturating_sub(1)
                 }
-                Event::Start(tag) if tag.local_name().as_ref() == b"t" => in_text = phonetic == 0,
-                Event::End(tag) if tag.local_name().as_ref() == b"t" => in_text = false,
+                Event::Start(tag) if tag.local_name().as_ref() == "t" => in_text = phonetic == 0,
+                Event::End(tag) if tag.local_name().as_ref() == "t" => in_text = false,
                 event if in_text => {
                     if let Some(text) = crate::xml::event_text(event)? {
                         append(&mut value, &text)?;
                     }
                 }
-                Event::End(tag) if tag.local_name().as_ref() == b"si" => {
+                Event::End(tag) if tag.local_name().as_ref() == "si" => {
                     cache.execute("INSERT INTO strings VALUES (?1, ?2)", params![id, value])?;
                     id += 1;
                 }
-                Event::Empty(tag) if tag.local_name().as_ref() == b"si" => {
+                Event::Empty(tag) if tag.local_name().as_ref() == "si" => {
                     cache.execute("INSERT INTO strings VALUES (?1, '')", [id])?;
                     id += 1;
                 }
@@ -157,11 +155,11 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
         &mut archive,
         "xl/_rels/workbook.xml.rels",
         cancel,
-        |event, decoder| {
+        |event| {
             if let Event::Start(tag) | Event::Empty(tag) = event
-                && tag.local_name().as_ref() == b"Relationship"
+                && tag.local_name().as_ref() == "Relationship"
             {
-                let a = attributes(tag, decoder)?;
+                let a = attributes(tag)?;
                 if attr(&a, "TargetMode") != "External" {
                     cache.execute(
                         "INSERT INTO relationships VALUES (?1, ?2)",
@@ -172,11 +170,11 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
             Ok(())
         },
     )?;
-    scan(&mut archive, "xl/workbook.xml", cancel, |event, decoder| {
+    scan(&mut archive, "xl/workbook.xml", cancel, |event| {
         if let Event::Start(tag) | Event::Empty(tag) = event
-            && tag.local_name().as_ref() == b"workbookPr"
+            && tag.local_name().as_ref() == "workbookPr"
         {
-            let a = attributes(tag, decoder)?;
+            let a = attributes(tag)?;
             cache.execute(
                 "INSERT OR REPLACE INTO settings VALUES ('date1904',?1)",
                 [if matches!(attr(&a, "date1904"), "1" | "true") {
@@ -187,9 +185,9 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
             )?;
         }
         if let Event::Start(tag) | Event::Empty(tag) = event
-            && tag.local_name().as_ref() == b"sheet"
+            && tag.local_name().as_ref() == "sheet"
         {
-            let a = attributes(tag, decoder)?;
+            let a = attributes(tag)?;
             cache.execute(
                 "INSERT INTO sheets(name,reference) VALUES (?1, ?2)",
                 params![attr(&a, "name"), attr(&a, "id")],
@@ -245,23 +243,23 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
         let mut in_cell = false;
         let (mut row_number, mut column_number) = (0_u64, 0_u64);
         let mut phonetic = 0_usize;
-        scan_reader(File::open(source)?, cancel, |event, decoder| {
+        scan_reader(File::open(source)?, cancel, |event| {
             match event {
-                Event::Start(tag) | Event::Empty(tag) if tag.local_name().as_ref() == b"row" => {
-                    let a = attributes(tag, decoder)?;
+                Event::Start(tag) | Event::Empty(tag) if tag.local_name().as_ref() == "row" => {
+                    let a = attributes(tag)?;
                     row_number = attr(&a, "r")
                         .parse()
                         .unwrap_or_else(|_| row_number.saturating_add(1));
                     column_number = 0;
                 }
-                Event::Empty(tag) if tag.local_name().as_ref() == b"c" => {
-                    let a = attributes(tag, decoder)?;
+                Event::Empty(tag) if tag.local_name().as_ref() == "c" => {
+                    let a = attributes(tag)?;
                     let address =
                         cell_address(attr(&a, "r"), row_number.max(1), &mut column_number);
                     insert.execute(params![address, "", ""])?;
                 }
-                Event::Start(tag) if tag.local_name().as_ref() == b"c" => {
-                    let a = attributes(tag, decoder)?;
+                Event::Start(tag) if tag.local_name().as_ref() == "c" => {
+                    let a = attributes(tag)?;
                     cell = cell_address(attr(&a, "r"), row_number.max(1), &mut column_number);
                     kind = attr(&a, "t").to_owned();
                     value.clear();
@@ -269,18 +267,18 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
                     field.clear();
                     in_cell = true;
                 }
-                Event::Start(tag) if tag.local_name().as_ref() == b"rPh" => phonetic += 1,
-                Event::End(tag) if tag.local_name().as_ref() == b"rPh" => {
+                Event::Start(tag) if tag.local_name().as_ref() == "rPh" => phonetic += 1,
+                Event::End(tag) if tag.local_name().as_ref() == "rPh" => {
                     phonetic = phonetic.saturating_sub(1)
                 }
                 Event::Start(tag)
                     if in_cell
                         && phonetic == 0
-                        && matches!(tag.local_name().as_ref(), b"v" | b"t" | b"f") =>
+                        && matches!(tag.local_name().as_ref(), "v" | "t" | "f") =>
                 {
-                    field = String::from_utf8_lossy(tag.local_name().as_ref()).into_owned()
+                    field = tag.local_name().as_ref().to_owned()
                 }
-                Event::End(tag) if matches!(tag.local_name().as_ref(), b"v" | b"t" | b"f") => {
+                Event::End(tag) if matches!(tag.local_name().as_ref(), "v" | "t" | "f") => {
                     field.clear()
                 }
                 event @ (Event::Text(_) | Event::CData(_) | Event::GeneralRef(_))
@@ -296,7 +294,7 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
                         &text,
                     )?;
                 }
-                Event::End(tag) if tag.local_name().as_ref() == b"c" => {
+                Event::End(tag) if tag.local_name().as_ref() == "c" => {
                     if kind == "s" && !value.is_empty() {
                         value = cache.query_row(
                             "SELECT value FROM strings WHERE id=?1",
