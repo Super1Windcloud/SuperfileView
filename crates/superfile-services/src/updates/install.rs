@@ -7,12 +7,15 @@ use std::{
     fs,
     io::{Read, Write},
     path::{Component, Path},
+    time::{Duration, SystemTime},
 };
 
 const MAX_EXPANDED: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_ENTRIES: usize = 65_536;
 const BACKUP_PREFIX: &str = ".superfile-previous-";
 const BACKUP_RECEIPT: &str = "update-receipt";
+const STAGING_PREFIX: &str = ".superfile-update-";
+const STAGING_MIN_AGE: Duration = Duration::from_secs(10 * 60);
 
 pub struct PreparedUpdate {
     pub(super) download: Option<tempfile::TempDir>,
@@ -23,6 +26,23 @@ pub struct PreparedUpdate {
     pub install_blocker: Option<String>,
     version: Version,
 }
+
+impl PreparedUpdate {
+    pub fn discard(self) {
+        for directory in [Some(self.staging), self.download].into_iter().flatten() {
+            let path = directory.path().to_owned();
+            if let Err(error) = directory.close()
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                log::warn!(
+                    "Cannot remove update temporary directory {}: {error}",
+                    path.display()
+                );
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Installed {
     pub executable: PathBuf,
@@ -106,10 +126,15 @@ fn prepare_at(
     };
     fs::create_dir_all(&parent)?;
     let staging = tempfile::Builder::new()
-        .prefix(".superfile-update-")
+        .prefix(STAGING_PREFIX)
+        .rand_bytes(6)
         .tempdir_in(parent)?;
-    extract(artifact, staging.path(), cancel)?;
-    let payload = payload(staging.path(), &release.asset.name)?;
+    // Keep the staging root nonempty throughout extraction, even before the
+    // first archive entry is available.
+    let contents = staging.path().join("payload");
+    fs::create_dir(&contents)?;
+    extract(artifact, &contents, cancel)?;
+    let payload = payload(&contents, &release.asset.name)?;
     validate_payload(&payload, &release.version)?;
     cancelled(cancel)?;
     Ok(PreparedUpdate {
@@ -371,17 +396,25 @@ pub(super) fn cleanup_running_backups() -> Result<()> {
     let target = running_root()?;
     // A backup can itself be launched manually. Only the installed copy may
     // acknowledge a replacement.
-    if target.ancestors().any(is_backup_dir) || blocker(&target, true).is_some() {
+    if target
+        .ancestors()
+        .any(|path| is_backup_dir(path) || is_update_dir(path, STAGING_PREFIX))
+        || blocker(&target, true).is_some()
+    {
         return Ok(());
     }
     let version = Version::parse(env!("CARGO_PKG_VERSION"))?;
-    cleanup_backups(&target, &version)
+    cleanup_after_startup(&target, &version, SystemTime::now())
 }
 
 fn is_backup_dir(path: &Path) -> bool {
+    is_update_dir(path, BACKUP_PREFIX)
+}
+
+fn is_update_dir(path: &Path, prefix: &str) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .and_then(|name| name.strip_prefix(BACKUP_PREFIX))
+        .and_then(|name| name.strip_prefix(prefix))
         .is_some_and(|suffix| {
             suffix.len() == 6 && suffix.bytes().all(|b| b.is_ascii_alphanumeric())
         })
@@ -399,7 +432,7 @@ fn is_link(metadata: &fs::Metadata) -> bool {
     metadata.file_type().is_symlink()
 }
 
-fn cleanup_backups(target: &Path, running_version: &Version) -> Result<()> {
+fn cleanup_after_startup(target: &Path, running_version: &Version, now: SystemTime) -> Result<()> {
     validate_payload(target, running_version)?;
     let parent = target
         .parent()
@@ -408,15 +441,52 @@ fn cleanup_backups(target: &Path, running_version: &Version) -> Result<()> {
     let mut failure = None;
     for entry in fs::read_dir(parent)? {
         let directory = entry?.path();
-        if is_backup_dir(&directory)
-            && let Err(error) = cleanup_backup(&directory, name, running_version)
-        {
+        let cleanup = if is_backup_dir(&directory) {
+            cleanup_backup(&directory, name, running_version)
+        } else if is_update_dir(&directory, STAGING_PREFIX) {
+            cleanup_staging(&directory, now)
+        } else {
+            continue;
+        };
+        if let Err(error) = cleanup {
             failure.get_or_insert_with(|| {
-                error.context(format!("Clean update backup {}", directory.display()))
+                error.context(format!("Clean update directory {}", directory.display()))
             });
         }
     }
     failure.map_or(Ok(()), Err)
+}
+
+fn cleanup_staging(directory: &Path, now: SystemTime) -> Result<()> {
+    let metadata = fs::symlink_metadata(directory)?;
+    if !metadata.is_dir() || is_link(&metadata) {
+        return Ok(());
+    }
+    // Legacy updaters can be creating a staging directory next to this copy.
+    // Give them time to populate it before treating an empty shell as stale.
+    let old = metadata
+        .modified()
+        .ok()
+        .and_then(|modified| now.duration_since(modified).ok())
+        .is_some_and(|age| age >= STAGING_MIN_AGE);
+    if !old {
+        return Ok(());
+    }
+    let mut finder_metadata = None;
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        if entry.file_name() != ".DS_Store" || !entry.file_type()?.is_file() {
+            return Ok(());
+        }
+        finder_metadata = Some(entry.path());
+    }
+    if let Some(path) = finder_metadata {
+        match fs::remove_file(path) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+            _ => {}
+        }
+    }
+    remove_empty_directory(directory)
 }
 
 fn cleanup_backup(
@@ -449,7 +519,7 @@ fn cleanup_backup(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             if legacy_backup(&previous, running_version) {
                 remove_backup_payload(&previous)?;
-                remove_empty_backup(directory)?;
+                remove_empty_directory(directory)?;
             }
             return Ok(());
         }
@@ -461,7 +531,7 @@ fn cleanup_backup(
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
         _ => {}
     }
-    remove_empty_backup(directory)
+    remove_empty_directory(directory)
 }
 
 #[cfg(target_os = "macos")]
@@ -497,7 +567,7 @@ fn remove_backup_payload(previous: &Path) -> Result<()> {
     Ok(())
 }
 
-fn remove_empty_backup(directory: &Path) -> Result<()> {
+fn remove_empty_directory(directory: &Path) -> Result<()> {
     match fs::remove_dir(directory) {
         Err(error)
             if !matches!(

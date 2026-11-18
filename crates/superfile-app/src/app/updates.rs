@@ -37,7 +37,7 @@ pub(crate) struct State {
     pub release: Option<Release>,
     pub message: Option<String>,
     pub startup: bool,
-    staged: Option<Arc<PreparedUpdate>>,
+    staged: Option<PreparedUpdate>,
     installed: Option<Installed>,
     progress: Arc<AtomicU64>,
     cancel: Option<CancelToken>,
@@ -340,7 +340,7 @@ impl State {
                     match result {
                         Ok(staged) => {
                             view.message = staged.install_blocker.clone();
-                            view.staged = Some(Arc::new(staged));
+                            view.staged = Some(staged);
                             view.phase = Phase::Ready;
                         }
                         Err(error) => {
@@ -425,9 +425,8 @@ impl State {
             cx.notify();
             return;
         }
-        let staged = self.staged.clone();
         let installed = self.installed.clone();
-        if staged.is_none() && installed.is_none() {
+        if self.staged.is_none() && installed.is_none() {
             return;
         }
         self.phase = Phase::Preparing;
@@ -453,7 +452,7 @@ impl State {
             for write in writes {
                 write.await;
             }
-            let permitted = view
+            let Some(staged) = view
                 .update(cx, |view, cx| {
                     if view.cancel_install {
                         view.phase = if view.installed.is_some() {
@@ -464,24 +463,35 @@ impl State {
                         lock_editors(false, cx);
                         view.finish_interruption(cx);
                         cx.notify();
-                        false
+                        None
                     } else {
                         view.phase = Phase::Installing;
                         cx.notify();
-                        true
+                        Some(view.staged.take())
                     }
                 })
-                .unwrap_or(false);
-            if !permitted {
+                .ok()
+                .flatten()
+            else {
                 return;
-            }
-            let result = match installed {
-                Some(installed) => Ok(installed),
-                None => {
-                    cx.background_executor()
-                        .spawn(async move { service::install(&staged.unwrap()) })
-                        .await
-                }
+            };
+            let (result, staged) = if let Some(staged) = staged {
+                cx.background_executor()
+                    .spawn(async move {
+                        let result = service::install(&staged);
+                        if result.is_ok() {
+                            staged.discard();
+                            (result, None)
+                        } else {
+                            (result, Some(staged))
+                        }
+                    })
+                    .await
+            } else {
+                (
+                    Ok(installed.expect("an installed update can restart")),
+                    None,
+                )
             };
             let _ = view.update(cx, |view, cx| {
                 match result {
@@ -507,6 +517,7 @@ impl State {
                         }
                     }
                     Err(error) => {
+                        view.staged = staged;
                         view.phase = Phase::Ready;
                         view.message = Some(format!("{error:#}"));
                         lock_editors(false, cx);
@@ -586,15 +597,30 @@ pub(crate) fn shutdown(cx: &mut App) -> (Option<Task<()>>, Option<Task<()>>, Opt
     let Some(state) = cx.try_global::<Updates>().map(|state| state.0.clone()) else {
         return (None, None, None);
     };
-    state.update(cx, |state, _| {
+    state.update(cx, |state, cx| {
         if let Some(cancel) = &state.cancel {
             cancel.cancel();
         }
-        let pending = if matches!(state.phase, Phase::Preparing | Phase::Installing) {
+        if state.phase == Phase::Preparing {
+            state.cancel_install = true;
+        }
+        let mut pending = if matches!(state.phase, Phase::Preparing | Phase::Installing) {
             state.task.take()
         } else {
             None
         };
+        if let Some(staged) = state.staged.take() {
+            // Complete ownership cleanup before the platform terminates.
+            let install = pending.take();
+            pending = Some(cx.spawn(async move |_, cx| {
+                if let Some(install) = install {
+                    install.await;
+                }
+                cx.background_executor()
+                    .spawn(async move { staged.discard() })
+                    .await;
+            }));
+        }
         (pending, state.preference_write.take(), state.restart.take())
     })
 }
@@ -624,7 +650,7 @@ pub(crate) fn start_application(path: Option<PathBuf>, urls: Vec<String>, cx: &m
                         for attempt in 0..6 {
                             let result = cx
                                 .background_executor()
-                                .spawn(async { service::cleanup_backups_after_startup() })
+                                .spawn(async { service::cleanup_after_startup() })
                                 .await;
                             match result {
                                 Ok(()) => return,
@@ -636,7 +662,7 @@ pub(crate) fn start_application(path: Option<PathBuf>, urls: Vec<String>, cx: &m
                                         .await;
                                 }
                                 Err(error) => {
-                                    log::warn!("Cannot clean up update backups: {error:#}");
+                                    log::warn!("Cannot clean up update directories: {error:#}");
                                     return;
                                 }
                             }

@@ -148,7 +148,7 @@ pub fn install(update: &PreparedUpdate) -> Result<Installed> {
     install::commit(update)
 }
 
-pub fn cleanup_backups_after_startup() -> Result<()> {
+pub fn cleanup_after_startup() -> Result<()> {
     install::cleanup_running_backups()
 }
 
