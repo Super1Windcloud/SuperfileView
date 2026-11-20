@@ -2,18 +2,9 @@ name: Superfile Release Builds
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
       - '[0-9]*'
-    # Path filters apply to branch pushes. Release tags always run.
-    paths:
-      - '.github/workflows/build.yml'
-      - '.cargo/**'
-      - 'rust-toolchain*'
-      - '**/Cargo.toml'
-      - 'Cargo.lock'
 
 permissions:
   contents: read
@@ -33,7 +24,6 @@ env:
 jobs:
   prepare:
     name: Validate release tag
-    if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -50,10 +40,13 @@ jobs:
         id: version
         run: python scripts/package/release.py version "$RELEASE_TAG"
 
+  compatibility:
+    needs: prepare
+    uses: ./.github/workflows/compatibility.yml
+
   build:
     name: Build (${{ matrix.platform_name }})
     needs: prepare
-    if: ${{ !cancelled() && (github.ref == 'refs/heads/main' || needs.prepare.result == 'success') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     env:
@@ -92,26 +85,21 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - name: Restore Rust release cache
-        id: rust-cache
         uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.target }}
-          # Tags can read caches from main. Save only in the shared scope.
-          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install Linux dependencies
-        if: runner.os == 'Linux' && (github.ref_type == 'tag' || steps.rust-cache.outputs.cache-hit != 'true')
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y clang cmake pkg-config libasound2-dev dpkg-dev libfontconfig-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libxcb-shape0-dev libxcb-xfixes0-dev libssl-dev libvulkan-dev
       - name: Set application version from tag
-        if: github.ref_type == 'tag'
         run: python scripts/package/release.py prepare "$RELEASE_TAG"
       - name: Build release binary
-        if: github.ref_type == 'tag' || steps.rust-cache.outputs.cache-hit != 'true'
         run: cargo build --release --locked -p superfile --target "$BUILD_TARGET"
 
       - name: Locate NSIS
-        if: github.ref_type == 'tag' && runner.os == 'Windows'
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -122,20 +110,18 @@ jobs:
           }
           "NSIS_HOME=$nsisHome" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Package Windows artifacts
-        if: github.ref_type == 'tag' && runner.os == 'Windows'
+        if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/package/windows/package-windows.ps1 -Target $env:BUILD_TARGET -Tag $env:RELEASE_TAG
       - name: Package macOS artifacts
-        if: github.ref_type == 'tag' && runner.os == 'macOS'
+        if: runner.os == 'macOS'
         run: bash scripts/package/macos/package-dmg.sh "$BUILD_TARGET" "$PACKAGE_ARCH" "$RELEASE_TAG"
       - name: Package Linux artifacts
-        if: github.ref_type == 'tag' && runner.os == 'Linux'
+        if: runner.os == 'Linux'
         run: bash scripts/package/linux/package-deb.sh "$BUILD_TARGET" "$RELEASE_TAG"
       - name: Require both installer and portable package
-        if: github.ref_type == 'tag'
         run: python scripts/package/release.py verify "$RELEASE_TAG" --platform "$PACKAGE_PLATFORM"
       - name: Upload package artifacts
-        if: github.ref_type == 'tag'
         uses: actions/upload-artifact@v4
         with:
           name: packages-${{ matrix.platform_name }}
@@ -146,8 +132,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: [prepare, build]
-    if: github.ref_type == 'tag'
+    needs: [prepare, compatibility, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
