@@ -67,7 +67,7 @@ impl Pictures {
                     let Ok(url) = view.base.join(&uri) else {
                         continue;
                     };
-                    if !matches!(url.scheme(), "file" | "http" | "https") {
+                    if !matches!(url.scheme(), "file" | "http" | "https" | "data") {
                         continue;
                     }
                     let key = url.to_string();

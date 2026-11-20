@@ -105,7 +105,7 @@ impl BookReader {
     pub fn new(book: Book, window: &mut Window, cx: &mut Context<Self>) -> Self {
         Self::with_dependencies(
             book,
-            Scheduler::global().clone(),
+            crate::app::reader_jobs::shared_scheduler(),
             Arc::new(StoredPreferences),
             window,
             cx,

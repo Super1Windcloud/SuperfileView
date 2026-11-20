@@ -1,0 +1,301 @@
+﻿格式或规则,覆盖来源,当前实现与能力,首选实现与显示方式,迁移优先级,验收重点,上游依据
+.7z,目录后缀,归档候选，便携解码分支缺失,sevenz-rust2 → 现有归档视图,P1,固实压缩单文件预览、超大字典、加密头和取消,https://docs.rs/sevenz-rust2
+.a,目录后缀,归档候选；静态库归档缺少目录浏览,ar → 现有归档视图,P2,GNU/BSD 长名；薄归档成员不自动读取外部路径,https://docs.rs/ar
+.aac,目录后缀,识别音频，通用文档窗口尚无播放后端,Symphonia 解封装和解码 → CPAL 输出,P1,逐组合声明 codec 与容器；验证 AAC profile、PCM 位深、seek、拔出设备与无设备,https://docs.rs/symphonia
+.adoc,目录后缀,轻量标题与代码块转换为 Markdown,asciidoc-parser → 现有富文本视图,P2,保留源码定位；include 与外部处理器默认离线,https://docs.rs/asciidoc-parser
+.aif,目录后缀,识别音频，通用文档窗口尚无播放后端,Symphonia 解封装和解码 → CPAL 输出,P1,逐组合声明 codec 与容器；验证 AAC profile、PCM 位深、seek、拔出设备与无设备,https://docs.rs/symphonia
+.aiff,目录后缀,识别音频，通用文档窗口尚无播放后端,Symphonia 解封装和解码 → CPAL 输出,P1,逐组合声明 codec 与容器；验证 AAC profile、PCM 位深、seek、拔出设备与无设备,https://docs.rs/symphonia
+.ar,目录后缀,归档候选；静态库归档缺少目录浏览,ar → 现有归档视图,P2,GNU/BSD 长名；薄归档成员不自动读取外部路径,https://docs.rs/ar
+.astro,目录后缀,文本编辑与分页，语言映射为 astro,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 astro 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.bash,目录后缀,文本编辑与分页，语言映射为 bash,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 bash 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.bazel,目录后缀,文本编辑与分页，语言映射为 python,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 python 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.bdf,目录后缀,读取点阵字形，生成静态 SVG 图像,项目 BDF 读取器 + resvg,保留,核验点阵边界、字符编码与样张,https://docs.rs/resvg
+.bmp,目录后缀,image 识别位图并生成受尺寸约束的静态预览,image + 项目尺寸与内存控制,保留,大图、透明度、多页 TIFF/动图标明静态预览范围,https://docs.rs/image
+.bz2,目录后缀,bzip2；tar 变体继续读归档目录,bzip2 + tar,保留,核对锁定特性与实际编译后端；验证多流,https://docs.rs/bzip2
+.bzl,目录后缀,文本编辑与分页，语言映射为 python,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 python 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.c,目录后缀,文本编辑与分页，语言映射为 c,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 c 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.cab,目录后缀,归档候选，便携解码分支缺失,cab → 现有归档视图,P2,按压缩算法验收，未支持算法给出具体错误,https://docs.rs/cab
+.caf,目录后缀,识别音频，通用文档窗口尚无播放后端,Symphonia 解封装和解码 → CPAL 输出,P1,逐组合声明 codec 与容器；验证 AAC profile、PCM 位深、seek、拔出设备与无设备,https://docs.rs/symphonia
+.cbz,目录后缀,ZIP 漫画条目按页读取并显示图片,zip + image,保留,核验页序、大图片及损坏条目,https://docs.rs/zip
+.cc,目录后缀,文本编辑与分页，语言映射为 cpp,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 cpp 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.cfg,目录后缀,文本编辑与分页，语言映射为 ini,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ini 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.cjs,目录后缀,文本编辑与分页，语言映射为 javascript,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 javascript 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.cmake,目录后缀,文本编辑与分页，语言映射为 cmake,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 cmake 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.code-workspace,目录后缀,文本编辑与分页，语言映射为 json,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 json 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.command,目录后缀,文本编辑与分页，语言映射为 bash,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 bash 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.conf,目录后缀,文本编辑与分页，语言映射为 ini,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ini 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.cpio,目录后缀,归档候选，便携解码分支缺失,cpio 的 newc 读取器,P2,首批仅 SVR4 newc；旧 ASCII、二进制按 magic 单列,https://docs.rs/cpio
+.cpp,目录后缀,文本编辑与分页，语言映射为 cpp,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 cpp 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.cs,目录后缀,文本编辑与分页，语言映射为 csharp,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 csharp 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.css,目录后缀,文本编辑与分页，语言映射为 css,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 css 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.csv,目录后缀,分隔文本解析、表格分页及结构视图,csv + 现有分页网格,保留,引号内换行、制表符、跨页超长行和大文件,https://docs.rs/csv
+.csx,目录后缀,文本编辑与分页，语言映射为 csharp,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 csharp 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.cts,目录后缀,文本编辑与分页，语言映射为 typescript,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 typescript 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.cu,目录后缀,文本编辑与分页，语言映射为 cpp,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 cpp 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.cuh,目录后缀,文本编辑与分页，语言映射为 cpp,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 cpp 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.cxx,目录后缀,文本编辑与分页，语言映射为 cpp,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 cpp 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.d2,目录后缀,生成图表围栏，图形引擎尚无该分支,d2-render 的 native 子集 → SVG → resvg,P2,只启用进程内原生实现；与 D2 参考图比较布局,https://docs.rs/d2-render
+.db,目录后缀,SQLite 读库、旁文件归属与只读快照浏览,rusqlite（内置 SQLite）+ 项目快照,保留,核验 WAL 恢复与孤立旁文件；SHM 协调文件不作为独立表格,https://docs.rs/rusqlite
+.db-shm,目录后缀,SQLite 读库、旁文件归属与只读快照浏览,rusqlite（内置 SQLite）+ 项目快照,保留,核验 WAL 恢复与孤立旁文件；SHM 协调文件不作为独立表格,https://docs.rs/rusqlite
+.db-wal,目录后缀,SQLite 读库、旁文件归属与只读快照浏览,rusqlite（内置 SQLite）+ 项目快照,保留,核验 WAL 恢复与孤立旁文件；SHM 协调文件不作为独立表格,https://docs.rs/rusqlite
+.db3,目录后缀,SQLite 读库、旁文件归属与只读快照浏览,rusqlite（内置 SQLite）+ 项目快照,保留,核验 WAL 恢复与孤立旁文件；SHM 协调文件不作为独立表格,https://docs.rs/rusqlite
+.desktop,目录后缀,文本编辑与分页，语言映射为 ini,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ini 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.dfont,目录后缀,可识别，尚无资源字体读取视图,resource-fork 提取 sfnt → skrifa,P2,先验证资源表偏移及多个字体资源，再复用字形样张,https://docs.rs/resource-fork
+.dhall,目录后缀,文本编辑与分页，语言映射为 structured,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 structured 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.doc,目录后缀,识别二进制 Office，准备器缺少 DOC 读取分支,WordCraft 二进制 Word 导入 → 同一排版视图；语义备选 office_oxide,P1,核验旧式代码页、表格与分页，失败时可提供结构摘要,https://github.com/storytold/wordcraft
+.docx,目录后缀,zip + quick-xml 提取 word/document.xml 文字，交给 Markdown 视图,WordCraft 的 DOCX 导入、layout、render_page → GPUI 页列表,P0,对照 WPS 检查中文断行、浮动图片、跨页表格与页眉；失败保留文字入口,https://github.com/storytold/wordcraft
+.drawio,目录后缀,解析 mxGraphModel、生成 SVG 后栅格化,项目 drawio + resvg,保留,覆盖压缩和普通 XML；以连接线、图层与中文样本验证,https://docs.rs/resvg
+.ejs,目录后缀,文本编辑与分页，语言映射为 ejs,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ejs 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.env,目录后缀,文本编辑与分页，语言映射为 dotenv,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 dotenv 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.epub,目录后缀,读取 ZIP、书脊、导航及 XHTML 章节,zip + roxmltree + 现有章节视图,保留,离线章节、相对图片、目录锚点和阅读位置,https://docs.rs/zip
+.erb,目录后缀,文本编辑与分页，语言映射为 erb,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 erb 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.ex,目录后缀,文本编辑与分页，语言映射为 elixir,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 elixir 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.exr,目录后缀,image 解码浮点图，生成 8 位显示预览,image 的 EXR/HDR 解码,保留,显示用映射与源数据分开；多通道和高动态范围需专门验收,https://docs.rs/image
+.exs,目录后缀,文本编辑与分页，语言映射为 elixir,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 elixir 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.fb2,目录后缀,FB2 XML 章节、图像；压缩变体先打开 ZIP,现有 FB2 解析与书籍视图 + zip,保留,字符编码、内嵌图像及复合后缀优先级,https://docs.rs/roxmltree
+.fb2.zip,目录后缀,FB2 XML 章节、图像；压缩变体先打开 ZIP,现有 FB2 解析与书籍视图 + zip,保留,字符编码、内嵌图像及复合后缀优先级,https://docs.rs/roxmltree
+.flac,目录后缀,识别音频，通用文档窗口尚无播放后端,Symphonia 解封装和解码 → CPAL 输出,P1,逐组合声明 codec 与容器；验证 AAC profile、PCM 位深、seek、拔出设备与无设备,https://docs.rs/symphonia
+.frag,目录后缀,文本编辑与分页，语言映射为 c,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 c 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.gemspec,目录后缀,文本编辑与分页，语言映射为 ruby,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ruby 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.geojson,目录后缀,文本编辑与分页，语言映射为 json,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 json 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.geom,目录后缀,文本编辑与分页，语言映射为 c,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 c 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.gif,目录后缀,gif 逐帧解码，合成帧后交给 GPUI 播放,gif + 现有帧缓存,保留,透明区域、disposal、循环次数及取消,https://docs.rs/gif
+.glsl,目录后缀,文本编辑与分页，语言映射为 c,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 c 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.go,目录后缀,文本编辑与分页，语言映射为 go,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 go 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.gpx,目录后缀,XML 坐标提取、表格和离线预览,quick-xml + 现有地理表格,保留,经纬度顺序、海拔、轨迹分段、大文件,https://docs.rs/quick-xml
+.gql,目录后缀,文本编辑与分页，语言映射为 graphql,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 graphql 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.graphql,目录后缀,文本编辑与分页，语言映射为 graphql,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 graphql 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.gz,目录后缀,flate2；tar 变体继续读归档目录,flate2 + tar,保留,区分单流和 tar，核验多成员 gzip,https://docs.rs/flate2
+.h,目录后缀,文本编辑与分页，语言映射为 c,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 c 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.hbs,目录后缀,文本编辑与分页，语言映射为 html,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 html 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.hcl,目录后缀,文本编辑与分页，语言映射为 structured,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 structured 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.hdr,目录后缀,image 解码浮点图，生成 8 位显示预览,image 的 EXR/HDR 解码,保留,显示用映射与源数据分开；多通道和高动态范围需专门验收,https://docs.rs/image
+.hh,目录后缀,文本编辑与分页，语言映射为 cpp,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 cpp 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.hpp,目录后缀,文本编辑与分页，语言映射为 cpp,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 cpp 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.htm,目录后缀,HTML 富文本投影；本地 GPUI 阅读,现有 HTML 阅读视图 + html5ever 解析,保留,核验表格、相对资源与链接；定位为离线阅读，脚本和浏览器级 CSS 单列,https://docs.rs/html5ever
+.html,目录后缀,HTML 富文本投影；本地 GPUI 阅读,现有 HTML 阅读视图 + html5ever 解析,保留,核验表格、相对资源与链接；定位为离线阅读，脚本和浏览器级 CSS 单列,https://docs.rs/html5ever
+.http,目录后缀,文本编辑与分页，语言映射为 structured,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 structured 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.hxx,目录后缀,文本编辑与分页，语言映射为 cpp,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 cpp 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.icns,目录后缀,查找最大内嵌 PNG；仅含旧式图块的图标可能失败,icns 解码支持的图块 → image,P2,优先补没有 PNG 的样本；分别验收旧式掩模与 JPEG 2000 图块,https://docs.rs/icns
+.ico,目录后缀,image 识别位图并生成受尺寸约束的静态预览,image + 项目尺寸与内存控制,保留,大图、透明度、多页 TIFF/动图标明静态预览范围,https://docs.rs/image
+.ini,目录后缀,文本编辑与分页，语言映射为 ini,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ini 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.ipynb,目录后缀,JSON 语言路由，缺少按 notebook cell 的阅读视图,serde_json → 分页 cell、Markdown 与静态图片,P2,代码单元只读展示；限制输出尺寸，不执行内核,https://docs.rs/serde_json
+.iso,目录后缀,归档候选，便携解码分支缺失,oxiarc-archive 的 ISO9660 读取器,P2,先 ISO9660 目录枚举；Joliet/Rock Ridge/UDF 各验样本,https://docs.rs/oxiarc-archive
+.j2,目录后缀,文本编辑与分页，语言映射为 jinja,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 jinja 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.java,目录后缀,文本编辑与分页，语言映射为 java,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 java 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.jinja,目录后缀,文本编辑与分页，语言映射为 jinja,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 jinja 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.jinja2,目录后缀,文本编辑与分页，语言映射为 jinja,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 jinja 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.jpeg,目录后缀,image 识别位图并生成受尺寸约束的静态预览,image + 项目尺寸与内存控制,保留,大图、透明度、多页 TIFF/动图标明静态预览范围,https://docs.rs/image
+.jpg,目录后缀,image 识别位图并生成受尺寸约束的静态预览,image + 项目尺寸与内存控制,保留,大图、透明度、多页 TIFF/动图标明静态预览范围,https://docs.rs/image
+.js,目录后缀,文本编辑与分页，语言映射为 javascript,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 javascript 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.json,目录后缀,项目 JSON 方言解析与结构图，可查看源码,serde_json + json5 + 现有方言层,保留,JSONC 注释、JSON5 键名及原文本编辑往返,https://docs.rs/serde_json
+.json5,目录后缀,项目 JSON 方言解析与结构图，可查看源码,serde_json + json5 + 现有方言层,保留,JSONC 注释、JSON5 键名及原文本编辑往返,https://docs.rs/serde_json
+.jsonc,目录后缀,项目 JSON 方言解析与结构图，可查看源码,serde_json + json5 + 现有方言层,保留,JSONC 注释、JSON5 键名及原文本编辑往返,https://docs.rs/serde_json
+.jsonl,目录后缀,逐行 JSON 与结构投影,serde_json + 行分页,保留,行号定位、单行损坏和超长行,https://docs.rs/serde_json
+.jsx,目录后缀,文本编辑与分页，语言映射为 javascript,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 javascript 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.kdl,目录后缀,文本编辑与分页，语言映射为 structured,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 structured 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.key,目录后缀,识别 iWork 包，尚无跨平台内容视图；.key 探测目录或 ZIP,iwork → GPUI 文本、幻灯片摘要或表格,P2,分别测目录包和 ZIP、可用的内嵌预览及无预览文档；文本 .key 走源文,https://docs.rs/iwork
+.kml,目录后缀,XML 坐标提取、表格和离线预览,quick-xml + 现有地理表格,保留,经纬度顺序、海拔、轨迹分段、大文件,https://docs.rs/quick-xml
+.kt,目录后缀,文本编辑与分页，语言映射为 kotlin,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 kotlin 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.kts,目录后缀,文本编辑与分页，语言映射为 kotlin,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 kotlin 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.less,目录后缀,文本编辑与分页，语言映射为 css,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 css 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.lha,目录后缀,归档候选，便携解码分支缺失,delharc,P2,按压缩方法核验目录与单文件读取,https://docs.rs/delharc
+.log,目录后缀,普通文本编辑及分页读取,项目分页文本 + GPUI Kit,保留,大文件定位、行尾与编码一致性,https://docs.rs/gpui-kit
+.lua,目录后缀,文本编辑与分页，语言映射为 lua,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 lua 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.lz,目录后缀,归档候选，便携解码分支缺失,lzma-rust2；TLZ 叠加 tar,P2,分别识别 LZMA-alone、LZIP 与 tar.lzma,https://docs.rs/lzma-rust2
+.lz4,目录后缀,lz4_flex 帧解码,lz4_flex + tar,保留,区分单流与 tar.lz4,https://docs.rs/lz4_flex
+.lzh,目录后缀,归档候选，便携解码分支缺失,delharc,P2,按压缩方法核验目录与单文件读取,https://docs.rs/delharc
+.lzma,目录后缀,归档候选，便携解码分支缺失,lzma-rust2；TLZ 叠加 tar,P2,分别识别 LZMA-alone、LZIP 与 tar.lzma,https://docs.rs/lzma-rust2
+.m,目录后缀,文本编辑与分页，语言映射为 structured,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 structured 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.m4a,目录后缀,识别音频，通用文档窗口尚无播放后端,Symphonia 解封装和解码 → CPAL 输出,P1,逐组合声明 codec 与容器；验证 AAC profile、PCM 位深、seek、拔出设备与无设备,https://docs.rs/symphonia
+.m4v,目录后缀,识别媒体；项目有部分容器处理，尚无通用视频画面播放,先显示容器轨道；验证 craft-media + craft-video 的逐 codec 解码,暂缓,样本覆盖 H.264、HEVC、AV1、音画同步与 seek；FFmpeg/GStreamer 需原生运行库,https://github.com/storytold/deckcraft/blob/main/Cargo.toml
+.markdown,目录后缀,markdown AST、图块识别及 GPUI 富文本视图,markdown + GPUI Kit,保留,保留源码范围、任务勾选、目录与预览定位；pulldown-cmark 可作对照,https://docs.rs/markdown
+.md,目录后缀,markdown AST、图块识别及 GPUI 富文本视图,markdown + GPUI Kit,保留,保留源码范围、任务勾选、目录与预览定位；pulldown-cmark 可作对照,https://docs.rs/markdown
+.metal,目录后缀,文本编辑与分页，语言映射为 cpp,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 cpp 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.mjs,目录后缀,文本编辑与分页，语言映射为 javascript,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 javascript 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.mk,目录后缀,文本编辑与分页，语言映射为 make,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 make 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.mkv,目录后缀,识别媒体；项目有部分容器处理，尚无通用视频画面播放,先显示容器轨道；验证 craft-media + craft-video 的逐 codec 解码,暂缓,样本覆盖 H.264、HEVC、AV1、音画同步与 seek；FFmpeg/GStreamer 需原生运行库,https://github.com/storytold/deckcraft/blob/main/Cargo.toml
+.mov,目录后缀,识别媒体；项目有部分容器处理，尚无通用视频画面播放,先显示容器轨道；验证 craft-media + craft-video 的逐 codec 解码,暂缓,样本覆盖 H.264、HEVC、AV1、音画同步与 seek；FFmpeg/GStreamer 需原生运行库,https://github.com/storytold/deckcraft/blob/main/Cargo.toml
+.mp3,目录后缀,识别音频，通用文档窗口尚无播放后端,Symphonia 解封装和解码 → CPAL 输出,P1,逐组合声明 codec 与容器；验证 AAC profile、PCM 位深、seek、拔出设备与无设备,https://docs.rs/symphonia
+.mp4,目录后缀,识别媒体；项目有部分容器处理，尚无通用视频画面播放,先显示容器轨道；验证 craft-media + craft-video 的逐 codec 解码,暂缓,样本覆盖 H.264、HEVC、AV1、音画同步与 seek；FFmpeg/GStreamer 需原生运行库,https://github.com/storytold/deckcraft/blob/main/Cargo.toml
+.mtlx,目录后缀,文本编辑与分页，语言映射为 html,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 html 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.mts,目录后缀,文本编辑与分页，语言映射为 typescript,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 typescript 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.ndjson,目录后缀,逐行 JSON 与结构投影,serde_json + 行分页,保留,行号定位、单行损坏和超长行,https://docs.rs/serde_json
+.nix,目录后缀,文本编辑与分页，语言映射为 nix,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 nix 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.njk,目录后缀,文本编辑与分页，语言映射为 jinja,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 jinja 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.npy,目录后缀,流式头部与已支持元素类型的数值报告,npyz → 有界切片预览,P2,支持更多 dtype、大小端与 Fortran 顺序；避免分配整个数组,https://docs.rs/npyz
+.numbers,目录后缀,识别 iWork 包，尚无跨平台内容视图；.key 探测目录或 ZIP,iwork → GPUI 文本、幻灯片摘要或表格,P2,分别测目录包和 ZIP、可用的内嵌预览及无预览文档；文本 .key 走源文,https://docs.rs/iwork
+.nunjucks,目录后缀,文本编辑与分页，语言映射为 jinja,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 jinja 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.obj,目录后缀,专用网格解析生成静态投影并经 resvg 栅格化,保留静态投影；扩展解析时分别选 tobj / stl_io,保留,面索引、二进制/ASCII STL 与超大网格；交互 3D 需单独需求,https://docs.rs/resvg
+.ocio,目录后缀,文本编辑与分页，语言映射为 yaml,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 yaml 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.odp,目录后缀,ZIP 容器报告，附 content.xml 文本,libreoffice-rs 的 Impress/ODF 库 → 静态页,P2,先证实 ODP 输入到逐页可见输出的库接口，覆盖母版与图层,https://github.com/clark-labs-inc/libreoffice-rs
+.ods,目录后缀,ZIP 容器报告，附 content.xml 文本,calamine → 现有工作表视图,P1,重复行列展开设限；核验工作表顺序、日期与公式缓存,https://docs.rs/calamine
+.odt,目录后缀,ZIP 容器报告，附 content.xml 文本,WordCraft 的 ODT 导入 → 同一排版视图；以 OpenDoc 作对照,P1,检查中文字体、跨页表格与浮动对象；按 ODT MIME 确认输入,https://github.com/storytold/wordcraft
+.opml,目录后缀,roxmltree → 层级大纲,roxmltree + GPUI 大纲,保留,嵌套节点、链接和空标题,https://docs.rs/roxmltree
+.org,目录后缀,轻量标题与正文转换为 Markdown,orgize → 现有富文本视图,P2,标题树、列表、代码块；不求值源块,https://docs.rs/orgize
+.osl,目录后缀,文本编辑与分页，语言映射为 c,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 c 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.otc,目录后缀,可识别，尚无字体样张,skrifa 读取 face 和字形轮廓 → tiny-skia 样张,P1,使用文件自身字形；核验集合的各个 face、缺字、可变轴及中文,https://docs.rs/skrifa
+.otf,目录后缀,可识别，尚无字体样张,skrifa 读取 face 和字形轮廓 → tiny-skia 样张,P1,使用文件自身字形；核验集合的各个 face、缺字、可变轴及中文,https://docs.rs/skrifa
+.pages,目录后缀,识别 iWork 包，尚无跨平台内容视图；.key 探测目录或 ZIP,iwork → GPUI 文本、幻灯片摘要或表格,P2,分别测目录包和 ZIP、可用的内嵌预览及无预览文档；文本 .key 走源文,https://docs.rs/iwork
+.pdf,目录后缀,PdfCraft 按页栅格化，GPUI 列表连续纵滚；内存紧张走同修订 Hayro 映射路径,pdfcraft-render + GPUI List,保留,固定当前 Git 修订；用 WPS 参照检查滚轮跨页、长页、混合页幅与缩放锚点,https://github.com/storytold/pdfcraft
+.php,目录后缀,文本编辑与分页，语言映射为 php,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 php 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.php3,目录后缀,文本编辑与分页，语言映射为 php,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 php 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.php4,目录后缀,文本编辑与分页，语言映射为 php,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 php 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.php5,目录后缀,文本编辑与分页，语言映射为 php,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 php 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.phtml,目录后缀,文本编辑与分页，语言映射为 php,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 php 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.pikchr,目录后缀,生成围栏，图形引擎尚无该分支,pikru → SVG → resvg,P2,用官方示例核验文本度量和箭头定位,https://docs.rs/pikru/latest/pikru/
+.plist,目录后缀,二进制由文件头探测并生成报告；XML 形式走文本,plist + 现有文本路径,保留,二进制、XML 和误用后缀分别验证,https://docs.rs/plist
+.png,目录后缀,image 识别位图并生成受尺寸约束的静态预览,image + 项目尺寸与内存控制,保留,大图、透明度、多页 TIFF/动图标明静态预览范围,https://docs.rs/image
+.podspec,目录后缀,文本编辑与分页，语言映射为 ruby,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ruby 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.ppt,目录后缀,识别二进制 Office，准备器缺少 PPT 读取分支,deckcraft-ppt → 同一幻灯片视图；语义备选 office_oxide,P1,核验 PPT 97–2003、母版与图片，报告不支持的对象,https://github.com/storytold/deckcraft
+.pptx,目录后缀,zip + quick-xml 提取幻灯片文字，交给 Markdown 视图,deckcraft-pptx + deckcraft-render → GPUI 幻灯片列表,P0,核验母版、占位符、遮挡顺序与纯图幻灯片；优先静态页,https://github.com/storytold/deckcraft
+.properties,目录后缀,文本编辑与分页，语言映射为 ini,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ini 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.proto,目录后缀,文本编辑与分页，语言映射为 proto,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 proto 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.pxd,目录后缀,文本编辑与分页，语言映射为 python,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 python 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.pxi,目录后缀,文本编辑与分页，语言映射为 python,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 python 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.py,目录后缀,文本编辑与分页，语言映射为 python,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 python 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.pyi,目录后缀,文本编辑与分页，语言映射为 python,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 python 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.pyx,目录后缀,文本编辑与分页，语言映射为 python,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 python 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.qoi,目录后缀,专用转换路径生成中间预览，再走位图缩略图,项目 QOI 解码 + image,保留,与标准 QOI 像素对照，保留大图预算,https://docs.rs/image
+.rake,目录后缀,文本编辑与分页，语言映射为 ruby,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ruby 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.rar,目录后缀,归档候选，便携解码分支缺失,rars → 现有归档视图,P1,RAR4/5、分卷缺失、加密及损坏条目,https://docs.rs/rars
+.rb,目录后缀,文本编辑与分页，语言映射为 ruby,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ruby 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.rs,目录后缀,文本编辑与分页，语言映射为 rust,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 rust 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.rst,目录后缀,标题下划线等基础投影，源码可读,现有受限 RST → Markdown,保留,完整 Docutils 指令支持留待有样本时评估,https://docs.rs/markdown
+.rtf,目录后缀,识别，通用文档准备器尚无 RTF 分支,复用 WordCraft 的 RTF 导入与页面排版,P2,覆盖代码页、Unicode 转义、分组与嵌入图片；纯文本备选 rtf-parser,https://github.com/storytold/wordcraft
+.ru,目录后缀,文本编辑与分页，语言映射为 ruby,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ruby 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.s3db,目录后缀,SQLite 读库、旁文件归属与只读快照浏览,rusqlite（内置 SQLite）+ 项目快照,保留,核验 WAL 恢复与孤立旁文件；SHM 协调文件不作为独立表格,https://docs.rs/rusqlite
+.safetensors,目录后缀,项目头部与张量描述报告,有界元数据读取 + 官方 safetensors 做兼容性对照,保留,只读取描述与偏移，不加载整份权重,https://docs.rs/safetensors
+.sbt,目录后缀,文本编辑与分页，语言映射为 scala,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 scala 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.sc,目录后缀,文本编辑与分页，语言映射为 scala,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 scala 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.scala,目录后缀,文本编辑与分页，语言映射为 scala,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 scala 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.scss,目录后缀,文本编辑与分页，语言映射为 css,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 css 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.service,目录后缀,文本编辑与分页，语言映射为 ini,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ini 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.sh,目录后缀,文本编辑与分页，语言映射为 bash,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 bash 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.shm,目录后缀,SQLite 读库、旁文件归属与只读快照浏览,rusqlite（内置 SQLite）+ 项目快照,保留,核验 WAL 恢复与孤立旁文件；SHM 协调文件不作为独立表格,https://docs.rs/rusqlite
+.sql,目录后缀,文本编辑与分页，语言映射为 sql,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 sql 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.sqlite,目录后缀,SQLite 读库、旁文件归属与只读快照浏览,rusqlite（内置 SQLite）+ 项目快照,保留,核验 WAL 恢复与孤立旁文件；SHM 协调文件不作为独立表格,https://docs.rs/rusqlite
+.sqlite-shm,目录后缀,SQLite 读库、旁文件归属与只读快照浏览,rusqlite（内置 SQLite）+ 项目快照,保留,核验 WAL 恢复与孤立旁文件；SHM 协调文件不作为独立表格,https://docs.rs/rusqlite
+.sqlite-wal,目录后缀,SQLite 读库、旁文件归属与只读快照浏览,rusqlite（内置 SQLite）+ 项目快照,保留,核验 WAL 恢复与孤立旁文件；SHM 协调文件不作为独立表格,https://docs.rs/rusqlite
+.sqlite3,目录后缀,SQLite 读库、旁文件归属与只读快照浏览,rusqlite（内置 SQLite）+ 项目快照,保留,核验 WAL 恢复与孤立旁文件；SHM 协调文件不作为独立表格,https://docs.rs/rusqlite
+.sqlite3-shm,目录后缀,SQLite 读库、旁文件归属与只读快照浏览,rusqlite（内置 SQLite）+ 项目快照,保留,核验 WAL 恢复与孤立旁文件；SHM 协调文件不作为独立表格,https://docs.rs/rusqlite
+.sqlite3-wal,目录后缀,SQLite 读库、旁文件归属与只读快照浏览,rusqlite（内置 SQLite）+ 项目快照,保留,核验 WAL 恢复与孤立旁文件；SHM 协调文件不作为独立表格,https://docs.rs/rusqlite
+.srt,目录后缀,识别时间箭头，转 Markdown 时间标题,subtp → GPUI 字幕时间表,P2,分别验证 SRT、WebVTT 时间码、样式标签、NOTE 和多行对白,https://docs.rs/subtp
+.stan,目录后缀,文本编辑与分页，语言映射为 structured,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 structured 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.stl,目录后缀,专用网格解析生成静态投影并经 resvg 栅格化,保留静态投影；扩展解析时分别选 tobj / stl_io,保留,面索引、二进制/ASCII STL 与超大网格；交互 3D 需单独需求,https://docs.rs/resvg
+.svelte,目录后缀,文本编辑与分页，语言映射为 svelte,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 svelte 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.svg,目录后缀,usvg 解析，resvg/tiny-skia 按目标尺寸栅格化,resvg,保留,离线资源、系统字体回退与超大画布,https://docs.rs/resvg
+.swift,目录后缀,文本编辑与分页，语言映射为 swift,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 swift 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.tar,目录后缀,tar 流式条目,tar,保留,核验长路径、符号链接和条目总数,https://docs.rs/tar
+.taz,目录后缀,归档候选，便携解码分支缺失,unarc-rs 的 Unix compress；TAZ 叠加 tar,P2,区分 .Z 与 gzip；核验位宽变化、截断流,https://docs.rs/unarc-rs
+.tbz,目录后缀,bzip2；tar 变体继续读归档目录,bzip2 + tar,保留,核对锁定特性与实际编译后端；验证多流,https://docs.rs/bzip2
+.tbz2,目录后缀,bzip2；tar 变体继续读归档目录,bzip2 + tar,保留,核对锁定特性与实际编译后端；验证多流,https://docs.rs/bzip2
+.tgz,目录后缀,flate2；tar 变体继续读归档目录,flate2 + tar,保留,区分单流和 tar，核验多成员 gzip,https://docs.rs/flate2
+.tif,目录后缀,image 识别位图并生成受尺寸约束的静态预览,image + 项目尺寸与内存控制,保留,大图、透明度、多页 TIFF/动图标明静态预览范围,https://docs.rs/image
+.tiff,目录后缀,image 识别位图并生成受尺寸约束的静态预览,image + 项目尺寸与内存控制,保留,大图、透明度、多页 TIFF/动图标明静态预览范围,https://docs.rs/image
+.tlz,目录后缀,归档候选，便携解码分支缺失,lzma-rust2；TLZ 叠加 tar,P2,分别识别 LZMA-alone、LZIP 与 tar.lzma,https://docs.rs/lzma-rust2
+.tmx,目录后缀,文本编辑与分页，语言映射为 html,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 html 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.toml,目录后缀,文本编辑与分页，语言映射为 toml,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 toml 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.ts,目录后缀,文本编辑与分页，语言映射为 typescript,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 typescript 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.tsbuildinfo,目录后缀,文本编辑与分页，语言映射为 json,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 json 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.tsv,目录后缀,分隔文本解析、表格分页及结构视图,csv + 现有分页网格,保留,引号内换行、制表符、跨页超长行和大文件,https://docs.rs/csv
+.tsx,目录后缀,文本编辑与分页，语言映射为 tsx,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 tsx 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.ttc,目录后缀,可识别，尚无字体样张,skrifa 读取 face 和字形轮廓 → tiny-skia 样张,P1,使用文件自身字形；核验集合的各个 face、缺字、可变轴及中文,https://docs.rs/skrifa
+.ttf,目录后缀,可识别，尚无字体样张,skrifa 读取 face 和字形轮廓 → tiny-skia 样张,P1,使用文件自身字形；核验集合的各个 face、缺字、可变轴及中文,https://docs.rs/skrifa
+.twig,目录后缀,文本编辑与分页，语言映射为 jinja,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 jinja 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.txt,目录后缀,普通文本编辑及分页读取,项目分页文本 + GPUI Kit,保留,大文件定位、行尾与编码一致性,https://docs.rs/gpui-kit
+.txz,目录后缀,xz2/liblzma + tar 或单流,保留 xz2；需要去原生依赖时对比 lzma-rust2,保留,验证损坏流、峰值与解压速度,https://docs.rs/xz2
+.tzst,目录后缀,zstd + tar 或单流,zstd + tar,保留,当前 Rust API 链接原生 zstd；三平台核验打包和窗口限制,https://docs.rs/zstd
+.vega.json,目录后缀,生成 Vega 围栏，图形引擎尚无该分支,保留规范源文；跟踪 Avenger 场景图渲染,暂缓,完整规范还需要数据流和表达式；vl-convert-rs 内嵌 V8,https://github.com/vega/vl-convert
+.vert,目录后缀,文本编辑与分页，语言映射为 c,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 c 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.vtt,目录后缀,识别时间箭头，转 Markdown 时间标题,subtp → GPUI 字幕时间表,P2,分别验证 SRT、WebVTT 时间码、样式标签、NOTE 和多行对白,https://docs.rs/subtp
+.vue,目录后缀,文本编辑与分页，语言映射为 html,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 html 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.wal,目录后缀,SQLite 读库、旁文件归属与只读快照浏览,rusqlite（内置 SQLite）+ 项目快照,保留,核验 WAL 恢复与孤立旁文件；SHM 协调文件不作为独立表格,https://docs.rs/rusqlite
+.wav,目录后缀,识别音频，通用文档窗口尚无播放后端,Symphonia 解封装和解码 → CPAL 输出,P1,逐组合声明 codec 与容器；验证 AAC profile、PCM 位深、seek、拔出设备与无设备,https://docs.rs/symphonia
+.webp,目录后缀,image 识别位图并生成受尺寸约束的静态预览,image + 项目尺寸与内存控制,保留,大图、透明度、多页 TIFF/动图标明静态预览范围,https://docs.rs/image
+.xar,目录后缀,归档候选，便携解码分支缺失,apple-xar → 现有归档视图,P2,限定 TOC 解压、条目偏移与编码,https://docs.rs/apple-xar
+.xls,目录后缀,识别后进入通用文档视图，工作簿读取器未覆盖 BIFF,calamine → 现有工作表视图,P1,BIFF 日期、空行、合并格和缓存公式值；约束整表峰值,https://docs.rs/calamine
+.xlsm,目录后缀,流式读取 OOXML，SQLite 索引与工作表分页,quick-xml + rusqlite + GPUI 表格,保留,保留大表随机翻页与取消；宏不执行；打印版式独立于网格,https://docs.rs/quick-xml
+.xlsx,目录后缀,流式读取 OOXML，SQLite 索引与工作表分页,quick-xml + rusqlite + GPUI 表格,保留,保留大表随机翻页与取消；宏不执行；打印版式独立于网格,https://docs.rs/quick-xml
+.xmind,目录后缀,ZIP 中 JSON/XML → 思维导图结构,zip + serde_json / quick-xml + GPUI,保留,新旧格式、多个 sheet、层级与预算,https://docs.rs/zip
+.xml,目录后缀,XML 源码与 roxmltree 图投影,roxmltree + quick-xml,保留,树大小受限，大文件优先流式读取或源码分页,https://docs.rs/quick-xml
+.xsd,目录后缀,文本编辑与分页，语言映射为 html,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 html 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.xsl,目录后缀,文本编辑与分页，语言映射为 html,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 html 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.xz,目录后缀,xz2/liblzma + tar 或单流,保留 xz2；需要去原生依赖时对比 lzma-rust2,保留,验证损坏流、峰值与解压速度,https://docs.rs/xz2
+.yaml,目录后缀,serde_yaml_ng 解析多文档，结构视图及源码,serde_yaml_ng + 有界投影,保留,多文档、别名、嵌套上限及格式错误位置,https://docs.rs/serde_yaml_ng
+.yml,目录后缀,serde_yaml_ng 解析多文档，结构视图及源码,serde_yaml_ng + 有界投影,保留,多文档、别名、嵌套上限及格式错误位置,https://docs.rs/serde_yaml_ng
+.z,目录后缀,归档候选，便携解码分支缺失,unarc-rs 的 Unix compress；TAZ 叠加 tar,P2,区分 .Z 与 gzip；核验位宽变化、截断流,https://docs.rs/unarc-rs
+.zig,目录后缀,文本编辑与分页，语言映射为 zig,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 zig 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.zip,目录后缀,zip 读取目录与提取条目,zip + 现有路径与大小检查,保留,核验文件名、符号链接、取消及解压体积,https://docs.rs/zip
+.zon,目录后缀,文本编辑与分页，语言映射为 zig,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 zig 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.zsh,目录后缀,文本编辑与分页，语言映射为 bash,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 bash 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.zst,目录后缀,zstd + tar 或单流,zstd + tar,保留,当前 Rust API 链接原生 zstd；三平台核验打包和窗口限制,https://docs.rs/zstd
+.zstd,目录后缀,zstd + tar 或单流,zstd + tar,保留,当前 Rust API 链接原生 zstd；三平台核验打包和窗口限制,https://docs.rs/zstd
+.tar.gz,帮助页复合后缀,flate2；tar 变体继续读归档目录,flate2 + tar,保留,区分单流和 tar，核验多成员 gzip,https://docs.rs/flate2
+.tar.bz2,帮助页复合后缀,bzip2；tar 变体继续读归档目录,bzip2 + tar,保留,核对锁定特性与实际编译后端；验证多流,https://docs.rs/bzip2
+.tar.xz,帮助页复合后缀,xz2/liblzma + tar 或单流,保留 xz2；需要去原生依赖时对比 lzma-rust2,保留,验证损坏流、峰值与解压速度,https://docs.rs/xz2
+.tar.zst,帮助页复合后缀,zstd + tar 或单流,zstd + tar,保留,当前 Rust API 链接原生 zstd；三平台核验打包和窗口限制,https://docs.rs/zstd
+.tar.zstd,帮助页复合后缀,zstd + tar 或单流,zstd + tar,保留,当前 Rust API 链接原生 zstd；三平台核验打包和窗口限制,https://docs.rs/zstd
+.tar.lz4,帮助页复合后缀,lz4_flex 帧解码,lz4_flex + tar,保留,区分单流与 tar.lz4,https://docs.rs/lz4_flex
+Dockerfile,文件名或模式,文本编辑与分页，语言映射为 dockerfile,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 dockerfile 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+Containerfile,文件名或模式,文本编辑与分页，语言映射为 dockerfile,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 dockerfile 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+Dockerfile.*,文件名或模式,文本编辑与分页，语言映射为 dockerfile,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 dockerfile 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+Containerfile.*,文件名或模式,文本编辑与分页，语言映射为 dockerfile,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 dockerfile 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+*.dockerfile,文件名或模式,文本编辑与分页，语言映射为 dockerfile,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 dockerfile 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.npmrc,文件名或模式,文本编辑与分页，语言映射为 ini,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ini 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.yarnrc,文件名或模式,文本编辑与分页，语言映射为 ini,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ini 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.editorconfig,文件名或模式,文本编辑与分页，语言映射为 ini,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ini 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.gitconfig,文件名或模式,文本编辑与分页，语言映射为 ini,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ini 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.gitmodules,文件名或模式,文本编辑与分页，语言映射为 ini,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ini 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.pypirc,文件名或模式,文本编辑与分页，语言映射为 ini,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ini 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+pip.conf,文件名或模式,文本编辑与分页，语言映射为 ini,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ini 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+setup.cfg,文件名或模式,文本编辑与分页，语言映射为 ini,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ini 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+tox.ini,文件名或模式,文本编辑与分页，语言映射为 ini,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ini 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.env,文件名或模式,文本编辑与分页，语言映射为 dotenv,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 dotenv 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.env.*,文件名或模式,文本编辑与分页，语言映射为 dotenv,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 dotenv 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.gitignore,文件名或模式,文本编辑与分页，语言映射为 ignore,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ignore 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.dockerignore,文件名或模式,文本编辑与分页，语言映射为 ignore,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ignore 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.npmignore,文件名或模式,文本编辑与分页，语言映射为 ignore,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ignore 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.ignore,文件名或模式,文本编辑与分页，语言映射为 ignore,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ignore 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.gitattributes,文件名或模式,文本编辑与分页，语言映射为 ignore,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ignore 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.prettierrc,文件名或模式,文本编辑与分页，语言映射为 json,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 json 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.stylelintrc,文件名或模式,文本编辑与分页，语言映射为 json,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 json 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.swcrc,文件名或模式,文本编辑与分页，语言映射为 json,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 json 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.eslintrc,文件名或模式,文本编辑与分页，语言映射为 json,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 json 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.babelrc,文件名或模式,文本编辑与分页，语言映射为 json,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 json 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.czrc,文件名或模式,文本编辑与分页，语言映射为 json,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 json 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+Cargo.lock,文件名或模式,文本编辑与分页，语言映射为 toml,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 toml 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+uv.lock,文件名或模式,文本编辑与分页，语言映射为 toml,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 toml 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+poetry.lock,文件名或模式,文本编辑与分页，语言映射为 toml,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 toml 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+Pipfile,文件名或模式,文本编辑与分页，语言映射为 toml,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 toml 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+Gemfile,文件名或模式,文本编辑与分页，语言映射为 ruby,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ruby 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+Rakefile,文件名或模式,文本编辑与分页，语言映射为 ruby,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ruby 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+Guardfile,文件名或模式,文本编辑与分页，语言映射为 ruby,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ruby 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+Podfile,文件名或模式,文本编辑与分页，语言映射为 ruby,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ruby 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+Vagrantfile,文件名或模式,文本编辑与分页，语言映射为 ruby,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ruby 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+Brewfile,文件名或模式,文本编辑与分页，语言映射为 ruby,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ruby 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+Fastfile,文件名或模式,文本编辑与分页，语言映射为 ruby,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ruby 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+Appfile,文件名或模式,文本编辑与分页，语言映射为 ruby,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ruby 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.irbrc,文件名或模式,文本编辑与分页，语言映射为 ruby,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ruby 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.pryrc,文件名或模式,文本编辑与分页，语言映射为 ruby,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 ruby 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+CMakeLists.txt,文件名或模式,文本编辑与分页，语言映射为 cmake,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 cmake 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+Makefile,文件名或模式,文本编辑与分页，语言映射为 make,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 make 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+GNUmakefile,文件名或模式,文本编辑与分页，语言映射为 make,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 make 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+makefile,文件名或模式,文本编辑与分页，语言映射为 make,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 make 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+BUILD,文件名或模式,文本编辑与分页，语言映射为 python,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 python 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+WORKSPACE,文件名或模式,文本编辑与分页，语言映射为 python,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 python 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.bashrc,文件名或模式,文本编辑与分页，语言映射为 bash,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 bash 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.bash_profile,文件名或模式,文本编辑与分页，语言映射为 bash,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 bash 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.zshrc,文件名或模式,文本编辑与分页，语言映射为 bash,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 bash 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.zprofile,文件名或模式,文本编辑与分页，语言映射为 bash,项目文本阅读器 + GPUI Kit，按注册语法高亮,保留,按 bash 的现有规则显示；未注册的语法回退为文本，保留编辑与大文件分页,https://docs.rs/gpui-kit
+.exe,签名路由或常见后缀,文件头探测后用 object 读取报表,object + 分页元数据,保留,检查头、架构、节及依赖；无后缀也探测,https://docs.rs/object
+.dll,签名路由或常见后缀,文件头探测后用 object 读取报表,object + 分页元数据,保留,检查头、架构、节及依赖；无后缀也探测,https://docs.rs/object
+.so,签名路由或常见后缀,文件头探测后用 object 读取报表,object + 分页元数据,保留,检查头、架构、节及依赖；无后缀也探测,https://docs.rs/object
+.dylib,签名路由或常见后缀,文件头探测后用 object 读取报表,object + 分页元数据,保留,检查头、架构、节及依赖；无后缀也探测,https://docs.rs/object
+PE / ELF / Mach-O 签名,签名路由或常见后缀,文件头探测后用 object 读取报表,object + 分页元数据,保留,检查头、架构、节及依赖；无后缀也探测,https://docs.rs/object
+*-wal,旁文件或签名,SQLite 读库、旁文件归属与只读快照浏览,rusqlite（内置 SQLite）+ 项目快照,保留,核验 WAL 恢复与孤立旁文件；SHM 协调文件不作为独立表格,https://docs.rs/rusqlite
+*-shm,旁文件或签名,SQLite 读库、旁文件归属与只读快照浏览,rusqlite（内置 SQLite）+ 项目快照,保留,核验 WAL 恢复与孤立旁文件；SHM 协调文件不作为独立表格,https://docs.rs/rusqlite
+*-journal,旁文件或签名,SQLite 读库、旁文件归属与只读快照浏览,rusqlite（内置 SQLite）+ 项目快照,保留,核验 WAL 恢复与孤立旁文件；SHM 协调文件不作为独立表格,https://docs.rs/rusqlite
+SQLite 文件头,旁文件或签名,SQLite 读库、旁文件归属与只读快照浏览,rusqlite（内置 SQLite）+ 项目快照,保留,核验 WAL 恢复与孤立旁文件；SHM 协调文件不作为独立表格,https://docs.rs/rusqlite
+OpenAPI（.json 根字段）,内容探测,读源文后探测规范,现有 OpenAPI JSON 扫描与磁盘索引,保留,按根字段识别规范，浏览端点；YAML 继续走 YAML 阅读器,https://docs.rs/serde_json
+其他 UTF-8 / 二进制,内容回退,文本或字节分页,现有分页与十六进制视图,保留,不依赖后缀；保留截断、读取错误与分页提示,https://docs.rs/gpui-kit

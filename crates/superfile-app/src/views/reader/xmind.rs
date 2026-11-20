@@ -425,9 +425,9 @@ impl Render for GraphReader {
                                                 .bg(if root {
                                                     cx.theme().muted
                                                 } else {
-                                                    cx.theme().background
+                                                    super::editor_paper(cx)
                                                 })
-                                                .text_color(cx.theme().foreground)
+                                                .text_color(super::editor_ink(cx))
                                                 .cursor_pointer()
                                                 .on_click(cx.listener(move |v, _, _, cx| {
                                                     (v.host.action)("xmind", "select_topic", &[]);

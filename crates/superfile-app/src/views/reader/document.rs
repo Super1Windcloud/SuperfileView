@@ -20,6 +20,8 @@ pub(super) struct DocumentReader {
     state: Option<Entity<TextViewState>>,
     table: Option<Entity<super::sqlite::SqliteReader>>,
     pdf: Option<Entity<super::pdf::PdfReader>>,
+    page_file: Option<rich_documents::DocumentPages>,
+    reading_text: bool,
     database: Option<PathBuf>,
     find: Option<Entity<super::find::FindBar>>,
     error: Option<String>,
@@ -38,6 +40,8 @@ impl DocumentReader {
             state: None,
             table: None,
             pdf: None,
+            page_file: None,
+            reading_text: false,
             database: None,
             find: None,
             error: None,
@@ -83,6 +87,8 @@ impl DocumentReader {
         Self::new(path, folder, shuffle, cx)
     }
     fn set_text(&mut self, text: &str, html: bool, cx: &mut Context<Self>) {
+        let (marked, _) = superfile_services::markup_highlights::preview(text, html);
+        let text = marked.as_ref();
         if let Some(state) = &self.state {
             state.update(cx, |state, cx| state.set_text(text, cx));
         } else {
@@ -110,7 +116,7 @@ impl DocumentReader {
         self.folder.then_some(self.shuffle)
     }
     pub fn can_find(&self) -> bool {
-        self.state.is_some()
+        self.state.is_some() && (self.pdf.is_none() || self.reading_text)
     }
     pub(super) fn can_move_to_window(&self, _cx: &App) -> bool {
         self.task.is_none()
@@ -119,7 +125,9 @@ impl DocumentReader {
         self.task = None;
     }
     pub(super) fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
-        if let Some(pdf) = &self.pdf {
+        if let Some(pdf) = &self.pdf
+            && !self.reading_text
+        {
             pdf.update(cx, |pdf, cx| pdf.set_active(active, cx));
             return;
         }
@@ -130,7 +138,7 @@ impl DocumentReader {
         }
     }
     pub(super) fn open(&mut self, cx: &mut Context<Self>) {
-        if self.pdf.is_some() {
+        if self.pdf.is_some() && !self.reading_text {
             return;
         }
         if self.task.is_some()
@@ -142,13 +150,20 @@ impl DocumentReader {
         }
         self.error = None;
         let path = self.path.clone();
+        let reading_text = self.reading_text;
         let (cancel, guard) = Cancellation::task();
         let work = reader_jobs::run(
             cx.background_executor().clone(),
             JobClass::Projection,
             Priority::Interactive,
             cancel,
-            move |cancel| rich_documents::prepare(&path, cancel),
+            move |cancel| {
+                if reading_text {
+                    rich_documents::read_document_text(&path, cancel)
+                } else {
+                    rich_documents::prepare(&path, cancel)
+                }
+            },
         );
         self.task = Some(cx.spawn(async move |view, cx| {
             let _guard = guard;
@@ -156,16 +171,18 @@ impl DocumentReader {
             let _ = view.update(cx, |view, cx| {
                 view.task = None;
                 match result {
-                    Ok(prepared) => {
-                        match &prepared {
-                            PreparedDocument::Text { page, html } => {
-                                view.set_text(&page.text, *html, cx)
-                            }
-                            PreparedDocument::Workbook(book) => {
-                                view.database = Some(book.database.clone())
-                            }
-                        }
-                        view.prepared = Some(prepared);
+                    Ok(PreparedDocument::Pages(path)) => {
+                        view.pdf =
+                            Some(cx.new(|cx| super::pdf::PdfReader::new(path.to_path_buf(), cx)));
+                        view.page_file = Some(path);
+                    }
+                    Ok(PreparedDocument::Text { page, html }) => {
+                        view.set_text(&page.text, html, cx);
+                        view.prepared = Some(PreparedDocument::Text { page, html });
+                    }
+                    Ok(PreparedDocument::Workbook(book)) => {
+                        view.database = Some(book.database.clone());
+                        view.prepared = Some(PreparedDocument::Workbook(book));
                     }
                     Err(error) => view.error = Some(format!("{error:#}")),
                 }
@@ -226,9 +243,11 @@ impl DocumentReader {
         }
     }
 }
-impl Render for DocumentReader {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if let Some(pdf) = &self.pdf {
+impl DocumentReader {
+    fn render_content(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        if let Some(pdf) = &self.pdf
+            && !self.reading_text
+        {
             return pdf.clone().into_any_element();
         }
         if self.table.is_none()
@@ -250,7 +269,8 @@ impl Render for DocumentReader {
             let base_size = cx.theme().font_size;
             let font_size = crate::app::text_zoom::font_size(base_size, cx);
             let style = super::scaled_rich_text_style(
-                TextViewStyle::from_theme(&gpui_kit::base::Theme::global(cx)),
+                TextViewStyle::from_theme(&gpui_kit::base::Theme::global(cx))
+                    .with_foreground(super::editor_ink(cx)),
                 f32::from(font_size) / f32::from(base_size),
                 cx.theme().mono_font_size,
             );
@@ -318,9 +338,44 @@ impl Render for DocumentReader {
         super::preview_loading(cx)
     }
 }
+impl Render for DocumentReader {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let content = self.render_content(window, cx);
+        if self.page_file.is_none() || !rich_documents::has_text_view(&self.path) {
+            return content;
+        }
+        let label = if self.reading_text {
+            "Original Layout"
+        } else {
+            "Reading View"
+        };
+        v_flex()
+            .size_full()
+            .min_h_0()
+            .child(
+                h_flex().child(
+                    Button::new("office-layout-mode")
+                        .label(superfile_services::locale::tr(label))
+                        .on_click(cx.listener(|view, _, _, cx| {
+                            view.reading_text = !view.reading_text;
+                            view.task = None;
+                            if let Some(pdf) = &view.pdf {
+                                pdf.update(cx, |pdf, cx| pdf.set_active(!view.reading_text, cx));
+                            }
+                            if view.reading_text {
+                                view.open(cx);
+                            }
+                            cx.notify();
+                        })),
+                ),
+            )
+            .child(div().flex_1().min_h_0().w_full().child(content))
+            .into_any_element()
+    }
+}
 impl super::contract::ReaderView for super::surface::SurfaceEntity<DocumentReader> {
     fn can_find(&self, cx: &App) -> bool {
-        self.read(cx).state.is_some()
+        self.read(cx).can_find()
     }
     fn find(&self, window: &mut Window, cx: &mut App) {
         self.update(cx, |view, cx| view.show_find(window, cx));
@@ -360,7 +415,7 @@ impl super::surface::ReaderSurface for super::surface::SurfaceEntity<DocumentRea
         None
     }
     fn can_zoom_text(&self, cx: &App) -> bool {
-        self.read(cx).state.is_some()
+        self.read(cx).can_find()
     }
 }
 impl super::contract::PlaybackState for super::surface::SurfaceEntity<DocumentReader> {

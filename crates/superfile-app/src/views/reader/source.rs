@@ -132,7 +132,7 @@ impl SourceReader {
                             .bottom_0()
                             .right_0()
                             .w(px(12.))
-                            .bg(cx.theme().background),
+                            .bg(super::editor_paper(cx)),
                     ),
             )
             .child(

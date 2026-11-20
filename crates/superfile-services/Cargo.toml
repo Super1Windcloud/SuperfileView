@@ -22,6 +22,24 @@ path = "benches/diagram_cache.rs"
 harness = false
 
 [dependencies]
+deckcraft-media = { git = "https://github.com/storytold/deckcraft", rev = "5b422e8dc5fb24558f90175475d68cdc03a29e19" }
+asciidoc-html5 = "=0.2.3"
+calamine = { version = "=0.38.0", features = ["chrono"] }
+lo_writer = "=0.5.6"
+lo_impress = "=0.5.3"
+office_oxide = { version = "=0.1.17", default-features = false }
+iwork = "=0.4.0"
+rtf-parser = "=0.5.0"
+macbinary = "=0.2.1"
+pdf-writer = "=0.15.0"
+skrifa = "=0.49.0"
+async-channel = "2"
+fastrand = "2"
+rodio = { version = "=0.22.2", default-features = false, features = ["playback", "symphonia-all"] }
+icns = { version = "=0.5.0", default-features = false, features = ["pngio", "jp2io"] }
+npyz = "=0.9.1"
+subtp = "=0.2.0"
+orgize = { version = "=0.9.0", default-features = false }
 gpui-updater-core = { version = "=0.4.4", default-features = false }
 hayro = "=0.7.1"
 pdfcraft-render = { git = "https://github.com/storytold/pdfcraft", rev = "b503b2e62dfeec5598f344e4e287d9c9cbdb34fa" }
@@ -74,6 +92,15 @@ roxmltree = "0.21"
 encoding_rs = "0.8"
 rusqlite = { version = "=0.41.0", default-features = false, features = ["hooks", "bundled", "fallible_uint"] }
 
+cab = "=0.6.0"
+cpio = "=0.4.2"
+delharc = "=0.8.0"
+lzma-rust2 = { version = "=0.25.0", default-features = false, features = ["std", "lzip"] }
+newtua-lzw-z = "=0.1.0"
+hadris-iso = { version = "=2.5.0", default-features = false, features = ["std", "sync", "joliet"] }
+rars = { version = "=0.13.0", default-features = false }
+sevenz-rust2 = { version = "=0.25.0", default-features = false, features = ["bzip2", "deflate", "ppmd"] }
+
 # Unsafe is confined to snapshot mapping and native association APIs.
 [lints.rust]
 unsafe_code = "deny"
@@ -81,6 +108,9 @@ unsafe_code = "deny"
 [lints.clippy]
 dbg_macro = "deny"
 todo = "deny"
+
+[dev-dependencies]
+ar = "=0.9.0"
 
 [build-dependencies]
 sha2 = "0.10"

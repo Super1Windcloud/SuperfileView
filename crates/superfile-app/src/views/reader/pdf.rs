@@ -4,6 +4,7 @@ use gpui_kit::{
     *,
 };
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
+use superfile_core::reader_palette::ReaderPalette;
 use superfile_services::{locale::tr, pdf::PdfDocument, work::Cancellation};
 
 enum Page {
@@ -20,6 +21,8 @@ pub(super) struct PdfReader {
     list: ListState,
     pages: BTreeMap<usize, Page>,
     active: bool,
+    follow_theme: bool,
+    palette: Option<ReaderPalette>,
 }
 
 impl PdfReader {
@@ -37,6 +40,8 @@ impl PdfReader {
             list,
             pages: BTreeMap::new(),
             active: true,
+            follow_theme: true,
+            palette: None,
         };
         view.open(cx);
         view
@@ -72,18 +77,22 @@ impl PdfReader {
     }
 
     fn request(&mut self, index: usize, document: Arc<PdfDocument>, cx: &mut Context<Self>) {
+        let palette = self.palette;
         let (cancel, guard) = Cancellation::task();
         let work = reader_jobs::run(
             cx.background_executor().clone(),
             JobClass::Projection,
             Priority::Viewport,
             cancel,
-            move |cancel| document.render(index, cancel),
+            move |cancel| document.render_with_palette(index, palette, cancel),
         );
         let task = cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = work.await;
             let _ = view.update(cx, |view, cx| {
+                if palette != view.palette {
+                    return;
+                }
                 let page = match result {
                     Ok(image) => {
                         Page::Ready(cx.new(|cx| super::media::PreparedImage::new(image.png, cx)))
@@ -181,6 +190,12 @@ impl PdfReader {
 
 impl Render for PdfReader {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let editor = super::reader_palette(cx);
+        let palette = self.follow_theme.then_some(editor);
+        if self.palette != palette {
+            self.pages.clear();
+            self.palette = palette;
+        }
         let mut body = v_flex().size_full().min_h_0();
         let count = self.page_count();
         if count > 0 {
@@ -212,6 +227,18 @@ impl Render for PdfReader {
                     }),
                 ));
             }
+            toolbar = toolbar.child(
+                Button::new("pdf-reading-colors")
+                    .label(if self.follow_theme {
+                        tr("Show original colors")
+                    } else {
+                        tr("Use editor colors")
+                    })
+                    .on_click(cx.listener(|view, _, _, cx| {
+                        view.follow_theme = !view.follow_theme;
+                        cx.notify();
+                    })),
+            );
             body = body
                 .child(
                     div()
@@ -312,11 +339,42 @@ mod tests {
         })
         .unwrap();
         cx.run_until_parked();
-        cx.update(|cx| {
+        cx.update_window(handle, |_, window, cx| {
+            use gpui_kit::component::{Theme, ThemeMode};
             assert!(matches!(
                 reader.read(cx).pages.get(&0),
                 Some(Page::Ready(_))
-            ))
-        });
+            ));
+            Theme::change(ThemeMode::Dark, None, cx);
+            window.render_frame(cx);
+            let offset = reader.read(cx).list.logical_scroll_top();
+            assert!(reader.read(cx).palette.is_some());
+            window.click("pdf-reading-colors", cx);
+            window.render_frame(cx);
+            assert!(reader.read(cx).palette.is_none());
+            window.click("pdf-reading-colors", cx);
+            window.render_frame(cx);
+            assert!(reader.read(cx).palette.is_some());
+            let after = reader.read(cx).list.logical_scroll_top();
+            assert_eq!(offset.item_ix, after.item_ix);
+            assert_eq!(offset.offset_in_item, after.offset_in_item);
+            Theme::change(ThemeMode::Light, None, cx);
+            Theme::update(cx, |theme| {
+                std::sync::Arc::make_mut(&mut theme.highlight_theme)
+                    .style
+                    .editor_background = Some(gpui_kit::rgb(0xfdf6e3).into());
+                std::sync::Arc::make_mut(&mut theme.highlight_theme)
+                    .style
+                    .editor_foreground = Some(gpui_kit::rgb(0x586e75).into());
+            });
+            window.render_frame(cx);
+            let themed = reader.read(cx).palette.unwrap();
+            assert_eq!(themed.paper, [0xfd, 0xf6, 0xe3]);
+            assert_eq!(themed.ink, [0x58, 0x6e, 0x75]);
+            window.click("pdf-reading-colors", cx);
+            window.render_frame(cx);
+            assert!(reader.read(cx).palette.is_none());
+        })
+        .unwrap();
     }
 }

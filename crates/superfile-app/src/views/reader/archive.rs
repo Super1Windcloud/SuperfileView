@@ -141,8 +141,8 @@ impl Render for ArchiveReader {
             .size_full()
             .min_w_0()
             .min_h_0()
-            .bg(cx.theme().background)
-            .text_color(cx.theme().foreground)
+            .bg(super::editor_paper(cx))
+            .text_color(super::editor_ink(cx))
             .on_key_down(cx.listener(|v, event: &KeyDownEvent, _, cx| {
                 match event.keystroke.key.as_str() {
                     "up" | "down" if !v.rows.is_empty() => {

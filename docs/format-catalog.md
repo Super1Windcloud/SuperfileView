@@ -90,7 +90,7 @@ Filename highlighting rules (Dockerfile, `.env`, dot-config names) remain in `la
 | `icns` | image, native | — | plain | Images | ✓ | image / image |
 | `ico` | image, native | — | plain | Images | ✓ | image / image |
 | `ini` | text / bytes | — | ini | — | ✓ | settings / settings |
-| `ipynb` | text / bytes | — | json | — | ✓ | jupyter / jupyter |
+| `ipynb` | text / bytes | ConvertedMarkup | json | — | ✓ | jupyter / jupyter |
 | `iso` | archive | — | plain | Archives | ✓ | disc / disc |
 | `j2` | text / bytes | — | jinja | — | ✓ | jinja / jinja_light |
 | `java` | text / bytes | — | java | Source Code | ✓ | java / java |
@@ -139,9 +139,9 @@ Filename highlighting rules (Dockerfile, `.env`, dot-config names) remain in `la
 | `nunjucks` | text / bytes | — | jinja | — | ✓ | nunjucks / nunjucks |
 | `obj` | vector | — | structured | — | ✓ | 3d / 3d |
 | `ocio` | text / bytes | — | yaml | — | ✓ | yaml / yaml |
-| `odp` | container-report | — | plain | — | ✓ | powerpoint / powerpoint |
-| `ods` | container-report | — | plain | — | ✓ | table / table |
-| `odt` | container-report | — | plain | — | ✓ | word / word |
+| `odp` | native | — | plain | — | ✓ | powerpoint / powerpoint |
+| `ods` | native | — | plain | — | ✓ | table / table |
+| `odt` | native | — | plain | — | ✓ | word / word |
 | `opml` | opml | — | html | Mind maps | ✓ | xml / xml |
 | `org` | text / bytes | ConvertedMarkup | structured | — | ✓ | markdown / markdown |
 | `osl` | text / bytes | — | c | — | ✓ | file / file |

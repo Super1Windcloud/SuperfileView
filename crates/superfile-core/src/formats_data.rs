@@ -82,7 +82,7 @@ impl FormatSet {
             },
             Self::ContainerReport => FormatRule {
                 #[rustfmt::skip]
-                suffixes: &["zip", "tar", "gz", "bz2", "xz", "epub", "odt", "ods", "odp", "npy"],
+                suffixes: &["zip", "tar", "gz", "bz2", "xz", "epub", "npy"],
                 #[rustfmt::skip]
                 tails: &[],
                 filename_suffix: false,
@@ -110,7 +110,7 @@ impl FormatSet {
             },
             Self::NativeOffice => FormatRule {
                 #[rustfmt::skip]
-                suffixes: &["doc", "docx", "xls", "xlsx", "xlsm", "ppt", "pptx", "rtf", "key", "pages", "numbers"],
+                suffixes: &["doc", "docx", "odt", "odp", "ods", "xls", "xlsx", "xlsm", "ppt", "pptx", "rtf", "key", "pages", "numbers"],
                 #[rustfmt::skip]
                 tails: &[],
                 filename_suffix: false,
@@ -159,7 +159,7 @@ impl FormatSet {
             },
             Self::ConvertedMarkup => FormatRule {
                 #[rustfmt::skip]
-                suffixes: &["vega.json", "adoc", "org", "rst", "srt", "vtt", "gpx", "kml", "d2", "pikchr"],
+                suffixes: &["ipynb", "vega.json", "adoc", "org", "rst", "srt", "vtt", "gpx", "kml", "d2", "pikchr"],
                 #[rustfmt::skip]
                 tails: &[],
                 filename_suffix: false,

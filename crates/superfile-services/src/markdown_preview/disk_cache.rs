@@ -134,6 +134,14 @@ impl DiskCache {
         digest.update(MAGIC);
         digest.update(self.namespace);
         digest.update(edge.to_le_bytes());
+        if let Some(palette) = diagram.palette {
+            digest.update([1]);
+            for color in [palette.paper, palette.ink, palette.surface, palette.accent] {
+                digest.update(color);
+            }
+        } else {
+            digest.update([0]);
+        }
         digest.update((diagram.kind.len() as u64).to_le_bytes());
         digest.update(diagram.kind.as_bytes());
         digest.update(diagram.source.as_bytes());
@@ -358,6 +366,7 @@ mod tests {
 
     fn diagram(source: &str) -> Diagram {
         Diagram {
+            palette: None,
             kind: "mermaid".into(),
             source: source.into(),
         }
@@ -399,6 +408,15 @@ mod tests {
         assert_eq!(actual.png, expected.png);
         assert_eq!((actual.width, actual.height, actual.baseline), (2, 1, 0.5));
         for changed in [
+            Diagram {
+                palette: Some(superfile_core::reader_palette::ReaderPalette {
+                    paper: [30; 3],
+                    ink: [220; 3],
+                    surface: [45; 3],
+                    accent: [80, 100, 220],
+                }),
+                ..diagram.clone()
+            },
             Diagram {
                 source: "graph LR; A-->C".into(),
                 ..diagram.clone()

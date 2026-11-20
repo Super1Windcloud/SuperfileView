@@ -156,3 +156,264 @@ fn pdf_pages_use_an_immutable_snapshot_and_render_without_a_system_viewer() -> R
     assert!(document.render(1, &Cancellation::default()).is_err());
     Ok(())
 }
+
+#[test]
+fn office_pages_use_the_pdf_viewport_and_editor_palette() -> Result<()> {
+    use superfile_core::reader_palette::ReaderPalette;
+    use superfile_services::{
+        documents::{Content, read_content},
+        pdf::PdfDocument,
+    };
+    let directory = tempfile::tempdir()?;
+    let mut word = lo_writer::WriterEditor::new("");
+    word.push_heading(1, "Sample layout")
+        .push_paragraph("Body and page layout");
+    let mut slides = lo_impress::ImpressBuilder::new("");
+    slides
+        .add_title_slide("First", "Opening")
+        .add_diagram_slide("Second");
+    let cancel = Cancellation::default();
+    for (ext, bytes, count) in [
+        ("docx", lo_writer::save_as(&word.document, "docx")?, 1),
+        ("odt", lo_writer::save_as(&word.document, "odt")?, 1),
+        (
+            "pptx",
+            lo_impress::save_as(&slides.presentation, "pptx")?,
+            2,
+        ),
+        ("odp", lo_impress::save_as(&slides.presentation, "odp")?, 2),
+    ] {
+        let source = directory.path().join(format!("sample.{ext}"));
+        fs::write(&source, bytes)?;
+        assert!(
+            matches!(read_content(&source)?, Content::Native(..)),
+            "{ext}"
+        );
+        let PreparedDocument::Pages(pdf) = rich_documents::prepare(&source, &cancel)? else {
+            panic!("expected fixed pages for {ext}")
+        };
+        let doc = PdfDocument::open(&pdf, &cancel)?;
+        assert_eq!(doc.page_count(), count, "{ext}");
+        let palette = ReaderPalette {
+            paper: [15, 22, 37],
+            ink: [215, 218, 225],
+            surface: [40; 3],
+            accent: [100; 3],
+        };
+        let image = doc.render_with_palette(count - 1, Some(palette), &cancel)?;
+        let image = image::load_from_memory(&image.png)?.to_rgb8();
+        assert!(
+            image.pixels().any(|pixel| pixel
+                .0
+                .iter()
+                .zip(palette.ink)
+                .all(|(a, b)| a.abs_diff(b) <= 3)),
+            "missing ink in {ext}"
+        );
+        assert!(
+            image.pixels().any(|pixel| pixel
+                .0
+                .iter()
+                .zip(palette.paper)
+                .all(|(a, b)| a.abs_diff(b) <= 3)),
+            "missing paper in {ext}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn reads_iwork_packages_and_spreadsheet_cells() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let cancel = Cancellation::default();
+    let mut doc = iwork::Document::new(iwork::Kind::Pages)?;
+    doc.body_mut()?.append("iWork reader sample")?;
+    let path = directory.path().join("sample.pages");
+    doc.save(&path)?;
+    let PreparedDocument::Text { page, .. } = rich_documents::prepare(&path, &cancel)? else {
+        panic!("expected Pages text")
+    };
+    assert!(page.text.contains("iWork reader sample"));
+    let path = directory.path().join("sample.numbers");
+    let mut numbers = iwork::Document::new_spreadsheet("Demo", "Sales", 4, 3)?;
+    numbers.table_mut("Sales")?.set("B2", "North")?;
+    numbers.save(&path)?;
+    let PreparedDocument::Text { page, .. } = rich_documents::prepare(&path, &cancel)? else {
+        panic!("expected Numbers table")
+    };
+    assert!(page.text.contains("B2") && page.text.contains("North"));
+    let path = directory.path().join("sample.key");
+    let mut keynote = iwork::Document::new(iwork::Kind::Keynote)?;
+    keynote.add_slide(None)?;
+    keynote.save(&path)?;
+    let PreparedDocument::Text { page, .. } = rich_documents::prepare(&path, &cancel)? else {
+        panic!("expected Keynote slides")
+    };
+    assert!(page.text.contains("<h2>2</h2>"));
+    let ods = directory.path().join("legacy.ods");
+    zip(&ods,&[
+        ("mimetype",b"application/vnd.oasis.opendocument.spreadsheet"),
+        ("META-INF/manifest.xml",br#"<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"/>"#),
+        ("content.xml",br#"<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:body><office:spreadsheet><table:table table:name="Sales"><table:table-row><table:table-cell office:value-type="float" office:value="42"><text:p>42</text:p></table:table-cell></table:table-row></table:table></office:spreadsheet></office:body></office:document-content>"#)
+    ])?;
+    let PreparedDocument::Workbook(book) = rich_documents::prepare(&ods, &cancel)? else {
+        panic!("expected ODS worksheet")
+    };
+    let db = rusqlite::Connection::open(book.database)?;
+    let values = db.query_row("SELECT * FROM \"1: Sales\"", [], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    assert_eq!(values, ("A1".into(), "42".into()));
+    Ok(())
+}
+
+#[test]
+fn dark_word_page_preserves_embedded_image_pixels() -> Result<()> {
+    use superfile_core::reader_palette::ReaderPalette;
+    use superfile_services::pdf::PdfDocument;
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("photo.docx");
+    let pixel = image::Rgb([220, 22, 44]);
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbImage::from_pixel(32, 32, pixel).write_to(&mut png, image::ImageFormat::Png)?;
+    zip(&path, &[
+        ("word/document.xml", br#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body><w:p><w:r><w:drawing><wp:inline><wp:extent cx="914400" cy="914400"/><a:graphic><a:blip r:embed="rId1"/></a:graphic></wp:inline></w:drawing></w:r></w:p></w:body></w:document>"#),
+        ("word/_rels/document.xml.rels", br#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/photo.png"/></Relationships>"#),
+        ("word/media/photo.png", png.get_ref()),
+    ])?;
+    let cancel = Cancellation::default();
+    let PreparedDocument::Pages(pdf) = rich_documents::prepare(&path, &cancel)? else {
+        panic!("expected Word page")
+    };
+    let doc = PdfDocument::open(&pdf, &cancel)?;
+    let palette = ReaderPalette {
+        paper: [18, 25, 35],
+        ink: [218, 220, 225],
+        accent: [75, 160, 200],
+        surface: [40; 3],
+    };
+    for mode in [None, Some(palette)] {
+        let frame = doc.render_with_palette(0, mode, &cancel)?;
+        let image = image::load_from_memory(&frame.png)?.to_rgb8();
+        assert!(
+            image
+                .pixels()
+                .any(|p| p.0.iter().zip(pixel.0).all(|(a, b)| a.abs_diff(b) <= 2)),
+            "embedded image changed or missing in {mode:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn font_specimens_draw_the_file_glyphs_from_sfnt_and_resource_fork() -> Result<()> {
+    // Original test font containing one closed triangle mapped to 'A'.
+    let font = include_bytes!("../../../assets/reader-contracts/triangle.ttf");
+    let mut data = Vec::new();
+    let length = font.len() as u32 + 4;
+    for field in [16u32, 16 + length, length, 50] {
+        data.extend(field.to_be_bytes());
+    }
+    data.extend((font.len() as u32).to_be_bytes());
+    data.extend(font);
+    let mut map = vec![0u8; 50];
+    map[..16].copy_from_slice(&data[..16]);
+    map[24..26].copy_from_slice(&28u16.to_be_bytes());
+    map[26..28].copy_from_slice(&50u16.to_be_bytes());
+    map[30..34].copy_from_slice(b"sfnt");
+    map[36..38].copy_from_slice(&10u16.to_be_bytes());
+    map[40..42].copy_from_slice(&u16::MAX.to_be_bytes());
+    data.extend(map);
+    let directory = tempfile::tempdir()?;
+    let cancel = Cancellation::default();
+    for (ext, bytes) in [("ttf", font.as_slice()), ("dfont", data.as_slice())] {
+        let path = directory.path().join(format!("triangle.{ext}"));
+        fs::write(&path, bytes)?;
+        let PreparedDocument::Pages(pdf) = rich_documents::prepare(&path, &cancel)? else {
+            panic!("expected specimen for {ext}")
+        };
+        let doc = superfile_services::pdf::PdfDocument::open(&pdf, &cancel)?;
+        let frame = doc.render(0, &cancel)?;
+        let image = image::load_from_memory(&frame.png)?.to_luma8();
+        assert!(image.iter().filter(|v| **v < 32).count() > 100);
+    }
+    Ok(())
+}
+
+#[test]
+fn biff_workbook_and_rtf_read_their_native_content() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("quarter.xls");
+    fs::write(
+        &path,
+        include_bytes!("../../../assets/reader-contracts/quarter.xls"),
+    )?;
+    let cancel = Cancellation::default();
+    let PreparedDocument::Workbook(book) = rich_documents::prepare(&path, &cancel)? else {
+        panic!("expected BIFF worksheet")
+    };
+    let db = rusqlite::Connection::open(book.database)?;
+    let (cell, value) =
+        db.query_row("SELECT * FROM \"1: Quarter\" WHERE Cell='B2'", [], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+    assert_eq!((cell.as_str(), value.as_str()), ("B2", "42"));
+    let formula: String = db.query_row(
+        "SELECT Formula FROM \"1: Quarter\" WHERE Cell='B3'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert!(formula.contains("B2"));
+    let path = directory.path().join("styled.rtf");
+    fs::write(&path, br"{\rtf1\ansi hello {\b bold} content}")?;
+    let PreparedDocument::Text { page, html } = rich_documents::prepare(&path, &cancel)? else {
+        panic!("expected RTF spans")
+    };
+    assert!(html && page.text.contains("<b>bold</b>"));
+    Ok(())
+}
+
+#[test]
+fn oversized_office_layout_reuses_searchable_text() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("large.docx");
+    let nested = format!(
+        "<document><body>{}<p><t>Readable</t></p>{}</body></document>",
+        "<span>".repeat(25),
+        "</span>".repeat(25)
+    );
+    zip(&path, &[("word/document.xml", nested.as_bytes())])?;
+    let PreparedDocument::Text { page, .. } =
+        rich_documents::prepare(&path, &Cancellation::default())?
+    else {
+        panic!("expected bounded fallback")
+    };
+    assert!(page.text.contains("Readable"));
+    Ok(())
+}
+
+#[test]
+fn legacy_iwork_packages_show_the_embedded_preview() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let cancel = Cancellation::default();
+    let file = dir.path().join("old.pages");
+    let mut word = lo_writer::WriterEditor::new("");
+    word.push_paragraph("Embedded layout");
+    let pdf = lo_writer::save_as(&word.document, "pdf")?;
+    zip(&file, &[("QuickLook/Preview.pdf", pdf.as_slice())])?;
+    let PreparedDocument::Pages(page) = rich_documents::prepare(&file, &cancel)? else {
+        panic!("expected native preview")
+    };
+    assert_eq!(fs::read(page)?, pdf);
+    let bundle = dir.path().join("old.key");
+    fs::create_dir_all(bundle.join("QuickLook"))?;
+    image::RgbImage::from_pixel(12, 8, image::Rgb([17, 130, 210]))
+        .save(bundle.join("QuickLook/Thumbnail.jpg"))?;
+    let PreparedDocument::Pages(page) = rich_documents::prepare(&bundle, &cancel)? else {
+        panic!("expected cover")
+    };
+    let pdf = superfile_services::pdf::PdfDocument::open(&page, &cancel)?;
+    assert_eq!(pdf.page_count(), 1);
+    assert!((pdf.page_ratio(0).unwrap() - 1.5).abs() < 0.001);
+    Ok(())
+}

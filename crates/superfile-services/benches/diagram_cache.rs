@@ -32,6 +32,7 @@ fn same(actual: &DiagramImage, expected: &DiagramImage) {
 
 fn main() {
     let key = Diagram {
+        palette: None,
         kind: "dot".into(),
         source: "digraph { 中文 -> cache }".into(),
     };

@@ -1,4 +1,5 @@
 mod archive;
+mod audio;
 mod books;
 pub(crate) use books::{
     BookContents, BookNextChapter, BookNextPage, BookPreviousChapter, BookPreviousPage,
@@ -36,13 +37,48 @@ pub(super) mod statistics;
 mod surface;
 mod xmind;
 use crate::app::document_session::DocumentSession;
-use gpui_kit::*;
+use gpui_kit::{component::ActiveTheme, *};
 use markup::MarkupReader;
 use projection::Projection;
 use source::SourceReader;
 use std::{path::PathBuf, sync::Arc};
 use superfile_core::{ContentSnapshot, Document, DocumentKind, ReaderMode, language_for_path};
 use superfile_services::documents::presentation::{MarkupFormat, TableFormat, TextPresentation};
+
+fn editor_paper(cx: &App) -> Hsla {
+    let theme = cx.theme();
+    theme.background.blend(
+        theme
+            .highlight_theme
+            .style
+            .editor_background
+            .unwrap_or(theme.background),
+    )
+}
+
+fn editor_ink(cx: &App) -> Hsla {
+    let theme = cx.theme();
+    theme
+        .highlight_theme
+        .style
+        .editor_foreground
+        .unwrap_or(theme.foreground)
+}
+
+fn reader_palette(cx: &App) -> superfile_core::reader_palette::ReaderPalette {
+    let theme = cx.theme();
+    let paper = editor_paper(cx);
+    let rgb8 = |color: Hsla| {
+        let rgba: Rgba = paper.blend(color).into();
+        [rgba.r, rgba.g, rgba.b].map(|value| (value * 255.).round() as u8)
+    };
+    superfile_core::reader_palette::ReaderPalette {
+        paper: rgb8(paper),
+        ink: rgb8(editor_ink(cx)),
+        surface: rgb8(theme.muted),
+        accent: rgb8(theme.primary),
+    }
+}
 
 /// Keep native text editing actions without the toolkit's unused LSP entries.
 pub(super) fn editor_menu(
@@ -361,7 +397,12 @@ impl Reader {
         };
         boundary::FileBoundary {
             path: self.document.path.clone(),
-            content,
+            content: div()
+                .size_full()
+                .bg(editor_paper(cx))
+                .text_color(editor_ink(cx))
+                .child(content)
+                .into_any_element(),
         }
         .into_any_element()
     }

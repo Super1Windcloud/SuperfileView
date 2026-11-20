@@ -167,6 +167,7 @@ pub const MAX_SOURCE: usize = reader_limits::DIAGRAM_SOURCE_BYTES;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Diagram {
+    pub palette: Option<superfile_core::reader_palette::ReaderPalette>,
     pub kind: String,
     pub source: String,
 }
@@ -255,6 +256,7 @@ pub fn fenced(kind: &str, source: &str) -> Option<Diagram> {
         _ => return None,
     };
     Some(Diagram {
+        palette: None,
         kind: kind.into(),
         source: source.into(),
     })
@@ -264,10 +266,12 @@ pub fn from_node(node: &Node) -> Option<Diagram> {
     match node {
         Node::Code(code) => fenced(code.lang.as_deref().unwrap_or_default(), &code.value),
         Node::Math(math) => Some(Diagram {
+            palette: None,
             kind: "math".into(),
             source: math.value.clone(),
         }),
         Node::InlineMath(math) => Some(Diagram {
+            palette: None,
             kind: "inline-math".into(),
             source: math.value.clone(),
         }),
@@ -329,6 +333,7 @@ pub fn from_node_with_source(node: &Node, source: Option<&str>) -> Option<Diagra
         && !body.contains("\\]")
     {
         return Some(Diagram {
+            palette: None,
             kind: "math".into(),
             source: body.trim().into(),
         });
@@ -478,7 +483,7 @@ pub fn render_batch(
     let output = dir.path().join("result.json");
     let request = requests
         .iter()
-        .map(|d| serde_json::json!({ "kind": d.kind, "source": d.source }))
+        .map(|d| serde_json::json!({ "kind": d.kind, "source": d.source, "palette": d.palette }))
         .collect::<Vec<_>>();
     std::fs::write(&input, serde_json::to_vec(&request)?)?;
     let executable = std::env::current_exe()?;
@@ -500,14 +505,7 @@ pub fn render_batch(
         reader_limits::DIAGRAM_STARTUP_SECONDS
             + requests.len() as u64 * reader_limits::DIAGRAM_BLOCK_SECONDS,
     );
-    static FONTS: OnceLock<Arc<resvg::usvg::fontdb::Database>> = OnceLock::new();
-    let fonts = FONTS
-        .get_or_init(|| {
-            let mut fonts = resvg::usvg::fontdb::Database::new();
-            fonts.load_system_fonts();
-            Arc::new(fonts)
-        })
-        .clone();
+    let fonts = crate::inline_images::svg_fontdb();
     let mut completed = HashSet::new();
     let mut timed_out = false;
     loop {
@@ -572,7 +570,13 @@ pub fn render_batch(
                 let baseline = value
                     .and_then(|v| v.get("baseline"))
                     .and_then(|v| v.as_f64());
-                rasterize(svg, fonts.clone(), baseline, edge)
+                let ink = match diagram.kind.as_str() {
+                    "dot" | "pikchr" | "math" | "inline-math" | "wavedrom" | "plantuml" => {
+                        diagram.palette
+                    }
+                    _ => None,
+                };
+                rasterize(svg, fonts.clone(), baseline, edge, ink)
                     .and_then(|image| {
                         bytes_used += image.png.len();
                         pixels_used += u64::from(image.width) * u64::from(image.height) * 4;
@@ -614,6 +618,7 @@ fn rasterize(
     fonts: Arc<resvg::usvg::fontdb::Database>,
     baseline: Option<f64>,
     edge: u32,
+    palette: Option<superfile_core::reader_palette::ReaderPalette>,
 ) -> Result<DiagramImage> {
     ensure!(
         svg.len() <= reader_limits::DIAGRAM_SVG_BYTES,
@@ -636,6 +641,9 @@ fn rasterize(
         resvg::tiny_skia::Transform::from_scale(scale, scale),
         &mut pixmap.as_mut(),
     );
+    if let Some(palette) = palette {
+        theme_diagram_ink(pixmap.data_mut(), palette);
+    }
     Ok(DiagramImage {
         png: pixmap.encode_png()?,
         width,
@@ -646,4 +654,44 @@ fn rasterize(
             .clamp(0.0, size.height())
             * scale,
     })
+}
+
+/// Some graph engines emit neutral paints baked into inline CSS. The canvas is
+/// premultiplied RGBA; keep transparency/antialiasing and all chromatic marks.
+fn theme_diagram_ink(pixels: &mut [u8], palette: superfile_core::reader_palette::ReaderPalette) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
+        let [r, g, b, a] = *pixel;
+        if a == 0 || r != g || g != b {
+            continue;
+        }
+        let light = u32::from(r);
+        let dark = u32::from(a) - light;
+        for ((channel, ink), paper) in pixel[..3].iter_mut().zip(palette.ink).zip(palette.paper) {
+            *channel = ((dark * u32::from(ink) + light * u32::from(paper) + 127) / 255) as u8;
+        }
+    }
+}
+
+#[cfg(test)]
+mod color_tests {
+    use super::*;
+    #[test]
+    fn achromatic_diagram_ink_preserves_coverage_and_colored_shapes() {
+        let colors = superfile_core::reader_palette::ReaderPalette {
+            ink: [202, 220, 230],
+            paper: [14, 22, 32],
+            surface: [50; 3],
+            accent: [120; 3],
+        };
+        let mut pixels = [
+            0, 0, 0, 128, 255, 255, 255, 255, 22, 128, 36, 170, 0, 0, 0, 0,
+        ];
+        theme_diagram_ink(&mut pixels, colors);
+        assert_eq!(
+            pixels,
+            [
+                101, 110, 115, 128, 14, 22, 32, 255, 22, 128, 36, 170, 0, 0, 0, 0
+            ]
+        );
+    }
 }

@@ -3,11 +3,14 @@ use crate::{resources::WorkingReservation, snapshot::MappedSnapshot, work::Cance
 use anyhow::{Result, bail, ensure};
 use hayro::hayro_syntax::Pdf;
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
-use pdfcraft_render::{PageRenderer, RenderConfig, RenderRequest, device_pixels};
+use pdfcraft_render::{
+    PageRenderer, ReadingColors, ReadingParams, RenderConfig, RenderRequest, device_pixels,
+};
 use std::{
     path::Path,
     sync::{Arc, Mutex},
 };
+use superfile_core::reader_palette::ReaderPalette;
 
 pub struct PdfDocument {
     sizes: Vec<(f32, f32)>,
@@ -16,6 +19,8 @@ pub struct PdfDocument {
 enum Backend {
     Buffered {
         renderer: Box<PageRenderer>,
+        bytes: Arc<Vec<u8>>,
+        colors: ReadingColors,
         _input: WorkingReservation,
     },
     // PageRenderer requires an owned Vec. Keep large inputs on disk with the
@@ -49,13 +54,16 @@ impl PdfDocument {
             let mut owned = Vec::with_capacity(bytes.len());
             cancel.copy(bytes, &mut owned)?;
             input.shrink_to(length);
-            let renderer = PageRenderer::new(Arc::new(owned), RenderConfig::default().on_screen());
+            let bytes = Arc::new(owned);
+            let renderer = PageRenderer::new(bytes.clone(), RenderConfig::default().on_screen());
             ensure!(
                 renderer.page_count() == sizes.len(),
                 "Cannot open PDF renderer"
             );
             Backend::Buffered {
                 renderer: Box::new(renderer),
+                colors: ReadingColors::default(),
+                bytes,
                 _input: input,
             }
         } else {
@@ -78,6 +86,23 @@ impl PdfDocument {
     }
 
     pub fn render(&self, index: usize, cancel: &Cancellation) -> Result<PdfPage> {
+        self.render_with_palette(index, None, cancel)
+    }
+
+    pub fn render_with_palette(
+        &self,
+        index: usize,
+        palette: Option<ReaderPalette>,
+        cancel: &Cancellation,
+    ) -> Result<PdfPage> {
+        let reading = ReadingColors {
+            params: palette.map(|colors| ReadingParams {
+                text: colors.ink,
+                background: colors.paper,
+                only_black: false,
+                line_art: true,
+            }),
+        };
         cancel.check()?;
         let &(width, height) = self
             .sizes
@@ -95,7 +120,22 @@ impl PdfDocument {
         cancel.check()?;
         let _memory = crate::resources::pool().reserve_working(required, required)?;
         let png = match &mut *backend {
-            Backend::Buffered { renderer, .. } => {
+            Backend::Buffered {
+                renderer,
+                bytes,
+                colors,
+                ..
+            } => {
+                if *colors != reading {
+                    **renderer = PageRenderer::new(
+                        bytes.clone(),
+                        RenderConfig {
+                            reading_colors: reading,
+                            ..RenderConfig::default().on_screen()
+                        },
+                    );
+                    *colors = reading;
+                }
                 let result = renderer.render(RenderRequest {
                     page: index,
                     scale,
@@ -124,7 +164,14 @@ impl PdfDocument {
                         y_scale: scale,
                         width: Some(w as u16),
                         height: Some(h as u16),
-                        bg_color: hayro::vello_cpu::color::palette::css::WHITE,
+                        bg_color: reading.params.map_or(
+                            hayro::vello_cpu::color::palette::css::WHITE,
+                            |p| {
+                                let [r, g, b] = p.background;
+                                hayro::vello_cpu::color::AlphaColor::from_rgb8(r, g, b)
+                            },
+                        ),
+                        color_replacement: reading.params.map(Into::into),
                         ..Default::default()
                     },
                 );
@@ -136,5 +183,56 @@ impl PdfDocument {
             png,
             pages: self.page_count(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn switching_reading_colors_repaints_the_same_page_and_restores_original() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/reader-contracts/reading-colors.pdf");
+        let cancel = Cancellation::default();
+        let doc = PdfDocument::open(&fixture, &cancel).unwrap();
+        let before = doc.render(0, &cancel).unwrap();
+        let palette = ReaderPalette {
+            paper: [12, 18, 26],
+            ink: [212, 218, 224],
+            surface: [32; 3],
+            accent: [120; 3],
+        };
+        let dark = doc.render_with_palette(0, Some(palette), &cancel).unwrap();
+        let original = image::load_from_memory(&before.png).unwrap().to_rgb8();
+        let rendered = image::load_from_memory(&dark.png).unwrap().to_rgb8();
+        assert_eq!(original.dimensions(), rendered.dimensions());
+        assert_eq!(original.get_pixel(0, 0).0, [255; 3]);
+        assert_eq!(rendered.get_pixel(0, 0).0, palette.paper);
+        for (x, y) in [(50, 170), (120, 170), (50, 215), (120, 215)] {
+            assert_eq!(rendered.get_pixel(x, y), original.get_pixel(x, y));
+        }
+        assert!(rendered.pixels().any(|pixel| {
+            pixel
+                .0
+                .iter()
+                .zip(palette.ink)
+                .all(|(a, b)| a.abs_diff(b) <= 2)
+        }));
+        assert_eq!(doc.render(0, &cancel).unwrap().png, before.png);
+
+        // Exercise the bounded-memory route even on machines with enough room
+        // to admit this tiny fixture to PDFCraft's buffered renderer.
+        let snapshot = Arc::new(MappedSnapshot::open(&fixture, &cancel).unwrap());
+        let mapped = PdfDocument {
+            sizes: doc.sizes.clone(),
+            backend: Mutex::new(Backend::Mapped(Pdf::new(snapshot).unwrap())),
+        };
+        let page = mapped
+            .render_with_palette(0, Some(palette), &cancel)
+            .unwrap();
+        let from_disk = image::load_from_memory(&page.png).unwrap().to_rgb8();
+        assert_eq!(from_disk.dimensions(), rendered.dimensions());
+        assert_eq!(from_disk.get_pixel(0, 0), rendered.get_pixel(0, 0));
     }
 }

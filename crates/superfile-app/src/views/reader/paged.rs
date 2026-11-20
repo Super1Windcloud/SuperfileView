@@ -430,7 +430,7 @@ impl Render for PagedReader {
                                     .text_size(font_size)
                                     .font_family("Menlo")
                                     .whitespace_nowrap()
-                                    .text_color(cx.theme().foreground)
+                                    .text_color(super::editor_ink(cx))
                                     .child(v.page.text[v.page.rows[i].clone()].to_owned())
                             })
                             .collect()

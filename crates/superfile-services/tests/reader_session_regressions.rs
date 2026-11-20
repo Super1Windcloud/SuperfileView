@@ -180,6 +180,8 @@ fn image_only_docx_reports_an_explicit_missing_reader() -> Result<()> {
     let mut archive = zip::ZipWriter::new(fs::File::create(&path)?);
     let options = zip::write::SimpleFileOptions::default();
     archive.start_file("word/document.xml", options)?;
+    // Bare blips have no DrawingML paragraph or drawing frame. A writer
+    // that drops them must not turn these two scans into a blank page.
     archive.write_all(br#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body><a:blip r:embed="second"/><a:blip r:embed="first"/></w:body></w:document>"#)?;
     archive.start_file("word/_rels/document.xml.rels", options)?;
     archive.write_all(br#"<Relationships><Relationship Id="first" Target="media/a.png"/><Relationship Id="second" Target="media/b.png"/></Relationships>"#)?;

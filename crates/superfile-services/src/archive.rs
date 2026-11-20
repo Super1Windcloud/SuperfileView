@@ -6,11 +6,13 @@ use std::{
     io::{BufRead, BufReader, Read},
     path::{Component, Path, PathBuf},
 };
+#[path = "archive_members.rs"]
+mod members;
 #[path = "archive_portable.rs"]
 mod portable;
 use portable::native;
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Entry {
     pub name: String,
     pub size: u64,
@@ -64,7 +66,34 @@ fn safe(name: &str) -> Result<PathBuf> {
                 .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_))),
         "Unsafe ZIP path: {name}"
     );
-    ensure!(!path.as_os_str().is_empty(), "Empty ZIP path");
+    ensure!(!path.as_os_str().is_empty(), "Empty archive path");
+    #[cfg(windows)]
+    for part in path.components().filter_map(|part| match part {
+        Component::Normal(part) => part.to_str(),
+        _ => None,
+    }) {
+        let stem = part
+            .split('.')
+            .next()
+            .unwrap_or("")
+            .trim_end()
+            .to_ascii_uppercase();
+        let port = stem
+            .strip_prefix("COM")
+            .or_else(|| stem.strip_prefix("LPT"));
+        ensure!(
+            !part.ends_with([' ', '.'])
+                && !part.contains([':', '*', '?', '"', '<', '>', '|'])
+                && !part.chars().any(char::is_control)
+                && !matches!(
+                    stem.as_str(),
+                    "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+                )
+                && !port.is_some_and(|n| matches!(n, "¹" | "²" | "³")
+                    || n.len() == 1 && n.as_bytes()[0].is_ascii_digit()),
+            "Archive path is reserved on Windows: {name}"
+        );
+    }
     Ok(path.to_path_buf())
 }
 pub fn read(path: &Path, cancel: &Cancellation) -> Result<Archive> {

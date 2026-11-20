@@ -838,6 +838,7 @@ fn sanitize(node: Node<'_, '_>, output: &mut ChapterContent, depth: usize) -> Re
             | "strong"
             | "b"
             | "blockquote"
+            | "mark"
             | "ul"
             | "ol"
             | "li"
@@ -865,6 +866,11 @@ fn sanitize(node: Node<'_, '_>, output: &mut ChapterContent, depth: usize) -> Re
     };
     let start = output.html.len();
     output.html.push_str(&format!("<{tag}"));
+    if tag == "mark" {
+        let color =
+            crate::markup_highlights::mark_color(node.attribute("color"), node.attribute("style"));
+        output.html.push_str(&format!(" color=\"{color}\""));
+    }
     if tag == "a"
         && let Some(href) = attribute(node, "href")
     {
@@ -1200,7 +1206,7 @@ mod tests {
             r#"<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>"#;
         let opf = r#"<package xmlns:dc="urn:dc"><metadata><dc:title>Reader Test</dc:title><dc:creator>Author</dc:creator></metadata><manifest><item id="one" href="Text/one.xhtml" media-type="application/xhtml+xml"/><item id="two" href="Text/two.xhtml" media-type="application/xhtml+xml"/><item id="nav" href="toc.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="cover" href="Images/pixel.png" media-type="image/png" properties="cover-image"/></manifest><spine><itemref idref="two"/><itemref idref="one"/></spine></package>"#;
         let nav = r#"<html xmlns:epub="urn:epub"><body><nav epub:type="toc"><ol><li><a href="Text/two.xhtml#start">First chapter</a><ol><li><a href="Text/one.xhtml">Second chapter</a></li></ol></li></ol></nav></body></html>"#;
-        let body = r#"<!DOCTYPE html><html><head><script>bad()</script></head><body><h1 id="start">First&nbsp;chapter</h1><p>Reading text.</p><img src="../Images/pixel.png"/><img src="https://example.com/tracker.png"/><script>bad()</script><iframe src="file:///private/data"/><a href="one.xhtml">Continue</a></body></html>"#;
+        let body = r#"<!DOCTYPE html><html><head><script>bad()</script></head><body><h1 id="start">First&nbsp;chapter</h1><p style="color:black;background:white">Reading text. <mark color="white">highlight</mark></p><img src="../Images/pixel.png"/><img src="https://example.com/tracker.png"/><script>bad()</script><iframe src="file:///private/data"/><a href="one.xhtml">Continue</a></body></html>"#;
         zip(
             &path,
             vec![
@@ -1224,6 +1230,12 @@ mod tests {
         assert_eq!(book.toc[1].depth, 1);
         let content = chapter(&book, 0).unwrap();
         assert!(content.html.contains("Reading text."));
+        assert!(!content.html.contains("background:white"));
+        assert!(
+            content
+                .html
+                .contains(r##"<mark color="#ffffff40">highlight</mark>"##)
+        );
         assert!(!content.html.contains("bad()") && !content.html.contains("iframe"));
         assert!(!content.images["../Images/pixel.png"].is_empty());
         assert!(content.images["https://example.com/tracker.png"].is_empty());

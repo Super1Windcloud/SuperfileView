@@ -7,8 +7,10 @@ use gpui_kit::{
     *,
 };
 use std::{path::Path, sync::Arc};
+use superfile_core::reader_palette::ReaderPalette;
 use superfile_services::documents::{ReadFailure, ReadFailureKind};
 use superfile_services::limits as reader_limits;
+use superfile_services::media::GeneratedScene;
 
 pub(super) struct ImageReader {
     dimensions: Option<(f64, f64)>,
@@ -17,10 +19,16 @@ pub(super) struct ImageReader {
     _subscriptions: Vec<Subscription>,
 }
 impl ImageReader {
-    pub fn new(pages: Vec<Vec<u8>>, dimensions: Option<(f64, f64)>, cx: &mut App) -> Self {
+    pub fn new(
+        pages: Vec<Vec<u8>>,
+        scenes: Vec<GeneratedScene>,
+        dimensions: Option<(f64, f64)>,
+        cx: &mut App,
+    ) -> Self {
+        let mut scenes = scenes.into_iter();
         let pages: Vec<_> = pages
             .into_iter()
-            .map(|bytes| cx.new(|cx| PreparedImage::new(bytes, cx)))
+            .map(|bytes| cx.new(|cx| PreparedImage::with_scene(bytes, scenes.next(), cx)))
             .collect();
         let subscriptions = pages
             .iter()
@@ -150,6 +158,8 @@ fn release_image(frame: ManagedFrame, cx: &mut App) {
 
 /// Encoded preview data and its on-demand raster have the same reader owner.
 pub(super) struct PreparedImage {
+    scene: Option<Arc<GeneratedScene>>,
+    palette: Option<ReaderPalette>,
     encoded: Arc<Image>,
     encoded_memory: superfile_services::resources::ResourceLease,
     frame: Option<ManagedFrame>,
@@ -158,12 +168,18 @@ pub(super) struct PreparedImage {
 }
 impl PreparedImage {
     pub fn new(bytes: Vec<u8>, cx: &mut Context<Self>) -> Self {
+        Self::with_scene(bytes, None, cx)
+    }
+    fn with_scene(bytes: Vec<u8>, scene: Option<GeneratedScene>, cx: &mut Context<Self>) -> Self {
         cx.on_release(|view, cx| view.suspend(cx)).detach();
         Self {
             encoded_memory: superfile_services::resources::pool().track(
-                bytes.capacity() as u64,
+                (bytes.capacity() + scene.as_ref().map_or(0, GeneratedScene::retained_bytes))
+                    as u64,
                 superfile_services::resources::ResourceClass::Working,
             ),
+            scene: scene.map(Arc::new),
+            palette: None,
             encoded: Arc::new(Image::from_bytes(ImageFormat::Png, bytes)),
             frame: None,
             task: None,
@@ -196,9 +212,15 @@ impl PreparedImage {
         }
     }
     fn request(&mut self, cx: &mut Context<Self>) {
+        let palette = self.scene.as_ref().map(|_| super::reader_palette(cx));
+        if self.palette != palette {
+            self.suspend(cx);
+            self.palette = palette;
+        }
         if self.frame.is_some() || self.task.is_some() || self.error.is_some() {
             return;
         }
+        let scene = self.scene.clone();
         let encoded = self.encoded.clone();
         let input_memory = self.encoded_memory.clone();
         let (cancel, guard) = superfile_services::work::Cancellation::task();
@@ -209,8 +231,18 @@ impl PreparedImage {
             cancel,
             move |cancel| {
                 let _input_memory = input_memory;
-                superfile_services::media::decode_png(encoded.bytes(), cancel)
-                    .map(ManagedFrame::new)
+                if let Some(scene) = scene {
+                    let svg = scene.xml(cancel)?;
+                    let (png, _) = superfile_services::media::raster_scene(
+                        &svg,
+                        palette,
+                        reader_limits::IMAGE_DECODED_BYTES,
+                    )?;
+                    superfile_services::media::decode_png(&png, cancel).map(ManagedFrame::new)
+                } else {
+                    superfile_services::media::decode_png(encoded.bytes(), cancel)
+                        .map(ManagedFrame::new)
+                }
             },
         );
         self.task = Some(cx.spawn(async move |view, cx| {
@@ -326,6 +358,9 @@ impl InlineImageReader {
                     .and_then(|path| std::fs::metadata(path).ok())
                     .map(|m| (m.len(), m.modified().ok()));
                 let frame = match url.scheme() {
+                    "data" => {
+                        superfile_services::inline_images::from_data_uri(url.as_str(), cancel)
+                    }
                     "file" => superfile_services::inline_images::from_file_cancellable(
                         &url.to_file_path()
                             .map_err(|_| anyhow::anyhow!("Invalid inline image path"))?,

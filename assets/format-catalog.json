@@ -77,9 +77,6 @@
         "bz2",
         "xz",
         "epub",
-        "odt",
-        "ods",
-        "odp",
         "npy"
       ]
     },
@@ -128,6 +125,9 @@
       "suffixes": [
         "doc",
         "docx",
+        "odt",
+        "odp",
+        "ods",
         "xls",
         "xlsx",
         "xlsm",
@@ -188,6 +188,7 @@
     },
     "ConvertedMarkup": {
       "suffixes": [
+        "ipynb",
         "vega.json",
         "adoc",
         "org",

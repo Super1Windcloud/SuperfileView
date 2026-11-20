@@ -1,14 +1,10 @@
 //! Local draw.io XML decoding and basic SVG/raster rendering; no scripts or remote resources.
+use crate::media::raster_scene;
 use crate::{limits, media::ImageDocument, work::Cancellation};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Result, ensure};
 use base64::Engine;
 use roxmltree::Node;
-use std::{
-    collections::HashMap,
-    io::Read,
-    path::Path,
-    sync::{Arc, OnceLock},
-};
+use std::{collections::HashMap, io::Read, path::Path};
 
 type Point = (f64, f64);
 #[derive(Clone, Copy)]
@@ -159,13 +155,18 @@ fn text_svg(cell: &Cell<'_>, rect: Rect, value: &str, edge: bool) -> String {
         }
     };
     let color = escape(style(cell, "fontColor", "#000000"));
+    // Keep authored shape/text pairs together (a black label on a yellow shape
+    // must remain readable). Default neutral shapes follow the reader palette.
+    let follows_theme = style(cell, "fontColor", "#000000").eq_ignore_ascii_case("#000000")
+        && (edge || style(cell, "fillColor", "#ffffff").eq_ignore_ascii_case("#ffffff"));
+    let role = if follows_theme { "ink" } else { "" };
     let weight = if numeric(cell, "fontStyle", 0.) as u32 & 1 != 0 {
         "bold"
     } else {
         "normal"
     };
     format!(
-        "<text fill=\"{color}\" font-family=\"sans-serif\" font-size=\"{font}\" font-weight=\"{weight}\" text-anchor=\"{anchor}\">{}</text>",
+        "<text class=\"{role}\" fill=\"{color}\" font-family=\"sans-serif\" font-size=\"{font}\" font-weight=\"{weight}\" text-anchor=\"{anchor}\">{}</text>",
         lines
             .iter()
             .enumerate()
@@ -245,6 +246,17 @@ fn svg(model: Node<'_, '_>, cancel: &Cancellation) -> Result<String> {
         let rect = rects[index];
         let stroke = escape(style(cell, "strokeColor", "#000000"));
         let fill = escape(style(cell, "fillColor", "#ffffff"));
+        let stroke_role = if stroke.eq_ignore_ascii_case("#000000") {
+            "outline"
+        } else {
+            ""
+        };
+        let fill_role = if fill.eq_ignore_ascii_case("#ffffff") {
+            "surface"
+        } else {
+            ""
+        };
+        let arrow_role = if !stroke_role.is_empty() { "ink" } else { "" };
         let width = numeric(cell, "strokeWidth", 1.).max(0.);
         let dash = if style(cell, "dashed", "0") == "1" {
             "stroke-dasharray=\"6 4\""
@@ -300,7 +312,7 @@ fn svg(model: Node<'_, '_>, cancel: &Cancellation) -> Result<String> {
                 maxx = maxx.max(x);
                 maxy = maxy.max(y);
             }
-            body.push_str(&format!("<polyline points=\"{}\" fill=\"none\" stroke=\"{stroke}\" stroke-width=\"{width}\" {dash}/>",points.iter().map(|(x,y)|format!("{x},{y}")).collect::<Vec<_>>().join(" ")));
+            body.push_str(&format!("<polyline class=\"{stroke_role}\" points=\"{}\" fill=\"none\" stroke=\"{stroke}\" stroke-width=\"{width}\" {dash}/>",points.iter().map(|(x,y)|format!("{x},{y}")).collect::<Vec<_>>().join(" ")));
             for (arrow, tip, previous) in [
                 (
                     style(cell, "endArrow", "classic"),
@@ -316,7 +328,7 @@ fn svg(model: Node<'_, '_>, cancel: &Cancellation) -> Result<String> {
                 let size = 8.;
                 if arrow == "oval" {
                     body.push_str(&format!(
-                        "<circle cx=\"{}\" cy=\"{}\" r=\"3\" fill=\"{stroke}\"/>",
+                        "<circle class=\"{arrow_role}\" cx=\"{}\" cy=\"{}\" r=\"3\" fill=\"{stroke}\"/>",
                         tip.0, tip.1
                     ));
                     continue;
@@ -329,8 +341,9 @@ fn svg(model: Node<'_, '_>, cancel: &Cancellation) -> Result<String> {
                     tip.0 - size * (angle + 0.45).cos(),
                     tip.1 - size * (angle + 0.45).sin(),
                 );
+                let filled = if arrow == "open" { "" } else { arrow_role };
                 body.push_str(&format!(
-                    "<path d=\"M {},{} L {},{} L {},{}\" stroke=\"{stroke}\" fill=\"{}\"/>",
+                    "<path class=\"{stroke_role} {filled}\" d=\"M {},{} L {},{} L {},{}\" stroke=\"{stroke}\" fill=\"{}\"/>",
                     p1.0,
                     p1.1,
                     tip.0,
@@ -406,7 +419,7 @@ fn svg(model: Node<'_, '_>, cancel: &Cancellation) -> Result<String> {
                     }
                 )
             };
-            body.push_str(&format!("<g stroke=\"{stroke}\" fill=\"{fill}\" stroke-width=\"{width}\" {dash}>{drawing}</g>"));
+            body.push_str(&format!("<g class=\"{stroke_role} {fill_role}\" stroke=\"{stroke}\" fill=\"{fill}\" stroke-width=\"{width}\" {dash}>{drawing}</g>"));
             body.push_str(&text_svg(cell, label_rect, &label(cell), false));
         }
     }
@@ -417,42 +430,12 @@ fn svg(model: Node<'_, '_>, cancel: &Cancellation) -> Result<String> {
         "Invalid draw.io bounds"
     );
     Ok(format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"{} {} {width} {height}\"><rect x=\"{}\" y=\"{}\" width=\"{width}\" height=\"{height}\" fill=\"white\"/>{body}</svg>",
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"{} {} {width} {height}\"><rect x=\"{}\" y=\"{}\" width=\"{width}\" height=\"{height}\" class=\"paper\" fill=\"white\"/>{body}</svg>",
         minx - 32.,
         miny - 32.,
         minx - 32.,
         miny - 32.
     ))
-}
-fn raster(svg: &str, remaining: u64) -> Result<(Vec<u8>, u64)> {
-    static FONTS: OnceLock<Arc<resvg::usvg::fontdb::Database>> = OnceLock::new();
-    let fonts = FONTS.get_or_init(|| {
-        let mut db = resvg::usvg::fontdb::Database::new();
-        db.load_system_fonts();
-        Arc::new(db)
-    });
-    let options = resvg::usvg::Options {
-        fontdb: fonts.clone(),
-        ..Default::default()
-    };
-    let tree = resvg::usvg::Tree::from_str(svg, &options)?;
-    let size = tree.size();
-    let scale = (limits::IMAGE_PREVIEW_EDGE as f32 / size.width().max(size.height())).min(1.);
-    let width = (size.width() * scale).ceil().max(1.) as u32;
-    let height = (size.height() * scale).ceil().max(1.) as u32;
-    let decoded = u64::from(width) * u64::from(height) * 4;
-    ensure!(
-        decoded <= remaining,
-        "Draw.io pages exceed decoded image budget"
-    );
-    let mut pixmap =
-        resvg::tiny_skia::Pixmap::new(width, height).context("Cannot allocate draw.io preview")?;
-    resvg::render(
-        &tree,
-        resvg::tiny_skia::Transform::from_scale(scale, scale),
-        &mut pixmap.as_mut(),
-    );
-    Ok((pixmap.encode_png()?, decoded))
 }
 pub fn read(path: &Path, cancel: &Cancellation) -> Result<ImageDocument> {
     let mut source = String::new();
@@ -469,6 +452,8 @@ pub fn read(path: &Path, cancel: &Cancellation) -> Result<ImageDocument> {
     let document = roxmltree::Document::parse(&source)?;
     let root = document.root_element();
     let mut pages = Vec::new();
+    let mut scenes = Vec::new();
+    let mut scene_budget = limits::DRAWIO_XML_BYTES;
     let mut memory = 0_u64;
     let mut decoded_memory = 0_u64;
     let models = if root.has_tag_name("mxGraphModel") {
@@ -494,8 +479,9 @@ pub fn read(path: &Path, cancel: &Cancellation) -> Result<ImageDocument> {
         };
         let output = svg(model, cancel)?;
         cancel.check()?;
-        let (png, decoded) = raster(
+        let (png, decoded) = raster_scene(
             &output,
+            None,
             limits::IMAGE_DECODED_BYTES.saturating_sub(decoded_memory),
         )?;
         decoded_memory += decoded;
@@ -506,12 +492,18 @@ pub fn read(path: &Path, cancel: &Cancellation) -> Result<ImageDocument> {
             "Draw.io pages exceed preview memory budget"
         );
         pages.push(png);
+        scenes.push(crate::media::GeneratedScene::retain(
+            output,
+            &mut scene_budget,
+            cancel,
+        )?);
     }
     let stamp = std::fs::metadata(path)?;
     Ok(ImageDocument {
         path: path.to_path_buf(),
         png: Vec::new(),
         pages,
+        scenes,
         gif: false,
         dimensions: None,
         fingerprint: format!("drawio:{}:{:?}", stamp.len(), stamp.modified().ok()),

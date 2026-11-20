@@ -1,5 +1,6 @@
 //! Stream XLSX/XLSM cells into a disk-backed index.
 //! Stored formula results are displayed without evaluating workbook code.
+mod legacy;
 mod pages;
 use crate::{limits, work::Cancellation};
 use anyhow::{Context, Result, ensure};
@@ -15,12 +16,18 @@ use std::{
 pub fn supports(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "xls" | "xlsx" | "xlsm"))
+        .is_some_and(|ext| {
+            matches!(
+                ext.to_ascii_lowercase().as_str(),
+                "xls" | "xlsx" | "xlsm" | "ods"
+            )
+        })
 }
 
 pub struct Spreadsheet {
     pub database: PathBuf,
-    pub cache: PathBuf,
+    /// OOXML style/source index for layout export, when supplied by the format.
+    pub cache: Option<PathBuf>,
     pub information: String,
     pub worksheets: usize,
     _directory: tempfile::TempDir,
@@ -95,13 +102,19 @@ pub fn prepare(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadsheet>
     match prepare_index(path, cancel) {
         Err(error) => {
             cancel.check()?;
-            log::warn!("XLSX index unavailable; using native preview: {error:#}");
+            log::warn!("Spreadsheet index unavailable: {error:#}");
             Ok(None)
         }
         result => result,
     }
 }
 fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadsheet>> {
+    if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("xls") || e.eq_ignore_ascii_case("ods"))
+    {
+        return legacy::prepare(path, cancel).map(Some);
+    }
     if !path.extension().is_some_and(|extension| {
         extension.eq_ignore_ascii_case("xlsx") || extension.eq_ignore_ascii_case("xlsm")
     }) {
@@ -221,19 +234,7 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
             &cache,
             cancel,
         )?;
-        let table = format!("{id}: {name}");
-        let quoted = format!("\"{}\"", table.replace('"', "\"\""));
-        let fields = [
-            crate::locale::tr("Cell"),
-            crate::locale::tr("Value"),
-            crate::locale::tr("Formula"),
-        ]
-        .into_iter()
-        .map(|name| format!("\"{}\" TEXT", name.replace('"', "\"\"")))
-        .collect::<Vec<_>>()
-        .join(",");
-        output.execute_batch(&format!("CREATE TABLE {quoted} ({fields})"))?;
-        let mut insert = output.prepare(&format!("INSERT INTO {quoted} VALUES (?1,?2,?3)"))?;
+        let mut insert = worksheet_insert(&output, id, &name)?;
         let (mut cell, mut kind, mut value, mut formula, mut field) = (
             String::new(),
             String::new(),
@@ -323,7 +324,7 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
     );
     Ok(Some(Spreadsheet {
         database,
-        cache: cache_path,
+        cache: Some(cache_path),
         worksheets: count,
         information: crate::locale::tr(
             "Read-only worksheet cells · Saved formula results · Select a worksheet, page through cells, or double-click a value to read it in full.",
@@ -332,7 +333,27 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
     }))
 }
 
-fn cell_address(explicit: &str, row: u64, column: &mut u64) -> String {
+fn worksheet_insert<'a>(
+    output: &'a Connection,
+    id: i64,
+    name: &str,
+) -> Result<rusqlite::Statement<'a>> {
+    let table = format!("{id}: {name}");
+    let quoted = format!("\"{}\"", table.replace('"', "\"\""));
+    let fields = [
+        crate::locale::tr("Cell"),
+        crate::locale::tr("Value"),
+        crate::locale::tr("Formula"),
+    ]
+    .into_iter()
+    .map(|name| format!("\"{}\" TEXT", name.replace('"', "\"\"")))
+    .collect::<Vec<_>>()
+    .join(",");
+    output.execute_batch(&format!("CREATE TABLE {quoted} ({fields})"))?;
+    Ok(output.prepare(&format!("INSERT INTO {quoted} VALUES (?1,?2,?3)"))?)
+}
+
+pub(crate) fn cell_address(explicit: &str, row: u64, column: &mut u64) -> String {
     if !explicit.is_empty() {
         let index = explicit
             .bytes()

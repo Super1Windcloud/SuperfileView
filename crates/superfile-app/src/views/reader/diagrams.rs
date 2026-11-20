@@ -16,6 +16,7 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
+use superfile_core::reader_palette::ReaderPalette;
 use superfile_services::markdown_preview::{self, Diagram};
 
 #[derive(Clone)]
@@ -380,7 +381,8 @@ impl PreviewCache {
 
 /// Parser nodes retain identities; visible blocks request mutable render resources.
 pub(super) struct DiagramPreview {
-    pub extensions: MarkdownExtensions,
+    extensions: MarkdownExtensions,
+    palette: ReaderPalette,
     snapshot: Snapshot,
     task: Option<Task<()>>,
     cancelled: Arc<AtomicBool>,
@@ -389,19 +391,29 @@ pub(super) struct DiagramPreview {
 impl DiagramPreview {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let snapshot = Arc::new(Mutex::new(PreviewStore::default()));
+        let palette = super::reader_palette(cx);
         Self {
-            extensions: extensions(snapshot.clone(), cx.entity().downgrade()),
+            extensions: extensions(snapshot.clone(), cx.entity().downgrade(), palette),
+            palette,
             snapshot,
             task: None,
             cancelled: Arc::new(AtomicBool::new(false)),
             active: false,
         }
     }
+    pub fn extensions(&mut self, cx: &mut Context<Self>) -> MarkdownExtensions {
+        let palette = super::reader_palette(cx);
+        if self.palette != palette {
+            self.palette = palette;
+            self.reset(cx);
+        }
+        self.extensions.clone()
+    }
     pub fn reset(&mut self, cx: &mut Context<Self>) {
         self.cancelled.store(true, Ordering::Relaxed);
         self.task = None;
         self.snapshot = Arc::new(Mutex::new(PreviewStore::default()));
-        self.extensions = extensions(self.snapshot.clone(), cx.entity().downgrade());
+        self.extensions = extensions(self.snapshot.clone(), cx.entity().downgrade(), self.palette);
         if self.active {
             self.start(cx);
         }
@@ -514,22 +526,29 @@ impl Drop for DiagramPreview {
     }
 }
 
-fn extensions(snapshot: Snapshot, owner: WeakEntity<DiagramPreview>) -> MarkdownExtensions {
+fn extensions(
+    snapshot: Snapshot,
+    owner: WeakEntity<DiagramPreview>,
+    palette: ReaderPalette,
+) -> MarkdownExtensions {
     MarkdownExtensions::default()
         .frontmatter()
         .parser_revision(REVISION.fetch_add(1, Ordering::Relaxed))
         .plugin(DiagramPlugin {
+            palette,
             snapshot: snapshot.clone(),
             owner: owner.clone(),
             block: true,
         })
         .plugin(DiagramPlugin {
+            palette,
             snapshot,
             owner,
             block: false,
         })
 }
 struct DiagramPlugin {
+    palette: ReaderPalette,
     snapshot: Snapshot,
     owner: WeakEntity<DiagramPreview>,
     block: bool,
@@ -570,7 +589,8 @@ impl MarkdownPlugin for DiagramPlugin {
         if inline == self.block {
             return None;
         }
-        let diagram = markdown_preview::from_node_with_source(node, cx.node_source(node))?;
+        let mut diagram = markdown_preview::from_node_with_source(node, cx.node_source(node))?;
+        diagram.palette = Some(self.palette);
         let source = cx.node_source(node).unwrap_or(&diagram.source).to_owned();
         Some(
             MarkdownNode::new(

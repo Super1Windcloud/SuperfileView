@@ -41,7 +41,12 @@ pub(super) struct SqliteReader {
 }
 impl SqliteReader {
     pub fn new(path: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self::with_scheduler(path, Scheduler::global().clone(), window, cx)
+        Self::with_scheduler(
+            path,
+            crate::app::reader_jobs::shared_scheduler(),
+            window,
+            cx,
+        )
     }
     fn with_scheduler(
         path: PathBuf,

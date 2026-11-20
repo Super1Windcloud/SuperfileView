@@ -1,6 +1,7 @@
 //! Blocking I/O services. Call from a background executor once the UI is running.
 
 pub mod archive;
+pub mod audio;
 pub mod binary;
 pub mod csv;
 pub mod diagnostics;
@@ -20,6 +21,7 @@ pub mod json;
 pub mod limits;
 pub mod locale;
 pub mod markdown_preview;
+pub mod markup_highlights;
 pub mod markup_images;
 mod matroska;
 pub mod media;
@@ -62,3 +64,5 @@ pub mod openapi;
 pub mod opml;
 
 pub mod plist;
+
+pub mod vega;

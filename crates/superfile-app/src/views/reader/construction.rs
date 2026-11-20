@@ -142,13 +142,19 @@ impl Reader {
             document: DocumentSession::new(path.clone(), ContentSnapshot::Untracked),
             structured_controls: None,
             projection: None,
-            renderer: Renderer::entity(cx.new(|cx| {
-                if autoplay {
-                    document::DocumentReader::new(path, folder, shuffle, cx)
-                } else {
-                    document::DocumentReader::new_paused(path, folder, shuffle, cx)
-                }
-            })),
+            renderer: if folder || superfile_services::preview::is_media(&path) {
+                Renderer::entity(
+                    cx.new(|cx| audio::AudioReader::new(path, folder, shuffle, autoplay, cx)),
+                )
+            } else {
+                Renderer::entity(cx.new(|cx| {
+                    if autoplay {
+                        document::DocumentReader::new(path, folder, shuffle, cx)
+                    } else {
+                        document::DocumentReader::new_paused(path, folder, shuffle, cx)
+                    }
+                }))
+            },
         }
     }
     pub fn from_page(
@@ -232,7 +238,12 @@ impl Reader {
             } else {
                 document.pages
             };
-            Renderer::surface(ImageReader::new(pages, document.dimensions, cx))
+            Renderer::surface(ImageReader::new(
+                pages,
+                document.scenes,
+                document.dimensions,
+                cx,
+            ))
         };
         Self {
             active: std::cell::Cell::new(None),

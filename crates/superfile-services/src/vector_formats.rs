@@ -26,7 +26,7 @@ pub fn read_preview(path: &Path) -> Result<ImageDocument> {
         mesh(&bytes, &ext)?
     };
     let svg = format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"900\" height=\"700\" viewBox=\"0 0 900 700\"><rect width=\"900\" height=\"700\" fill=\"#f5f7fb\"/>{body}</svg>"
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"900\" height=\"700\" viewBox=\"0 0 900 700\"><rect width=\"900\" height=\"700\" class=\"paper\" fill=\"#f5f7fb\"/>{body}</svg>"
     );
     let tree = resvg::usvg::Tree::from_str(&svg, &resvg::usvg::Options::default())?;
     let mut pixmap = resvg::tiny_skia::Pixmap::new(900, 700).context("Invalid preview size")?;
@@ -45,6 +45,7 @@ pub fn read_preview(path: &Path) -> Result<ImageDocument> {
         gif: false,
         dimensions: None,
         pages: Vec::new(),
+        scenes: vec![crate::media::GeneratedScene::Inline(svg)],
     })
 }
 fn mesh(bytes: &[u8], ext: &str) -> Result<String> {
@@ -163,7 +164,7 @@ fn mesh(bytes: &[u8], ext: &str) -> Result<String> {
         }
         write!(
             body,
-            "<polygon points=\"{points}\" fill=\"#5288c855\" stroke=\"#235a9c\" stroke-width=\"2\"/>"
+            "<polygon points=\"{points}\" class=\"mesh\" fill=\"#5288c855\" stroke=\"#235a9c\" stroke-width=\"2\"/>"
         )?;
         reader_limits::preview_budget(
             body.len() as u64 <= reader_limits::IO_CACHE_BYTES,
@@ -244,7 +245,7 @@ fn font(text: &str) -> Result<String> {
                 if (digit >> (3 - col % 4)) & 1 == 1 {
                     write!(
                         body,
-                        "<rect x=\"{}\" y=\"{}\" width=\"{pixel}\" height=\"{pixel}\" fill=\"#235a9c\"/>",
+                        "<rect x=\"{}\" y=\"{}\" width=\"{pixel}\" height=\"{pixel}\" class=\"ink\" fill=\"#235a9c\"/>",
                         20 + (glyph % 8) * 110 + col * pixel,
                         20 + (glyph / 8) * 80 + row * pixel
                     )?;

@@ -131,3 +131,58 @@ fn optional_exploration_corpus_is_read_without_mutation() {
     visit(std::path::Path::new(&root), &mut count);
     assert_eq!(count, 35);
 }
+
+#[test]
+fn document_projection_retains_content_and_keeps_static_notebook_outputs() {
+    use std::path::Path;
+    let adoc = text_formats::project(
+        Path::new("demo.adoc"),
+        "= Example\n\n*strong* and _emphasis_",
+    );
+    assert!(adoc.contains("<strong>strong</strong>") && adoc.contains("<em>emphasis</em>"));
+    let org = text_formats::project(Path::new("demo.org"), "* Heading\n\n*bold*");
+    assert!(
+        org.contains("Heading")
+            && (org.contains("<b>bold</b>") || org.contains("<strong>bold</strong>"))
+    );
+    let cells = serde_json::json!({"metadata":{"language_info":{"name":"python"}},"cells":[{"cell_type":"markdown","source":["# Heading"]},{"cell_type":"code","source":["print(1)"],"outputs":[{"text":["1\n"]},{"data":{"text/html":"<script>unexpected()</script>","text/plain":"plain"}},{"data":{"image/png":"AA=="}}]}]});
+    let notebook = text_formats::project(Path::new("demo.ipynb"), &cells.to_string());
+    for part in [
+        "# Heading",
+        "\x60\x60\x60python",
+        "print(1)",
+        "plain",
+        "data:image/png;base64,AA==",
+    ] {
+        assert!(notebook.contains(part), "{part}");
+    }
+    assert!(!notebook.contains("<script>"));
+    for (path, source) in [
+        ("demo.srt", "1\n00:00:01,000 --> 00:00:02,000\ncaption\n\n"),
+        (
+            "demo.vtt",
+            "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\ncaption\n\n",
+        ),
+    ] {
+        let projected = text_formats::project(Path::new(path), source);
+        assert!(projected.contains("caption") && projected.contains("00:00:02"));
+    }
+}
+
+#[test]
+fn numpy_big_endian_signed_values() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("big.npy");
+    let header = "{'descr': '>i2', 'fortran_order': False, 'shape': (2,), }\n";
+    let mut file = b"\x93NUMPY\x01\x00".to_vec();
+    file.extend_from_slice(&(header.len() as u16).to_le_bytes());
+    file.extend_from_slice(header.as_bytes());
+    file.extend_from_slice(&(-235_i16).to_be_bytes());
+    file.extend_from_slice(&372_i16.to_be_bytes());
+    std::fs::write(&path, file).unwrap();
+    let result = formats::read_preview(&path).unwrap().text;
+    assert!(
+        result.contains("-235") && result.contains("372"),
+        "{result}"
+    );
+}

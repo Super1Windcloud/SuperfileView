@@ -4,6 +4,19 @@ use std::sync::Arc;
 pub(crate) use superfile_services::work::scheduler::{JobClass, Priority};
 use superfile_services::work::{Cancellation, scheduler::Scheduler};
 
+#[cfg(not(test))]
+pub(crate) fn shared_scheduler() -> Arc<Scheduler> {
+    Scheduler::global().clone()
+}
+
+#[cfg(test)]
+pub(crate) fn shared_scheduler() -> Arc<Scheduler> {
+    // Each GPUI test drives a thread-affine executor; waking another test's
+    // waiter on this thread violates its deterministic scheduling contract.
+    thread_local! { static SCHEDULER: Arc<Scheduler> = Scheduler::from_policy(); }
+    SCHEDULER.with(Arc::clone)
+}
+
 pub(crate) async fn run<T: Send + 'static>(
     executor: BackgroundExecutor,
     class: JobClass,
@@ -11,15 +24,7 @@ pub(crate) async fn run<T: Send + 'static>(
     cancel: Cancellation,
     work: impl FnOnce(&Cancellation) -> anyhow::Result<T> + Send + 'static,
 ) -> anyhow::Result<T> {
-    run_with_scheduler(
-        executor,
-        Scheduler::global().clone(),
-        class,
-        priority,
-        cancel,
-        work,
-    )
-    .await
+    run_with_scheduler(executor, shared_scheduler(), class, priority, cancel, work).await
 }
 
 pub(crate) async fn run_with_scheduler<T: Send + 'static>(

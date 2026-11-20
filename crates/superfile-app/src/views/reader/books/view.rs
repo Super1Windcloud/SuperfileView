@@ -304,15 +304,15 @@ impl Render for BookView {
         let base_size = self.state.font_size;
         let font = (self.host.font_size)(px(base_size), cx);
         let paper = if self.state.paper {
-            cx.theme()
-                .background
-                .blend(
-                    cx.theme()
-                        .yellow
-                        .opacity(if cx.theme().is_dark() { 0.06 } else { 0.12 }),
-                )
+            super::super::editor_paper(cx).blend(cx.theme().yellow.opacity(
+                if super::super::reader_palette(cx).is_dark() {
+                    0.06
+                } else {
+                    0.12
+                },
+            ))
         } else {
-            cx.theme().background
+            super::super::editor_paper(cx)
         };
         let marked = self.state.bookmarks.iter().any(|b| {
             b.chapter == self.state.chapter && (b.fraction - self.state.fraction).abs() < 0.02
@@ -356,8 +356,8 @@ impl Render for BookView {
                 .text_size(font)
                 .line_height(relative(self.state.line_height))
                 .style(super::super::scaled_rich_text_style(
-                    TextViewStyle::default()
-                        .with_foreground(cx.theme().foreground)
+                    TextViewStyle::from_theme(&gpui_kit::base::Theme::global(cx))
+                        .with_foreground(super::super::editor_ink(cx))
                         .with_muted_foreground(cx.theme().muted_foreground)
                         .with_link(cx.theme().primary)
                         .with_selection(cx.theme().selection)
@@ -782,7 +782,7 @@ impl Render for BookView {
                                         div()
                                             .absolute()
                                             .size_full()
-                                            .bg(cx.theme().background)
+                                            .bg(super::super::editor_paper(cx))
                                             .child(page),
                                     )
                                 },

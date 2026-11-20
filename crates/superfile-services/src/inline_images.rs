@@ -41,7 +41,15 @@ pub(crate) fn thumbnail_with_dimensions(
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("icns"))
     {
-        let bytes = std::fs::read(path)?;
+        use std::io::Read;
+        let file = std::fs::File::open(path)?;
+        let len = file.metadata()?.len();
+        let required = len
+            .checked_mul(3)
+            .ok_or_else(|| anyhow::anyhow!("ICNS size overflow"))?;
+        let _working = crate::resources::pool().reserve_working(required, required)?;
+        let mut bytes = Vec::new();
+        file.take(len).read_to_end(&mut bytes)?;
         let png = extract_icns_png(&bytes)?;
         return thumbnail_png_from_bytes(&png, max_edge, cancel);
     }
@@ -86,6 +94,30 @@ pub(crate) fn thumbnail_with_dimensions(
     let image = reader.decode()?;
     cancel.check()?;
     encode_thumbnail(image, width, height, max_edge, cancel)
+}
+
+/// Decode only the static raster data URLs emitted by notebook outputs.
+pub fn from_data_uri(value: &str, cancel: &Cancellation) -> Result<crate::media::RasterFrame> {
+    use base64::Engine;
+    let (mime, data) = value
+        .split_once(',')
+        .ok_or_else(|| anyhow::anyhow!("Malformed inline image"))?;
+    let expected = match mime {
+        "data:image/png;base64" => image::ImageFormat::Png,
+        "data:image/jpeg;base64" => image::ImageFormat::Jpeg,
+        _ => anyhow::bail!("Unsupported embedded image encoding"),
+    };
+    let required = u64::try_from(data.len())?;
+    let _input = crate::resources::pool().reserve_working(required, required)?;
+    cancel.check()?;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data)?;
+    ensure!(
+        image::guess_format(&bytes)? == expected,
+        "Embedded image type mismatch"
+    );
+    let (png, _) =
+        thumbnail_png_from_bytes(&bytes, reader_limits::INLINE_IMAGE_PREVIEW_EDGE, cancel)?;
+    crate::media::decode_png(&png, cancel)
 }
 
 fn thumbnail_png_from_bytes(
@@ -143,7 +175,7 @@ fn extract_icns_png(bytes: &[u8]) -> Result<Vec<u8>> {
     let total_len = u32::from_be_bytes(bytes[4..8].try_into()?) as usize;
     ensure!(bytes.len() >= total_len, "Truncated ICNS file");
     let mut offset = 8;
-    let mut largest_png: Option<Vec<u8>> = None;
+    let mut largest_png: Option<&[u8]> = None;
     while offset + 8 <= total_len {
         let chunk_len = u32::from_be_bytes(bytes[offset + 4..offset + 8].try_into()?) as usize;
         ensure!(
@@ -154,14 +186,28 @@ fn extract_icns_png(bytes: &[u8]) -> Result<Vec<u8>> {
         if payload.starts_with(b"\x89PNG\r\n\x1a\n")
             && largest_png.as_ref().map_or(0, |p| p.len()) < payload.len()
         {
-            largest_png = Some(payload.to_vec());
+            largest_png = Some(payload);
         }
         offset += chunk_len;
     }
-    largest_png.ok_or_else(|| anyhow::anyhow!("No PNG icon found in ICNS"))
+    ensure!(offset == total_len, "Truncated ICNS chunk");
+    if let Some(png) = largest_png {
+        return Ok(png.to_vec());
+    }
+    let family = icns::IconFamily::read(&bytes[..total_len])?;
+    let mut icons = family.available_icons();
+    icons.sort_by_key(|icon| std::cmp::Reverse(icon.pixel_width() * icon.pixel_height()));
+    for icon in icons {
+        if let Ok(image) = family.get_icon_with_type(icon) {
+            let mut png = Vec::new();
+            image.write_png(&mut png)?;
+            return Ok(png);
+        }
+    }
+    anyhow::bail!("No decodable icon in ICNS")
 }
 
-fn svg_fontdb() -> &'static std::sync::Arc<resvg::usvg::fontdb::Database> {
+pub(crate) fn svg_fontdb() -> &'static std::sync::Arc<resvg::usvg::fontdb::Database> {
     static FONT_DB: std::sync::OnceLock<std::sync::Arc<resvg::usvg::fontdb::Database>> =
         std::sync::OnceLock::new();
     FONT_DB.get_or_init(|| {
@@ -174,6 +220,20 @@ fn svg_fontdb() -> &'static std::sync::Arc<resvg::usvg::fontdb::Database> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_icns_decodes_rgb_and_mask_without_a_png_chunk() -> Result<()> {
+        let mut family = icns::IconFamily::new();
+        let rgba = [27, 83, 115, 200].repeat(16 * 16);
+        let image = icns::Image::from_data(icns::PixelFormat::RGBA, 16, 16, rgba)?;
+        family.add_icon_with_type(&image, icns::IconType::RGB24_16x16)?;
+        let mut bytes = Vec::new();
+        family.write(&mut bytes)?;
+        let decoded = image::load_from_memory(&extract_icns_png(&bytes)?)?.into_rgba8();
+        assert_eq!(decoded.dimensions(), (16, 16));
+        assert_eq!(decoded.get_pixel(3, 7).0, [27, 83, 115, 200]);
+        Ok(())
+    }
 
     #[test]
     fn raster_metadata_is_not_parsed_as_xml() -> Result<()> {

@@ -2,7 +2,7 @@
 use crate::limits as reader_limits;
 mod raster;
 use anyhow::{Context, Result, ensure};
-pub use raster::{RasterFrame, decode_png};
+pub use raster::{RasterFrame, decode_png, raster_scene};
 use std::{
     io::{Cursor, Read},
     path::{Path, PathBuf},
@@ -11,6 +11,48 @@ use std::{
 // Two lookahead batches and the displayed frame, plus canvas and restore.
 const GIF_RESIDENT_BUFFERS: u64 = (2 * reader_limits::GIF_BATCH_FRAMES + 1 + 2) as u64;
 
+/// Generated SVG retained for live recoloring. Multipage documents spill excess
+/// templates to private temporary files so their original page limit still applies.
+pub enum GeneratedScene {
+    Inline(String),
+    Temporary(tempfile::TempPath),
+}
+
+impl GeneratedScene {
+    pub(crate) fn retain(
+        xml: String,
+        available: &mut usize,
+        cancel: &crate::work::Cancellation,
+    ) -> Result<Self> {
+        if let Some(remaining) = available.checked_sub(xml.capacity()) {
+            *available = remaining;
+            return Ok(Self::Inline(xml));
+        }
+        let mut scratch = tempfile::NamedTempFile::new()?;
+        cancel.copy(xml.as_bytes(), &mut scratch)?;
+        Ok(Self::Temporary(scratch.into_temp_path()))
+    }
+
+    pub fn retained_bytes(&self) -> usize {
+        match self {
+            Self::Inline(xml) => xml.capacity(),
+            Self::Temporary(_) => 0,
+        }
+    }
+
+    pub fn xml(&self, cancel: &crate::work::Cancellation) -> Result<std::borrow::Cow<'_, str>> {
+        cancel.check()?;
+        Ok(match self {
+            Self::Inline(xml) => std::borrow::Cow::Borrowed(xml),
+            Self::Temporary(path) => {
+                let mut bytes = Vec::new();
+                cancel.copy(std::fs::File::open(path)?, &mut bytes)?;
+                std::borrow::Cow::Owned(String::from_utf8(bytes)?)
+            }
+        })
+    }
+}
+
 pub struct ImageDocument {
     pub path: PathBuf,
     pub png: Vec<u8>,
@@ -18,6 +60,8 @@ pub struct ImageDocument {
     pub gif: bool,
     pub dimensions: Option<(f64, f64)>,
     pub pages: Vec<Vec<u8>>,
+    /// Locally generated vector scenes can be repainted when the editor palette changes.
+    pub scenes: Vec<GeneratedScene>,
 }
 pub fn supports(path: &Path) -> bool {
     superfile_core::formats::FormatSet::Image.matches(path)
@@ -36,6 +80,7 @@ pub fn read_image(path: &Path) -> Result<ImageDocument> {
             gif: true,
             dimensions: Some((dimensions.0.into(), dimensions.1.into())),
             pages: Vec::new(),
+            scenes: Vec::new(),
         });
     }
     let stamp = std::fs::metadata(path)?;
@@ -51,6 +96,7 @@ pub fn read_image(path: &Path) -> Result<ImageDocument> {
         gif: false,
         dimensions: Some(dimensions),
         pages: Vec::new(),
+        scenes: Vec::new(),
     })
 }
 
@@ -335,6 +381,25 @@ impl GifPlayback {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn generated_scenes_spill_to_disk_after_memory_budget() -> Result<()> {
+        let cancel = crate::work::Cancellation::default();
+        let first = "<svg/>".to_owned();
+        let mut budget = first.capacity();
+        let inline = GeneratedScene::retain(first, &mut budget, &cancel)?;
+        let spilled = GeneratedScene::retain("<svg/>".into(), &mut budget, &cancel)?;
+        assert!(matches!(inline, GeneratedScene::Inline(_)));
+        let GeneratedScene::Temporary(path) = &spilled else {
+            panic!("expected a private temporary file")
+        };
+        let path = path.to_path_buf();
+        assert_eq!(inline.xml(&cancel)?, spilled.xml(&cancel)?);
+        assert_eq!(spilled.retained_bytes(), 0);
+        drop(spilled);
+        assert!(!path.exists());
+        Ok(())
+    }
+
     fn gif_bytes(
         frames: &[(u16, Vec<u8>, gif::DisposalMethod)],
         repeat: gif::Repeat,

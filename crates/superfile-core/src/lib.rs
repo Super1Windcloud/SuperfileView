@@ -6,6 +6,7 @@ pub mod file_associations;
 pub mod formats;
 pub mod graph;
 pub mod outline;
+pub mod reader_palette;
 pub mod resources;
 pub mod session;
 pub mod structured;

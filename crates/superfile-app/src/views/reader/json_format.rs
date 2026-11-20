@@ -223,7 +223,7 @@ impl Render for JsonFormat {
             .track_focus(&focus)
             .absolute()
             .inset_0()
-            .bg(cx.theme().background)
+            .bg(super::editor_paper(cx))
             .child(match &self.graph {
                 Some(graph) => graph.clone().into_any_element(),
                 None if self.graph_task.is_some() => super::preview_loading(cx),

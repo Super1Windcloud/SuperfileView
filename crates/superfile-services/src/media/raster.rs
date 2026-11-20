@@ -3,8 +3,9 @@ use crate::{
     resources::{ResourcePool, WorkingReservation},
     work::Cancellation,
 };
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use std::{io::Cursor, ops::Deref};
+use superfile_core::reader_palette::ReaderPalette;
 
 pub struct RasterFrame {
     frame: image::Frame,
@@ -71,6 +72,43 @@ fn decode_png_with_pool(
     Ok(RasterFrame::new(image::Frame::new(image), memory))
 }
 
+pub fn raster_scene(
+    svg: &str,
+    palette: Option<ReaderPalette>,
+    remaining: u64,
+) -> Result<(Vec<u8>, u64)> {
+    let options = resvg::usvg::Options {
+        fontdb: crate::inline_images::svg_fontdb().clone(),
+        style_sheet: palette.map(|p| {
+            let paper = ReaderPalette::hex(p.paper);
+            let ink = ReaderPalette::hex(p.ink);
+            let surface = ReaderPalette::hex(p.surface);
+            let accent = ReaderPalette::hex(p.accent);
+            format!(".paper {{ fill: {paper} }} .ink {{ fill: {ink} }} .outline {{ stroke: {ink} }} .surface {{ fill: {surface} }} .mesh {{ fill: {accent}; fill-opacity: 0.33; stroke: {accent} }}")
+        }),
+        ..Default::default()
+    };
+    let tree = resvg::usvg::Tree::from_str(svg, &options)?;
+    let size = tree.size();
+    let scale =
+        (crate::limits::IMAGE_PREVIEW_EDGE as f32 / size.width().max(size.height())).min(1.);
+    let width = (size.width() * scale).ceil().max(1.) as u32;
+    let height = (size.height() * scale).ceil().max(1.) as u32;
+    let decoded = u64::from(width) * u64::from(height) * 4;
+    ensure!(
+        decoded <= remaining,
+        "Generated scene exceeds decoded image budget"
+    );
+    let _pixels = crate::resources::pool().reserve_working(decoded, decoded)?;
+    let mut pixmap =
+        resvg::tiny_skia::Pixmap::new(width, height).context("Cannot allocate scene preview")?;
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    Ok((pixmap.encode_png()?, decoded))
+}
 /// Preserve aspect ratio while fitting even a one-pixel-high panorama into the
 /// admitted pixel count. Rounding each dimension up to one must not exceed it.
 pub(super) fn fitted_dimensions(width: u32, height: u32, pixels: u64) -> (u32, u32) {
@@ -117,6 +155,28 @@ pub(super) fn sample_nearest(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generated_scene_uses_editor_colors_and_preserves_authored_colors() {
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="1">
+          <rect class="paper" width="4" height="1" fill="white"/>
+          <rect class="ink" width="1" height="1" fill="black"/>
+          <rect class="surface" x="1" width="1" height="1" fill="white"/>
+          <rect x="2" width="1" height="1" fill="#bb1133"/>
+        </svg>"##;
+        let colors = ReaderPalette {
+            paper: [20, 26, 33],
+            ink: [210, 215, 220],
+            surface: [40, 45, 50],
+            accent: [1, 2, 3],
+        };
+        let (bytes, _) = raster_scene(svg, Some(colors), 16).unwrap();
+        let image = image::load_from_memory(&bytes).unwrap().to_rgb8();
+        assert_eq!(image.get_pixel(0, 0).0, colors.ink);
+        assert_eq!(image.get_pixel(1, 0).0, colors.surface);
+        assert_eq!(image.get_pixel(2, 0).0, [0xbb, 0x11, 0x33]);
+        assert_eq!(image.get_pixel(3, 0).0, colors.paper);
+    }
 
     #[test]
     fn thin_images_fit_the_grant_without_zero_dimensions() {

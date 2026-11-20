@@ -13,7 +13,11 @@ pub enum Preview {
     Table,
     Image,
     Pdf,
+    Audio,
+    Video,
     OfficeText,
+    DocumentPages,
+    Font,
     Workbook,
     Book,
     MindMap,
@@ -43,7 +47,8 @@ pub struct FormatHelp {
 
 pub fn formats() -> Vec<FormatHelp> {
     let compound_archives = [
-        "tar.gz", "tar.bz2", "tar.xz", "tar.zst", "tar.zstd", "tar.lz4",
+        "tar.gz", "tar.bz2", "tar.xz", "tar.zst", "tar.zstd", "tar.lz4", "tar.lzma", "tar.lz",
+        "tar.z",
     ];
     let mut suffixes = CATALOG_SUFFIXES.to_vec();
     suffixes.extend(compound_archives);
@@ -122,8 +127,16 @@ fn capability(path: &Path) -> Option<(Preview, Editing)> {
         read_only(Preview::Pdf)
     } else if crate::rich_documents::is_workbook_extension(extension) {
         read_only(Preview::Workbook)
-    } else if crate::rich_documents::is_text_document_extension(extension) {
+    } else if crate::rich_documents::is_fixed_document_extension(extension) {
+        read_only(Preview::DocumentPages)
+    } else if FormatSet::NativeFont.matches(path) {
+        read_only(Preview::Font)
+    } else if matches!(extension, "doc" | "ppt" | "rtf") || FormatSet::Iwork.matches(path) {
         read_only(Preview::OfficeText)
+    } else if crate::audio::supports(path) {
+        read_only(Preview::Audio)
+    } else if crate::preview::is_media(path) {
+        read_only(Preview::Video)
     } else if crate::preview::supports(path) {
         // Recognition alone does not mean the portable reader can open it.
         None
@@ -155,20 +168,22 @@ mod tests {
             (".md", Preview::Markdown, Editing::Source),
             (".csv", Preview::Table, Editing::Source),
             (".rs", Preview::Text, Editing::Source),
+            (".mp4", Preview::Video, Editing::ReadOnly),
+            (".mp3", Preview::Audio, Editing::ReadOnly),
             (".pdf", Preview::Pdf, Editing::ReadOnly),
+            (".7z", Preview::Archive, Editing::ReadOnly),
             (".svg", Preview::Image, Editing::ReadOnly),
             (".fb2.zip", Preview::Book, Editing::ReadOnly),
             (".tar.gz", Preview::Archive, Editing::ReadOnly),
-            (".docx", Preview::OfficeText, Editing::ReadOnly),
-            (".ods", Preview::Container, Editing::ReadOnly),
+            (".docx", Preview::DocumentPages, Editing::ReadOnly),
+            (".ods", Preview::Workbook, Editing::ReadOnly),
+            (".doc", Preview::OfficeText, Editing::ReadOnly),
+            (".ttf", Preview::Font, Editing::ReadOnly),
             (".xlsx", Preview::Workbook, Editing::ReadOnly),
             (".plist", Preview::BinaryPlist, Editing::TextOnly),
         ] {
             let entry = entries.iter().find(|entry| entry.name == name).unwrap();
             assert_eq!((entry.preview, entry.editing), (preview, editing), "{name}");
-        }
-        for name in [".doc", ".7z", ".mp4", ".ttf"] {
-            assert!(!entries.iter().any(|entry| entry.name == name), "{name}");
         }
     }
 }

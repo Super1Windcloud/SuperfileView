@@ -4,6 +4,7 @@ mod askpass;
 mod assets;
 pub(crate) mod default_applications;
 pub(crate) mod diagram_engine;
+pub(crate) mod diagram_palette;
 pub(crate) mod document_session;
 pub(crate) mod edit_session;
 #[cfg(target_os = "macos")]

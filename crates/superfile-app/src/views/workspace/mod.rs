@@ -270,11 +270,8 @@ impl Workspace {
             .unwrap_or(true)
         });
         let mut workspace = Self {
-            file_statistics: cx.new(|_| {
-                FileStatistics::new(
-                    superfile_services::work::scheduler::Scheduler::global().clone(),
-                )
-            }),
+            file_statistics: cx
+                .new(|_| FileStatistics::new(crate::app::reader_jobs::shared_scheduler())),
             community_themes: cx
                 .new(|cx| super::community_themes::CommunityThemes::new(window, cx)),
             integrations: cx.new(|_| super::integrations::Integrations::default()),

@@ -102,7 +102,7 @@ jobs:
         if: runner.os == 'Linux' && (github.ref_type == 'tag' || steps.rust-cache.outputs.cache-hit != 'true')
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake pkg-config dpkg-dev libfontconfig-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libxcb-shape0-dev libxcb-xfixes0-dev libssl-dev libvulkan-dev
+          sudo apt-get install -y clang cmake pkg-config libasound2-dev dpkg-dev libfontconfig-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libxcb-shape0-dev libxcb-xfixes0-dev libssl-dev libvulkan-dev
       - name: Set application version from tag
         if: github.ref_type == 'tag'
         run: python scripts/package/release.py prepare "$RELEASE_TAG"

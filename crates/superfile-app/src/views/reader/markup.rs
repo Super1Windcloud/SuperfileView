@@ -23,6 +23,8 @@ pub(super) struct MarkupReader {
     preview_text: String,
     initial_preview: Option<String>,
     preview_generation: Rc<Cell<usize>>,
+    projection_result: Rc<std::cell::RefCell<Option<String>>>,
+    projection_task: Option<Task<()>>,
     format_path: Option<std::path::PathBuf>,
     _subscription: Subscription,
     reveal_pending: Rc<Cell<bool>>,
@@ -41,7 +43,9 @@ impl MarkupReader {
     ) -> Self {
         let scroll = ScrollHandle::new();
         use superfile_services::documents::presentation::MarkupFormat;
-        let html = format == MarkupFormat::Html;
+        let html = format == MarkupFormat::Html
+            || (format == MarkupFormat::Converted
+                && superfile_services::text_formats::renders_html(path));
         let preview = cx
             .try_global::<crate::app::ReaderPreferences>()
             .is_none_or(|preferences| {
@@ -52,13 +56,12 @@ impl MarkupReader {
                 }
             });
         let format_path = (format == MarkupFormat::Converted).then(|| path.to_path_buf());
-        let projected = format_path
-            .as_ref()
-            .map(|path| superfile_services::text_formats::markdown(path, text));
-        let preview_content = projected.as_deref().unwrap_or(text);
+        let preview_content = if format_path.is_some() { "" } else { text };
         let normalized = (!html)
             .then(|| superfile_services::markdown_preview::normalize_tables(preview_content));
         let preview_content = normalized.as_deref().unwrap_or(preview_content);
+        let (marked, _) = superfile_services::markup_highlights::preview(preview_content, html);
+        let preview_content = marked.as_ref();
         let state = cx.new(|cx| {
             if html {
                 TextViewState::html("", cx)
@@ -87,7 +90,7 @@ impl MarkupReader {
         let find = cx.new(|cx| {
             super::find::FindBar::new(super::find::Target::Preview(state.clone()), window, cx)
         });
-        Self {
+        let mut reader = Self {
             find,
             task_toggle: None,
             pictures,
@@ -116,8 +119,14 @@ impl MarkupReader {
             preview_text: text.to_owned(),
             initial_preview: Some(preview_content.to_owned()),
             preview_generation: Rc::new(Cell::new(0)),
+            projection_result: Rc::default(),
+            projection_task: None,
             format_path,
+        };
+        if reader.format_path.is_some() {
+            reader.project(text.to_owned(), cx);
         }
+        reader
     }
     pub fn refresh_dependencies(&mut self, cx: &mut App) {
         self.pictures
@@ -135,15 +144,54 @@ impl MarkupReader {
         self.initial_preview = None;
         self.preview_generation
             .set(self.preview_generation.get().wrapping_add(1));
-        let text = self
-            .format_path
-            .as_ref()
-            .map(|path| superfile_services::text_formats::markdown(path, &text))
-            .unwrap_or(text);
+        if self.format_path.is_some() {
+            self.project(text, cx);
+            return;
+        }
         let text = if self.html {
             text
         } else {
             superfile_services::markdown_preview::normalize_tables(&text).into_owned()
+        };
+        self.apply_text(text, cx);
+    }
+    fn project(&mut self, text: String, cx: &mut App) {
+        let Some(path) = self.format_path.clone() else {
+            return;
+        };
+        self.projection_result.borrow_mut().take();
+        let slot = self.projection_result.clone();
+        let html = self.html;
+        let (cancel, guard) = superfile_services::work::Cancellation::task();
+        use crate::app::reader_jobs::{self, JobClass, Priority};
+        let work = reader_jobs::run(
+            cx.background_executor().clone(),
+            JobClass::Projection,
+            Priority::Interactive,
+            cancel,
+            move |cancel| {
+                cancel.check()?;
+                let rendered = superfile_services::text_formats::project(&path, &text);
+                cancel.check()?;
+                Ok(if html {
+                    rendered
+                } else {
+                    superfile_services::markdown_preview::normalize_tables(&rendered).into_owned()
+                })
+            },
+        );
+        self.projection_task = Some(cx.spawn(async move |cx| {
+            let _guard = guard;
+            if let Ok(rendered) = work.await {
+                *slot.borrow_mut() = Some(rendered);
+                cx.update(|cx| cx.refresh_windows());
+            }
+        }));
+    }
+    fn apply_text(&mut self, text: String, cx: &mut App) {
+        let text = match superfile_services::markup_highlights::preview(&text, self.html).0 {
+            std::borrow::Cow::Borrowed(_) => text,
+            std::borrow::Cow::Owned(marked) => marked,
         };
         self.pending_scroll
             .get_or_insert_with(|| self.state.read(cx).list_state().logical_scroll_top());
@@ -186,10 +234,19 @@ impl MarkupReader {
         }
         let (projected, omitted) =
             superfile_services::markdown_preview::normalize_tables_with_mapping(&text);
+        let (projected, inserted) =
+            superfile_services::markup_highlights::preview(&projected, false);
         if self.state.read(cx).rendered_text().source() != projected.as_ref() {
             return false;
         }
         let mut offset = range.start;
+        for insert in inserted.iter().rev() {
+            if insert.end <= offset {
+                offset -= insert.len();
+            } else if insert.contains(&offset) {
+                return false;
+            }
+        }
         for gap in omitted {
             if gap.start <= offset {
                 offset += gap.len();
@@ -241,6 +298,16 @@ impl MarkupReader {
         self.set_images_active(self.preview, cx);
         if !self.preview {
             return self.source.render(cx);
+        }
+        let projected = self.projection_result.borrow_mut().take();
+        if let Some(text) = projected {
+            self.projection_task = None;
+            if self.initial_preview.is_some() {
+                self.headings = headings(&text);
+                self.initial_preview = Some(text);
+            } else {
+                self.apply_text(text, cx);
+            }
         }
         if let Some(text) = self.initial_preview.take() {
             let state = self.state.downgrade();
@@ -316,7 +383,7 @@ impl MarkupReader {
         let requested_images = self.pictures.read(cx).requested.clone();
         let animations = self.pictures.read(cx).animations.clone();
         let stills = self.pictures.read(cx).stills.clone();
-        let dark = cx.theme().is_dark();
+        let dark = super::reader_palette(cx).is_dark();
         let link_base = self.base.clone();
         let minimap = self.source.minimap.downgrade();
         list.set_scroll_handler(move |_, _, cx| {
@@ -327,7 +394,8 @@ impl MarkupReader {
         let base_size = px(14.);
         let font_size = crate::app::text_zoom::font_size(base_size, cx);
         let style = super::scaled_rich_text_style(
-            TextViewStyle::from_theme(&gpui_kit::base::Theme::global(cx)),
+            TextViewStyle::from_theme(&gpui_kit::base::Theme::global(cx))
+                .with_foreground(super::editor_ink(cx)),
             f32::from(font_size) / f32::from(base_size),
             cx.theme().mono_font_size,
         );
@@ -365,7 +433,7 @@ impl MarkupReader {
                             })
                         })
                     }
-                    Ok(url) if matches!(url.scheme(), "file" | "http" | "https") => {
+                    Ok(url) if matches!(url.scheme(), "file" | "http" | "https" | "data") => {
                         let image = stills.get(url.as_str()).cloned();
                         let requested = requested_images.clone();
                         let key = url.to_string();
@@ -395,7 +463,7 @@ impl MarkupReader {
             .pr(px(136.));
         let extensions = if let Some(diagrams) = &self.diagrams {
             super::diagrams::with_alerts(
-                diagrams.read(cx).extensions.clone(),
+                diagrams.update(cx, |diagrams, cx| diagrams.extensions(cx)),
                 self.base.clone(),
                 open.clone(),
             )

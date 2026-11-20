@@ -7,7 +7,7 @@ use crate::{
 use anyhow::{Context, Result, ensure};
 use std::{
     fs::File,
-    io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
+    io::{BufReader, BufWriter, Read, Seek, Write},
     path::Path,
 };
 pub fn supports(path: &Path) -> bool {
@@ -179,14 +179,11 @@ fn numpy_stream(path: &Path, output: &mut impl Write, cancel: &Cancellation) -> 
         remaining -= count as u64;
     }
     writeln!(output)?;
-    let descriptor = metadata.descriptor.as_deref();
-    let size = match descriptor {
-        Some("<f8" | "<i8") => 8,
-        Some("<f4" | "<i4") => 4,
-        Some("|u1") => 1,
-        _ => 0,
-    };
-    if size == 0 {
+    let Some(ty) = metadata
+        .descriptor
+        .as_deref()
+        .and_then(|s| s.parse::<npyz::TypeStr>().ok())
+    else {
         writeln!(
             output,
             "{} · {} bytes",
@@ -194,32 +191,45 @@ fn numpy_stream(path: &Path, output: &mut impl Write, cancel: &Cancellation) -> 
             total - data_offset
         )?;
         return Ok(());
-    }
-    let Some(count) = metadata.elements.filter(|_| metadata.shape) else {
-        writeln!(
-            output,
-            "{}",
-            crate::locale::tr("Numeric preview unavailable for this data type")
-        )?;
-        return Ok(());
     };
-    ensure!(
-        count.checked_mul(size as u64) == Some(total - data_offset),
-        "NumPy data length does not match shape"
-    );
-    input.seek(SeekFrom::Start(data_offset))?;
-    let mut buffer = [0; 8];
-    for index in 0..count {
-        cancel.check()?;
-        input.read_exact(&mut buffer[..size])?;
-        let value = match descriptor {
-            Some("<f8") => f64::from_le_bytes(buffer).to_string(),
-            Some("<i8") => i64::from_le_bytes(buffer).to_string(),
-            Some("<f4") => f32::from_le_bytes(buffer[..4].try_into()?).to_string(),
-            Some("<i4") => i32::from_le_bytes(buffer[..4].try_into()?).to_string(),
-            _ => buffer[0].to_string(),
-        };
-        writeln!(output, "[{index}] {value}")?;
+    let Some(count) = metadata.elements.filter(|_| metadata.shape) else {
+        anyhow::bail!("Invalid NumPy shape")
+    };
+    let kind = (ty.type_char(), ty.size_field());
+    let dtype = npyz::DType::Plain(ty);
+    use npyz::TypeChar::{Bool, Float, Int, Uint};
+    macro_rules! values {
+        ($t:ty) => {{
+            ensure!(
+                count.checked_mul(kind.1) == Some(total - data_offset),
+                "NumPy data length does not match shape"
+            );
+            let reader = <$t as npyz::Deserialize>::reader(&dtype)?;
+            for index in 0..count {
+                cancel.check()?;
+                let value = npyz::TypeRead::read_one(&reader, &mut input)?;
+                writeln!(output, "[{index}] {value}")?;
+            }
+        }};
+    }
+    match kind {
+        (Bool, 1) => values!(bool),
+        (Int, 1) => values!(i8),
+        (Int, 2) => values!(i16),
+        (Int, 4) => values!(i32),
+        (Int, 8) => values!(i64),
+        (Uint, 1) => values!(u8),
+        (Uint, 2) => values!(u16),
+        (Uint, 4) => values!(u32),
+        (Uint, 8) => values!(u64),
+        (Float, 4) => values!(f32),
+        (Float, 8) => values!(f64),
+        _ => writeln!(
+            output,
+            "{} · {} bytes",
+            crate::locale::tr("Numeric preview unavailable for this data type"),
+            total - data_offset
+        )?,
     }
     Ok(())
 }
