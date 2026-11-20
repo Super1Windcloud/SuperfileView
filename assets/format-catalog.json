@@ -578,7 +578,8 @@
       "extensions": [
         "json",
         "jsonl",
-        "geojson"
+        "geojson",
+        "jsonc"
       ]
     },
     {
@@ -599,7 +600,8 @@
     {
       "name": "XML",
       "extensions": [
-        "xml"
+        "xml",
+        "plist"
       ]
     },
     {
@@ -654,7 +656,9 @@
     {
       "name": "Mind maps",
       "extensions": [
-        "xmind"
+        "xmind",
+        "opml",
+        "drawio"
       ]
     },
     {
@@ -708,7 +712,12 @@
         "gif",
         "svg",
         "bmp",
-        "tiff"
+        "tiff",
+        "tif",
+        "ico",
+        "icns",
+        "exr",
+        "hdr"
       ]
     },
     {
@@ -720,7 +729,8 @@
         "aac",
         "flac",
         "aiff",
-        "caf"
+        "caf",
+        "aif"
       ]
     },
     {
@@ -852,8 +862,6 @@
         "py",
         "js",
         "jsx",
-        "ts",
-        "tsx",
         "c",
         "h",
         "cpp",
@@ -878,13 +886,11 @@
         "fb2",
         "cbz",
         "bmp",
-        "tiff",
         "mp3",
         "m4a",
         "wav",
         "aac",
         "flac",
-        "aiff",
         "caf",
         "mp4",
         "mkv",
@@ -916,7 +922,87 @@
         "otf",
         "ttc",
         "otc",
-        "dfont"
+        "dfont",
+        "astro",
+        "bash",
+        "bazel",
+        "bzl",
+        "cc",
+        "cfg",
+        "cjs",
+        "cmake",
+        "code-workspace",
+        "command",
+        "conf",
+        "cs",
+        "csx",
+        "cu",
+        "cuh",
+        "cxx",
+        "desktop",
+        "drawio",
+        "ejs",
+        "env",
+        "erb",
+        "ex",
+        "exs",
+        "frag",
+        "gemspec",
+        "geom",
+        "glsl",
+        "gql",
+        "graphql",
+        "hbs",
+        "hh",
+        "hxx",
+        "ini",
+        "ipynb",
+        "j2",
+        "jinja",
+        "jinja2",
+        "jsonc",
+        "kts",
+        "less",
+        "lua",
+        "metal",
+        "mjs",
+        "mk",
+        "mtlx",
+        "nix",
+        "njk",
+        "nunjucks",
+        "ocio",
+        "opml",
+        "osl",
+        "php3",
+        "php4",
+        "php5",
+        "phtml",
+        "podspec",
+        "properties",
+        "proto",
+        "pxd",
+        "pxi",
+        "pyi",
+        "pyx",
+        "rake",
+        "ru",
+        "sbt",
+        "sc",
+        "scala",
+        "scss",
+        "service",
+        "svelte",
+        "tmx",
+        "tsbuildinfo",
+        "twig",
+        "vert",
+        "vue",
+        "xsd",
+        "xsl",
+        "zig",
+        "zon",
+        "zsh"
       ]
     },
     {
@@ -939,6 +1025,102 @@
         "key",
         "pages",
         "numbers"
+      ]
+    },
+    {
+      "CFBundleTypeName": "Property Lists",
+      "CFBundleTypeRole": "Viewer",
+      "LSHandlerRank": "Alternate",
+      "LSItemContentTypes": [
+        "com.apple.property-list",
+        "com.apple.xml-property-list",
+        "com.apple.binary-property-list",
+        "com.apple.ascii-property-list"
+      ],
+      "CFBundleTypeExtensions": [
+        "plist"
+      ]
+    },
+    {
+      "CFBundleTypeName": "Windows Icons",
+      "CFBundleTypeRole": "Viewer",
+      "LSHandlerRank": "Alternate",
+      "LSItemContentTypes": [
+        "com.microsoft.ico"
+      ],
+      "CFBundleTypeExtensions": [
+        "ico"
+      ]
+    },
+    {
+      "CFBundleTypeName": "Apple Icons",
+      "CFBundleTypeRole": "Viewer",
+      "LSHandlerRank": "Alternate",
+      "LSItemContentTypes": [
+        "com.apple.icns"
+      ],
+      "CFBundleTypeExtensions": [
+        "icns"
+      ]
+    },
+    {
+      "CFBundleTypeName": "OpenEXR Images",
+      "CFBundleTypeRole": "Viewer",
+      "LSHandlerRank": "Alternate",
+      "LSItemContentTypes": [
+        "com.ilm.openexr-image"
+      ],
+      "CFBundleTypeExtensions": [
+        "exr"
+      ]
+    },
+    {
+      "CFBundleTypeName": "Radiance Images",
+      "CFBundleTypeRole": "Viewer",
+      "LSHandlerRank": "Alternate",
+      "LSItemContentTypes": [
+        "public.radiance"
+      ],
+      "CFBundleTypeExtensions": [
+        "hdr"
+      ]
+    },
+    {
+      "CFBundleTypeName": "TIFF Images",
+      "CFBundleTypeRole": "Viewer",
+      "LSHandlerRank": "Alternate",
+      "LSItemContentTypes": [
+        "public.tiff"
+      ],
+      "CFBundleTypeExtensions": [
+        "tif",
+        "tiff"
+      ]
+    },
+    {
+      "CFBundleTypeName": "AIFF Audio",
+      "CFBundleTypeRole": "Viewer",
+      "LSHandlerRank": "Alternate",
+      "LSItemContentTypes": [
+        "public.aiff-audio"
+      ],
+      "CFBundleTypeExtensions": [
+        "aif",
+        "aiff"
+      ]
+    },
+    {
+      "CFBundleTypeName": "TypeScript Source",
+      "CFBundleTypeRole": "Viewer",
+      "LSHandlerRank": "Alternate",
+      "LSItemContentTypes": [
+        "com.microsoft.typescript"
+      ],
+      "CFBundleTypeExtensions": [
+        "ts",
+        "tsx",
+        "mts",
+        "cts"
       ]
     }
   ],
@@ -1027,5 +1209,749 @@
       "dark": "json",
       "light": "json"
     }
+  },
+  "linux_mime_types": {
+    "application/epub+zip": [
+      "epub"
+    ],
+    "application/geo+json": [
+      "geojson"
+    ],
+    "application/gpx+xml": [
+      "gpx"
+    ],
+    "application/gzip": [
+      "gz"
+    ],
+    "application/json": [
+      "code-workspace",
+      "json",
+      "tsbuildinfo",
+      "vega.json"
+    ],
+    "application/json5": [
+      "json5"
+    ],
+    "application/jsonc": [
+      "jsonc"
+    ],
+    "application/msword": [
+      "doc"
+    ],
+    "application/pdf": [
+      "pdf"
+    ],
+    "application/rtf": [
+      "rtf"
+    ],
+    "application/schema+json": [
+      "json",
+      "vega.json"
+    ],
+    "application/sql": [
+      "sql"
+    ],
+    "application/toml": [
+      "toml"
+    ],
+    "application/typescript": [
+      "cts",
+      "mts",
+      "ts",
+      "tsx"
+    ],
+    "application/vnd.apple.keynote": [
+      "key"
+    ],
+    "application/vnd.apple.numbers": [
+      "numbers"
+    ],
+    "application/vnd.apple.pages": [
+      "pages"
+    ],
+    "application/vnd.comicbook+zip": [
+      "cbz"
+    ],
+    "application/vnd.google-earth.kml+xml": [
+      "kml"
+    ],
+    "application/vnd.jgraph.mxfile": [
+      "drawio"
+    ],
+    "application/vnd.ms-cab-compressed": [
+      "cab"
+    ],
+    "application/vnd.ms-excel": [
+      "xls"
+    ],
+    "application/vnd.ms-excel.sheet.macroEnabled.12": [
+      "xlsm"
+    ],
+    "application/vnd.ms-powerpoint": [
+      "ppt"
+    ],
+    "application/vnd.oasis.opendocument.presentation": [
+      "odp"
+    ],
+    "application/vnd.oasis.opendocument.spreadsheet": [
+      "ods"
+    ],
+    "application/vnd.oasis.opendocument.text": [
+      "odt"
+    ],
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": [
+      "pptx"
+    ],
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [
+      "xlsx"
+    ],
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [
+      "docx"
+    ],
+    "application/vnd.rar": [
+      "rar"
+    ],
+    "application/vnd.sqlite3": [
+      "db",
+      "db3",
+      "s3db",
+      "sqlite",
+      "sqlite3"
+    ],
+    "application/x-7z-compressed": [
+      "7z"
+    ],
+    "application/x-apple-binary-plist": [
+      "plist"
+    ],
+    "application/x-archive": [
+      "a",
+      "ar"
+    ],
+    "application/x-bzip1-compressed-tar": [
+      "tbz"
+    ],
+    "application/x-bzip2": [
+      "bz2"
+    ],
+    "application/x-bzip2-compressed-tar": [
+      "tbz2"
+    ],
+    "application/x-compress": [
+      "z"
+    ],
+    "application/x-compressed-tar": [
+      "tgz"
+    ],
+    "application/x-cpio": [
+      "cpio"
+    ],
+    "application/x-desktop": [
+      "desktop"
+    ],
+    "application/x-fictionbook+xml": [
+      "fb2"
+    ],
+    "application/x-font-bdf": [
+      "bdf"
+    ],
+    "application/x-font-dfont": [
+      "dfont"
+    ],
+    "application/x-ipynb+json": [
+      "ipynb"
+    ],
+    "application/x-lha": [
+      "lha",
+      "lzh"
+    ],
+    "application/x-lz4": [
+      "lz4"
+    ],
+    "application/x-lz4-compressed-tar": [
+      "lz4"
+    ],
+    "application/x-lzip": [
+      "lz"
+    ],
+    "application/x-lzma": [
+      "lzma"
+    ],
+    "application/x-lzma-compressed-tar": [
+      "tlz"
+    ],
+    "application/x-ndjson": [
+      "jsonl",
+      "ndjson"
+    ],
+    "application/x-npy": [
+      "npy"
+    ],
+    "application/x-php": [
+      "php",
+      "php3",
+      "php4",
+      "php5",
+      "phtml"
+    ],
+    "application/x-plist": [
+      "plist"
+    ],
+    "application/x-ruby": [
+      "gemspec",
+      "podspec",
+      "rake",
+      "rb",
+      "ru"
+    ],
+    "application/x-safetensors": [
+      "safetensors"
+    ],
+    "application/x-shellscript": [
+      "bash",
+      "command",
+      "sh",
+      "zsh"
+    ],
+    "application/x-sqlite3": [],
+    "application/x-subrip": [
+      "srt"
+    ],
+    "application/x-tar": [
+      "tar"
+    ],
+    "application/x-tarz": [
+      "taz"
+    ],
+    "application/x-tiled-tmx": [
+      "tmx"
+    ],
+    "application/x-xar": [
+      "xar"
+    ],
+    "application/x-xmind": [
+      "xmind"
+    ],
+    "application/x-xz": [
+      "xz"
+    ],
+    "application/x-xz-compressed-tar": [
+      "txz"
+    ],
+    "application/x-zip-compressed-fb2": [
+      "fb2.zip"
+    ],
+    "application/x-zstd-compressed-tar": [
+      "tzst"
+    ],
+    "application/xhtml+xml": [],
+    "application/xml": [
+      "mtlx",
+      "xml",
+      "xsd"
+    ],
+    "application/xslt+xml": [
+      "xsl"
+    ],
+    "application/yaml": [
+      "ocio",
+      "yaml",
+      "yml"
+    ],
+    "application/zip": [
+      "zip"
+    ],
+    "application/zstd": [
+      "zst",
+      "zstd"
+    ],
+    "audio/aac": [
+      "aac"
+    ],
+    "audio/flac": [
+      "flac"
+    ],
+    "audio/mp4": [
+      "m4a"
+    ],
+    "audio/mpeg": [
+      "mp3"
+    ],
+    "audio/vnd.wave": [
+      "wav"
+    ],
+    "audio/x-aiff": [
+      "aif",
+      "aiff"
+    ],
+    "audio/x-caf": [
+      "caf"
+    ],
+    "font/collection": [
+      "otc",
+      "ttc"
+    ],
+    "font/otf": [
+      "otf"
+    ],
+    "font/ttf": [
+      "ttf"
+    ],
+    "image/apng": [],
+    "image/bmp": [
+      "bmp"
+    ],
+    "image/gif": [
+      "gif"
+    ],
+    "image/jpeg": [
+      "jpeg",
+      "jpg"
+    ],
+    "image/png": [
+      "png"
+    ],
+    "image/qoi": [
+      "qoi"
+    ],
+    "image/svg+xml": [
+      "svg"
+    ],
+    "image/tiff": [
+      "tif",
+      "tiff"
+    ],
+    "image/vnd.microsoft.icon": [
+      "ico"
+    ],
+    "image/vnd.radiance": [
+      "hdr"
+    ],
+    "image/webp": [
+      "webp"
+    ],
+    "image/x-exr": [
+      "exr"
+    ],
+    "image/x-icns": [
+      "icns"
+    ],
+    "model/obj": [
+      "obj"
+    ],
+    "model/stl": [
+      "stl"
+    ],
+    "text/css": [
+      "css"
+    ],
+    "text/csv": [
+      "csv"
+    ],
+    "text/html": [
+      "htm",
+      "html"
+    ],
+    "text/javascript": [
+      "cjs",
+      "js",
+      "jsx",
+      "mjs"
+    ],
+    "text/less": [
+      "less"
+    ],
+    "text/markdown": [
+      "markdown",
+      "md"
+    ],
+    "text/org": [
+      "org"
+    ],
+    "text/plain": [
+      "adoc",
+      "astro",
+      "bazel",
+      "bzl",
+      "cfg",
+      "conf",
+      "cu",
+      "cuh",
+      "d2",
+      "dhall",
+      "ejs",
+      "env",
+      "erb",
+      "hbs",
+      "hcl",
+      "http",
+      "ini",
+      "j2",
+      "jinja",
+      "jinja2",
+      "kdl",
+      "metal",
+      "njk",
+      "nunjucks",
+      "osl",
+      "pikchr",
+      "properties",
+      "proto",
+      "stan",
+      "txt"
+    ],
+    "text/rust": [
+      "rs"
+    ],
+    "text/tab-separated-values": [
+      "tsv"
+    ],
+    "text/typescript": [
+      "cts",
+      "mts",
+      "ts",
+      "tsx"
+    ],
+    "text/vtt": [
+      "vtt"
+    ],
+    "text/x-c++hdr": [
+      "hh",
+      "hpp",
+      "hxx"
+    ],
+    "text/x-c++src": [
+      "cc",
+      "cpp",
+      "cxx"
+    ],
+    "text/x-chdr": [
+      "h"
+    ],
+    "text/x-cmake": [
+      "cmake"
+    ],
+    "text/x-csharp": [
+      "cs",
+      "csx"
+    ],
+    "text/x-csrc": [
+      "c"
+    ],
+    "text/x-cython": [
+      "pxd",
+      "pxi",
+      "pyx"
+    ],
+    "text/x-dbus-service": [
+      "service"
+    ],
+    "text/x-elixir": [
+      "ex",
+      "exs"
+    ],
+    "text/x-glsl": [
+      "frag",
+      "geom",
+      "glsl",
+      "vert"
+    ],
+    "text/x-go": [
+      "go"
+    ],
+    "text/x-graphql": [
+      "gql",
+      "graphql"
+    ],
+    "text/x-java": [
+      "java"
+    ],
+    "text/x-kotlin": [
+      "kt",
+      "kts"
+    ],
+    "text/x-log": [
+      "log"
+    ],
+    "text/x-lua": [
+      "lua"
+    ],
+    "text/x-makefile": [
+      "mk"
+    ],
+    "text/x-matlab": [
+      "m"
+    ],
+    "text/x-nix": [
+      "nix"
+    ],
+    "text/x-objcsrc": [
+      "m"
+    ],
+    "text/x-opml+xml": [
+      "opml"
+    ],
+    "text/x-python": [
+      "pxd",
+      "pxi",
+      "py",
+      "pyx"
+    ],
+    "text/x-python2": [
+      "py"
+    ],
+    "text/x-python3": [
+      "pyi"
+    ],
+    "text/x-rst": [
+      "rst"
+    ],
+    "text/x-scala": [
+      "sbt",
+      "sc",
+      "scala"
+    ],
+    "text/x-scss": [
+      "scss"
+    ],
+    "text/x-shellscript": [
+      "bash",
+      "command",
+      "sh",
+      "zsh"
+    ],
+    "text/x-svelte": [
+      "svelte"
+    ],
+    "text/x-swift": [
+      "swift"
+    ],
+    "text/x-systemd-unit": [
+      "service"
+    ],
+    "text/x-twig": [
+      "twig"
+    ],
+    "text/x-vue": [
+      "vue"
+    ],
+    "text/x-zig": [
+      "zig",
+      "zon"
+    ],
+    "video/matroska": [
+      "mkv"
+    ],
+    "video/mp4": [
+      "m4v",
+      "mp4"
+    ],
+    "video/quicktime": [
+      "mov"
+    ],
+    "video/x-matroska": [
+      "mkv"
+    ]
+  },
+  "linux_content_only": {
+    "sqlite-sidecars": [
+      "db-shm",
+      "db-wal",
+      "shm",
+      "sqlite-shm",
+      "sqlite-wal",
+      "sqlite3-shm",
+      "sqlite3-wal",
+      "wal"
+    ],
+    "archive-probe": [
+      "iso"
+    ]
+  },
+  "linux_mime_globs": {
+    "application/jsonc": [
+      "JSON with comments",
+      "text/plain",
+      [
+        "jsonc"
+      ]
+    ],
+    "application/vnd.jgraph.mxfile": [
+      "draw.io diagram",
+      "application/xml",
+      [
+        "drawio"
+      ]
+    ],
+    "image/vnd.radiance": [
+      "Radiance HDR image",
+      null,
+      [
+        "hdr"
+      ]
+    ],
+    "application/x-npy": [
+      "NumPy array",
+      null,
+      [
+        "npy"
+      ]
+    ],
+    "application/x-safetensors": [
+      "Safetensors model",
+      null,
+      [
+        "safetensors"
+      ]
+    ],
+    "application/x-xmind": [
+      "XMind workbook",
+      "application/zip",
+      [
+        "xmind"
+      ]
+    ],
+    "application/x-ndjson": [
+      "Newline-delimited JSON",
+      "text/plain",
+      [
+        "jsonl",
+        "ndjson"
+      ]
+    ],
+    "audio/x-caf": [
+      "Core Audio File",
+      null,
+      [
+        "caf"
+      ]
+    ],
+    "application/x-font-dfont": [
+      "Macintosh data fork font",
+      null,
+      [
+        "dfont"
+      ]
+    ],
+    "application/x-plist": [
+      "Apple property list",
+      null,
+      [
+        "plist"
+      ]
+    ],
+    "application/x-apple-binary-plist": [
+      "Binary Apple property list",
+      "application/x-plist",
+      [
+        "plist"
+      ]
+    ],
+    "text/typescript": [
+      "TypeScript source",
+      "text/plain",
+      [
+        "cts"
+      ]
+    ],
+    "text/x-swift": [
+      "Swift source",
+      "text/plain",
+      [
+        "swift"
+      ]
+    ],
+    "text/x-svelte": [
+      "Svelte component",
+      "text/plain",
+      [
+        "svelte"
+      ]
+    ],
+    "text/x-vue": [
+      "Vue component",
+      "text/plain",
+      [
+        "vue"
+      ]
+    ],
+    "text/x-graphql": [
+      "GraphQL source",
+      "text/plain",
+      [
+        "graphql",
+        "gql"
+      ]
+    ],
+    "text/x-zig": [
+      "Zig source",
+      "text/plain",
+      [
+        "zig",
+        "zon"
+      ]
+    ],
+    "text/x-nix": [
+      "Nix expression",
+      "text/plain",
+      [
+        "nix"
+      ]
+    ],
+    "text/less": [
+      "Less stylesheet",
+      "text/plain",
+      [
+        "less"
+      ]
+    ],
+    "text/x-glsl": [
+      "GLSL shader",
+      "text/plain",
+      [
+        "glsl",
+        "vert",
+        "frag",
+        "geom"
+      ]
+    ],
+    "text/x-csharp": [
+      "C# source",
+      "text/plain",
+      [
+        "csx"
+      ]
+    ],
+    "text/x-kotlin": [
+      "Kotlin source",
+      "text/plain",
+      [
+        "kts"
+      ]
+    ]
+  },
+  "imported_types": [
+    {
+      "UTTypeIdentifier": "com.microsoft.typescript",
+      "UTTypeDescription": "TypeScript source",
+      "UTTypeConformsTo": [
+        "public.source-code"
+      ],
+      "UTTypeTagSpecification": {
+        "public.filename-extension": [
+          "ts",
+          "tsx",
+          "mts",
+          "cts"
+        ],
+        "public.mime-type": [
+          "text/typescript",
+          "application/typescript"
+        ]
+      }
+    }
+  ],
+  "linux_magic_prefixes": {
+    "application/x-apple-binary-plist": "bplist00"
   }
 }

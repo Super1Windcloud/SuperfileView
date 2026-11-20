@@ -1,0 +1,115 @@
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/jsonc">
+    <comment>JSON with comments</comment>
+    <sub-class-of type="text/plain" />
+    <glob pattern="*.jsonc" weight="40" />
+  </mime-type>
+  <mime-type type="application/vnd.jgraph.mxfile">
+    <comment>draw.io diagram</comment>
+    <sub-class-of type="application/xml" />
+    <glob pattern="*.drawio" weight="40" />
+  </mime-type>
+  <mime-type type="application/x-apple-binary-plist">
+    <comment>Binary Apple property list</comment>
+    <sub-class-of type="application/x-plist" />
+    <magic priority="80">
+      <match type="string" offset="0" value="bplist00" />
+    </magic>
+    <glob pattern="*.plist" weight="40" />
+  </mime-type>
+  <mime-type type="application/x-font-dfont">
+    <comment>Macintosh data fork font</comment>
+    <glob pattern="*.dfont" weight="40" />
+  </mime-type>
+  <mime-type type="application/x-ndjson">
+    <comment>Newline-delimited JSON</comment>
+    <sub-class-of type="text/plain" />
+    <glob pattern="*.jsonl" weight="40" />
+    <glob pattern="*.ndjson" weight="40" />
+  </mime-type>
+  <mime-type type="application/x-npy">
+    <comment>NumPy array</comment>
+    <glob pattern="*.npy" weight="40" />
+  </mime-type>
+  <mime-type type="application/x-plist">
+    <comment>Apple property list</comment>
+    <glob pattern="*.plist" weight="40" />
+  </mime-type>
+  <mime-type type="application/x-safetensors">
+    <comment>Safetensors model</comment>
+    <glob pattern="*.safetensors" weight="40" />
+  </mime-type>
+  <mime-type type="application/x-xmind">
+    <comment>XMind workbook</comment>
+    <sub-class-of type="application/zip" />
+    <glob pattern="*.xmind" weight="40" />
+  </mime-type>
+  <mime-type type="audio/x-caf">
+    <comment>Core Audio File</comment>
+    <glob pattern="*.caf" weight="40" />
+  </mime-type>
+  <mime-type type="image/vnd.radiance">
+    <comment>Radiance HDR image</comment>
+    <glob pattern="*.hdr" weight="40" />
+  </mime-type>
+  <mime-type type="text/less">
+    <comment>Less stylesheet</comment>
+    <sub-class-of type="text/plain" />
+    <glob pattern="*.less" weight="40" />
+  </mime-type>
+  <mime-type type="text/typescript">
+    <comment>TypeScript source</comment>
+    <sub-class-of type="text/plain" />
+    <glob pattern="*.cts" weight="40" />
+  </mime-type>
+  <mime-type type="text/x-csharp">
+    <comment>C# source</comment>
+    <sub-class-of type="text/plain" />
+    <glob pattern="*.csx" weight="40" />
+  </mime-type>
+  <mime-type type="text/x-glsl">
+    <comment>GLSL shader</comment>
+    <sub-class-of type="text/plain" />
+    <glob pattern="*.glsl" weight="40" />
+    <glob pattern="*.vert" weight="40" />
+    <glob pattern="*.frag" weight="40" />
+    <glob pattern="*.geom" weight="40" />
+  </mime-type>
+  <mime-type type="text/x-graphql">
+    <comment>GraphQL source</comment>
+    <sub-class-of type="text/plain" />
+    <glob pattern="*.graphql" weight="40" />
+    <glob pattern="*.gql" weight="40" />
+  </mime-type>
+  <mime-type type="text/x-kotlin">
+    <comment>Kotlin source</comment>
+    <sub-class-of type="text/plain" />
+    <glob pattern="*.kts" weight="40" />
+  </mime-type>
+  <mime-type type="text/x-nix">
+    <comment>Nix expression</comment>
+    <sub-class-of type="text/plain" />
+    <glob pattern="*.nix" weight="40" />
+  </mime-type>
+  <mime-type type="text/x-svelte">
+    <comment>Svelte component</comment>
+    <sub-class-of type="text/plain" />
+    <glob pattern="*.svelte" weight="40" />
+  </mime-type>
+  <mime-type type="text/x-swift">
+    <comment>Swift source</comment>
+    <sub-class-of type="text/plain" />
+    <glob pattern="*.swift" weight="40" />
+  </mime-type>
+  <mime-type type="text/x-vue">
+    <comment>Vue component</comment>
+    <sub-class-of type="text/plain" />
+    <glob pattern="*.vue" weight="40" />
+  </mime-type>
+  <mime-type type="text/x-zig">
+    <comment>Zig source</comment>
+    <sub-class-of type="text/plain" />
+    <glob pattern="*.zig" weight="40" />
+    <glob pattern="*.zon" weight="40" />
+  </mime-type>
+</mime-info>

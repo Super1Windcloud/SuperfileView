@@ -16,11 +16,12 @@ STAGING_DIR="$(mktemp -d "${REPO_ROOT}/target/package-staging/linux.XXXXXX")"
 trap 'python3 -c "import shutil,sys; shutil.rmtree(sys.argv[1])" "${STAGING_DIR}"' EXIT
 DEB_STAGE="${STAGING_DIR}/deb"
 mkdir -p "${DEB_STAGE}/DEBIAN" "${DEB_STAGE}/usr/bin" "${DEB_STAGE}/usr/share/applications" \
-  "${DEB_STAGE}/usr/share/icons/hicolor/256x256/apps" "${DEB_STAGE}/usr/share/doc/superfile"
+  "${DEB_STAGE}/usr/share/icons/hicolor/256x256/apps" "${DEB_STAGE}/usr/share/doc/superfile" "${DEB_STAGE}/usr/share/mime/packages"
 cp "${BIN_SOURCE}" "${DEB_STAGE}/usr/bin/superfile"
 chmod 755 "${DEB_STAGE}/usr/bin/superfile"
 cp "${REPO_ROOT}/assets/branding/superfile.png" "${DEB_STAGE}/usr/share/icons/hicolor/256x256/apps/superfile.png"
 cp "${REPO_ROOT}/assets/linux/superfile.desktop" "${DEB_STAGE}/usr/share/applications/"
+cp "${REPO_ROOT}/assets/linux/superfile-mime.xml" "${DEB_STAGE}/usr/share/mime/packages/"
 cp "${REPO_ROOT}/LICENSE" "${DEB_STAGE}/usr/share/doc/superfile/copyright"
 cp "${REPO_ROOT}/README.md" "${DEB_STAGE}/usr/share/doc/superfile/"
 # Derive the actual shared-library requirements from this runner's binary.
@@ -44,7 +45,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Maintainer: Superfile maintainers
-Depends: ${DEPENDS}, libglib2.0-0 | libglib2.0-0t64
+Depends: ${DEPENDS}, libglib2.0-0 | libglib2.0-0t64, shared-mime-info
 Recommends: xdg-desktop-portal
 Description: Desktop file viewer and editor
  A cross-platform file viewer and editor built with Rust and gpui-kit.
@@ -57,7 +58,7 @@ ARCHIVE_NAME="superfile-${TAG}-linux-x86_64"
 TAR_STAGE="${STAGING_DIR}/${ARCHIVE_NAME}"
 mkdir -p "${TAR_STAGE}"
 cp "${DEB_STAGE}/usr/bin/superfile" "${TAR_STAGE}/"
-cp "${REPO_ROOT}/assets/linux/superfile.desktop" "${REPO_ROOT}/assets/branding/superfile.png" \
+cp "${REPO_ROOT}/assets/linux/superfile.desktop" "${REPO_ROOT}/assets/linux/superfile-mime.xml" "${REPO_ROOT}/assets/branding/superfile.png" \
   "${REPO_ROOT}/README.md" "${REPO_ROOT}/LICENSE" "${TAR_STAGE}/"
 tar -C "${STAGING_DIR}" -czf "${DIST_DIR}/${ARCHIVE_NAME}.tar.gz" "${ARCHIVE_NAME}"
 python3 "${REPO_ROOT}/scripts/package/release.py" verify "${TAG}" --platform linux-x86_64 --directory "${DIST_DIR}"

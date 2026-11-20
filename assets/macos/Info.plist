@@ -118,8 +118,6 @@
 				<string>py</string>
 				<string>js</string>
 				<string>jsx</string>
-				<string>ts</string>
-				<string>tsx</string>
 				<string>c</string>
 				<string>h</string>
 				<string>cpp</string>
@@ -144,13 +142,11 @@
 				<string>fb2</string>
 				<string>cbz</string>
 				<string>bmp</string>
-				<string>tiff</string>
 				<string>mp3</string>
 				<string>m4a</string>
 				<string>wav</string>
 				<string>aac</string>
 				<string>flac</string>
-				<string>aiff</string>
 				<string>caf</string>
 				<string>mp4</string>
 				<string>mkv</string>
@@ -183,6 +179,86 @@
 				<string>ttc</string>
 				<string>otc</string>
 				<string>dfont</string>
+				<string>astro</string>
+				<string>bash</string>
+				<string>bazel</string>
+				<string>bzl</string>
+				<string>cc</string>
+				<string>cfg</string>
+				<string>cjs</string>
+				<string>cmake</string>
+				<string>code-workspace</string>
+				<string>command</string>
+				<string>conf</string>
+				<string>cs</string>
+				<string>csx</string>
+				<string>cu</string>
+				<string>cuh</string>
+				<string>cxx</string>
+				<string>desktop</string>
+				<string>drawio</string>
+				<string>ejs</string>
+				<string>env</string>
+				<string>erb</string>
+				<string>ex</string>
+				<string>exs</string>
+				<string>frag</string>
+				<string>gemspec</string>
+				<string>geom</string>
+				<string>glsl</string>
+				<string>gql</string>
+				<string>graphql</string>
+				<string>hbs</string>
+				<string>hh</string>
+				<string>hxx</string>
+				<string>ini</string>
+				<string>ipynb</string>
+				<string>j2</string>
+				<string>jinja</string>
+				<string>jinja2</string>
+				<string>jsonc</string>
+				<string>kts</string>
+				<string>less</string>
+				<string>lua</string>
+				<string>metal</string>
+				<string>mjs</string>
+				<string>mk</string>
+				<string>mtlx</string>
+				<string>nix</string>
+				<string>njk</string>
+				<string>nunjucks</string>
+				<string>ocio</string>
+				<string>opml</string>
+				<string>osl</string>
+				<string>php3</string>
+				<string>php4</string>
+				<string>php5</string>
+				<string>phtml</string>
+				<string>podspec</string>
+				<string>properties</string>
+				<string>proto</string>
+				<string>pxd</string>
+				<string>pxi</string>
+				<string>pyi</string>
+				<string>pyx</string>
+				<string>rake</string>
+				<string>ru</string>
+				<string>sbt</string>
+				<string>sc</string>
+				<string>scala</string>
+				<string>scss</string>
+				<string>service</string>
+				<string>svelte</string>
+				<string>tmx</string>
+				<string>tsbuildinfo</string>
+				<string>twig</string>
+				<string>vert</string>
+				<string>vue</string>
+				<string>xsd</string>
+				<string>xsl</string>
+				<string>zig</string>
+				<string>zon</string>
+				<string>zsh</string>
 			</array>
 		</dict>
 		<dict>
@@ -216,6 +292,170 @@
 				<string>pages</string>
 				<string>numbers</string>
 			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Property Lists</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.apple.property-list</string>
+				<string>com.apple.xml-property-list</string>
+				<string>com.apple.binary-property-list</string>
+				<string>com.apple.ascii-property-list</string>
+			</array>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>plist</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Windows Icons</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.microsoft.ico</string>
+			</array>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>ico</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Apple Icons</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.apple.icns</string>
+			</array>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>icns</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>OpenEXR Images</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.ilm.openexr-image</string>
+			</array>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>exr</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Radiance Images</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.radiance</string>
+			</array>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>hdr</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>TIFF Images</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.tiff</string>
+			</array>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>tif</string>
+				<string>tiff</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>AIFF Audio</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.aiff-audio</string>
+			</array>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>aif</string>
+				<string>aiff</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>TypeScript Source</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.microsoft.typescript</string>
+			</array>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>ts</string>
+				<string>tsx</string>
+				<string>mts</string>
+				<string>cts</string>
+			</array>
+		</dict>
+	</array>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.microsoft.typescript</string>
+			<key>UTTypeDescription</key>
+			<string>TypeScript source</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.source-code</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>ts</string>
+					<string>tsx</string>
+					<string>mts</string>
+					<string>cts</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>text/typescript</string>
+					<string>application/typescript</string>
+				</array>
+			</dict>
 		</dict>
 	</array>
 </dict>
