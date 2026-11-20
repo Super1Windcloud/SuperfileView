@@ -39,7 +39,7 @@ Filename highlighting rules (Dockerfile, `.env`, dot-config names) remain in `la
 | `cpp` | text / bytes | — | cpp | Source Code | ✓ | cpp / cpp |
 | `cs` | text / bytes | — | csharp | — | — | csharp / csharp |
 | `css` | text / bytes | — | css | Source Code | ✓ | css / css |
-| `csv` | text / bytes | TableCsv, StructuredGraph | plain | — | — | table / table |
+| `csv` | text / bytes | TableCsv, StructuredGraph | plain | CSV | ✓ | table / table |
 | `csx` | text / bytes | — | csharp | — | — | csharp / csharp |
 | `cts` | text / bytes | — | typescript | — | — | typescript / typescript |
 | `cu` | text / bytes | — | cpp | — | — | cuda / cuda |

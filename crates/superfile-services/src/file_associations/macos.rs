@@ -385,6 +385,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn packaged_bundle_claims_the_system_csv_type_as_an_alternate_viewer() {
+        let file = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+        let identifier = native::file_type(file.path()).unwrap();
+        let info = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../assets/macos/Info.plist"
+        ));
+        let bundle = Value::from_reader_xml(&info[..])
+            .unwrap()
+            .into_dictionary()
+            .unwrap();
+        let csv = bundle["CFBundleDocumentTypes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_dictionary)
+            .find(|doc| strings(doc.get("LSItemContentTypes")).contains(&identifier))
+            .expect("Superfile must register the native CSV type");
+        assert!(strings(csv.get("CFBundleTypeExtensions")).contains(&"csv".into()));
+        assert_eq!(csv["CFBundleTypeRole"].as_string(), Some("Viewer"));
+        assert_eq!(csv["LSHandlerRank"].as_string(), Some("Alternate"));
+    }
+
+    #[test]
     fn confirmation_retries_stale_or_missing_handlers_and_distinguishes_pending() {
         let selected = Application {
             name: "Superfile".into(),

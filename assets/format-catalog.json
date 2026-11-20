@@ -568,6 +568,12 @@
       ]
     },
     {
+      "name": "CSV",
+      "extensions": [
+        "csv"
+      ]
+    },
+    {
       "name": "JSON",
       "extensions": [
         "json",
@@ -911,6 +917,17 @@
         "ttc",
         "otc",
         "dfont"
+      ]
+    },
+    {
+      "CFBundleTypeName": "Comma-Separated Values",
+      "CFBundleTypeRole": "Viewer",
+      "LSHandlerRank": "Alternate",
+      "LSItemContentTypes": [
+        "public.comma-separated-values-text"
+      ],
+      "CFBundleTypeExtensions": [
+        "csv"
       ]
     },
     {

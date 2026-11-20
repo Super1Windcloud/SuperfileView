@@ -16,6 +16,7 @@
   !insertmacro ${operation} ".cpio"
   !insertmacro ${operation} ".cpp"
   !insertmacro ${operation} ".css"
+  !insertmacro ${operation} ".csv"
   !insertmacro ${operation} ".d2"
   !insertmacro ${operation} ".db"
   !insertmacro ${operation} ".db-shm"

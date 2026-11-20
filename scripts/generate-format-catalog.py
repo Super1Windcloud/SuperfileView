@@ -167,6 +167,7 @@ def main():
         source = plist_path.read_text(encoding='utf-8')
         start = source.index('<key>CFBundleDocumentTypes</key>') + len('<key>CFBundleDocumentTypes</key>')
         array = plistlib.dumps(data['bundle_types'], sort_keys=False).decode().split('<plist version="1.0">\n')[1].split('\n</plist>')[0]
+        array = '\n'.join('\t' + line for line in array.splitlines())
         # The document declarations are the last value in the top-level dictionary.
         end = source.rfind('</dict>')
         require(not re.search(r'^    <key>', source[start:end], re.M), 'Unexpected keys after CFBundleDocumentTypes; update the focused writer')
