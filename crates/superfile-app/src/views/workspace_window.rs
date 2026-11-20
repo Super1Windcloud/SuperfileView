@@ -47,12 +47,6 @@ impl WorkspaceWindow {
         }
         if let Some(slot) = self.slots.get_mut(self.active) {
             slot.workspace = slot.view.read(cx).workspace_descriptor();
-            if slot.workspace.folders.is_empty()
-                && slot.workspace.name.is_none()
-                && slot.view.read(cx).telemetry_tab_count() > 0
-            {
-                slot.workspace.name = Some(superfile_services::locale::tr("Workspace"));
-            }
             slot.view
                 .update(cx, |view, cx| view.suspend_workspace(window, cx));
         }
@@ -165,17 +159,7 @@ impl WorkspaceWindow {
     }
 
     fn reveal_navigation(&self) {
-        let Some(active) = self.slots.get(self.active) else {
-            return;
-        };
-        if let Some(index) = self
-            .slots
-            .iter()
-            .filter(|slot| !slot.workspace.folders.is_empty() || slot.workspace.name.is_some())
-            .position(|slot| slot.workspace.id == active.workspace.id)
-        {
-            self.navigation_scroll.scroll_to_item(index);
-        }
+        self.navigation_scroll.scroll_to_item(self.active);
     }
 
     pub fn request_workspace_close(

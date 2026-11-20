@@ -11,9 +11,6 @@ pub(super) struct Segment {
     props: Vec<(&'static str, Property)>,
 }
 impl Workspace {
-    pub(crate) fn telemetry_tab_count(&self) -> usize {
-        self.tabs.len()
-    }
     pub(crate) fn usage_context(&self) -> Vec<(&'static str, Property)> {
         let mut props = vec![
             ("file_fullscreen", flag(self.file_fullscreen)),

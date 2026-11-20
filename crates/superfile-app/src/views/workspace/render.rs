@@ -262,16 +262,14 @@ impl Render for Workspace {
                 })
                 .w_full()
                 .h(px(nav_height))
+                .px_3()
                 .rounded(px(5.))
                 .justify_start()
                 .accessibility_label(superfile_services::locale::tr(label))
-                .child(
-                    h_flex()
-                        .w_full()
-                        .gap_2()
-                        .child(Icon::new(icon).size(px(16.)))
-                        .child(superfile_services::locale::tr(label)),
-                )
+                .child(super::workspaces::navigation_label(
+                    Icon::new(icon).size(px(16.)).flex_shrink_0(),
+                    superfile_services::locale::tr(label),
+                ))
         };
         let start = navigation(
             "start-navigation",

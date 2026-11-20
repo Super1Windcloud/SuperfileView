@@ -57,6 +57,9 @@ pub struct RecentWorkspace {
 impl RecentWorkspace {
     pub fn title(&self) -> String {
         self.name.clone().unwrap_or_else(|| {
+            if self.folders.is_empty() {
+                return crate::locale::tr("Workspace");
+            }
             self.folders
                 .iter()
                 .map(|path| {

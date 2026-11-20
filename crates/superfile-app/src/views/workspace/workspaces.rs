@@ -12,6 +12,19 @@ use gpui_kit::{
 };
 use superfile_services::preferences::RecentWorkspace;
 
+pub(super) fn navigation_label(icon: impl IntoElement, title: String) -> AnyElement {
+    let content = h_flex()
+        .id("navigation-label")
+        .w_full()
+        .min_w_0()
+        .gap_2()
+        .child(icon)
+        .child(div().flex_1().min_w_0().truncate().child(title));
+    #[cfg(test)]
+    let content = gpui_kit::test::TestSupportExt::test_support(content);
+    content.into_any_element()
+}
+
 impl Workspace {
     pub(crate) fn open_recent_path(
         &mut self,
@@ -219,9 +232,6 @@ impl Workspace {
                 host.read(cx)
                     .slots
                     .iter()
-                    .filter(|slot| {
-                        !slot.workspace.folders.is_empty() || slot.workspace.name.is_some()
-                    })
                     .map(|slot| {
                         // The current entity is already borrowed by render.
                         let view = if slot.view.entity_id() == cx.entity_id() {
@@ -304,44 +314,38 @@ impl Workspace {
                             .justify_start()
                             .bg(background)
                             .accessibility_label(title.clone())
-                            .child(
-                                h_flex()
-                                    .w_full()
-                                    .min_w_0()
-                                    .gap_3()
-                                    .child(if restoring {
-                                        crate::views::loading_icon(
-                                            SharedString::from(format!(
-                                                "workspace-loading-{}",
-                                                workspace.id
-                                            )),
-                                            px(16.),
-                                            superfile_services::locale::tr("Loading…"),
+                            .child(navigation_label(
+                                if restoring {
+                                    crate::views::loading_icon(
+                                        SharedString::from(format!(
+                                            "workspace-loading-{}",
+                                            workspace.id
+                                        )),
+                                        px(16.),
+                                        superfile_services::locale::tr("Loading…"),
+                                        cx,
+                                    )
+                                } else if superfile_services::remote::is_remote_id(&workspace.id) {
+                                    crate::views::connection_icon(
+                                        SharedString::from(format!(
+                                            "workspace-status-{}",
+                                            workspace.id
+                                        )),
+                                        crate::app::remote::workspace_is_connected(
+                                            &workspace.id,
                                             cx,
-                                        )
-                                    } else if superfile_services::remote::is_remote_id(
-                                        &workspace.id,
-                                    ) {
-                                        crate::views::connection_icon(
-                                            SharedString::from(format!(
-                                                "workspace-status-{}",
-                                                workspace.id
-                                            )),
-                                            crate::app::remote::workspace_is_connected(
-                                                &workspace.id,
-                                                cx,
-                                            ),
-                                            px(16.),
-                                            cx,
-                                        )
-                                    } else {
-                                        Icon::new(gpui_kit::assets::IconName::PanelsTopLeft)
-                                            .size(px(16.))
-                                            .flex_shrink_0()
-                                            .into_any_element()
-                                    })
-                                    .child(div().flex_1().min_w_0().truncate().child(title)),
-                            )
+                                        ),
+                                        px(16.),
+                                        cx,
+                                    )
+                                } else {
+                                    Icon::new(gpui_kit::assets::IconName::PanelsTopLeft)
+                                        .size(px(16.))
+                                        .flex_shrink_0()
+                                        .into_any_element()
+                                },
+                                title,
+                            ))
                             .on_click(cx.listener(move |view, _, window, cx| {
                                 view.select_workspace(id.clone(), window, cx)
                             })),

@@ -939,12 +939,51 @@ struct QuitSession(bool);
 impl Global for QuitSession {}
 
 #[cfg(test)]
-mod quit_tests {
+mod window_tests {
     use super::{NewFile, OpenWorkspaces, QuitSession, Workspace, request_quit};
     use gpui_kit::{
         AppContext, Bounds, KeyBinding, TestAppContext, WindowBounds, WindowOptions, px, size,
         test::TestWindowExt,
     };
+
+    #[gpui_kit::test]
+    fn unnamed_folderless_workspace_is_reachable_from_home(cx: &mut TestAppContext) {
+        let (view, handle) = cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::app::remote::init(Default::default(), cx);
+            cx.set_global(OpenWorkspaces::default());
+            super::open_detached_window(cx).unwrap()
+        });
+        cx.update_window(handle, |_, window, cx| {
+            assert!(view.read(cx).is_home());
+            let id = format!("workspace-{}", view.read(cx).workspace_descriptor().id);
+            window.render_frame(cx);
+            let row = window.find(id.clone());
+            assert_eq!(
+                row.label(),
+                Some(superfile_services::locale::tr("Workspace").as_str())
+            );
+            assert!(row.bounds().origin.y >= window.find("start-navigation").bounds().bottom());
+            assert_eq!(
+                window
+                    .within("start-navigation")
+                    .find("navigation-label")
+                    .bounds()
+                    .origin
+                    .x,
+                window
+                    .within(id.clone())
+                    .find("navigation-label")
+                    .bounds()
+                    .origin
+                    .x,
+            );
+            window.click(id, cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        assert!(cx.update(|cx| !view.read(cx).is_home()));
+    }
 
     #[gpui_kit::test]
     fn canceling_quit_in_another_window_keeps_previously_approved_drafts(cx: &mut TestAppContext) {
