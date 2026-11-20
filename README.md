@@ -76,6 +76,8 @@ Downloaded themes use the same home-relative `.superfile/themes/` directory on W
 Application artwork comes from `assets/branding/superfile-source.png`, the left document/magnifier icon in the supplied reference. Its [source and extraction prompt](assets/branding/icon-source.json) are recorded alongside it. Run `NODE_PATH=/path/to/node_modules node scripts/render-icons.mjs` with the optional `sharp` package to generate PNG, SVG, and Windows ICO assets; macOS also generates ICNS. Normal builds use the committed resources directly.
 On macOS, startup sets the Dock icon from the embedded ICNS, including direct `cargo run` launches without an `.app` bundle.
 
+For macOS file-association testing, build the separately identified **Superfile Debug.app** with `python3 scripts/package/macos/bundle.py --debug` and open the resulting bundle once. The picker reads the applications registered with Launch Services.
+
 ## Tag releases
 
 From the Superfile checkout, use `just` with Git, Rust, and `uv` (Python 3.11+):

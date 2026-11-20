@@ -76,6 +76,8 @@ cargo run --locked -p superfile -- 'C:\Users\name\Documents'
 应用图标源文件为 `assets/branding/superfile-source.png`，使用提供的左侧文件/放大镜图标。[来源与提取提示词](assets/branding/icon-source.json)随资源保存。通过 `NODE_PATH=/path/to/node_modules node scripts/render-icons.mjs` 可生成 PNG、SVG 和 Windows ICO；macOS 上还会生成 ICNS。该可选工具需要 `sharp`，正常构建直接使用已提交资源。
 macOS 启动时会从内嵌 ICNS 设置 Dock 图标，因此直接 `cargo run` 也能显示图标，无需先打包 `.app`。
 
+在 macOS 上测试默认打开应用时，执行 `python3 scripts/package/macos/bundle.py --debug`，再打开一次生成的 **Superfile Debug.app**。它使用独立的应用标识，下拉列表读取 Launch Services 登记的候选。
+
 ## Tag 自动发布
 
 在 Superfile 仓库使用 `just`、Git、Rust 和 `uv`（Python 3.11+）：

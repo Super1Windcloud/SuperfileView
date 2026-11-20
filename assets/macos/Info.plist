@@ -271,6 +271,7 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>public.comma-separated-values-text</string>
+				<string>org.libreoffice.csv-document</string>
 			</array>
 			<key>CFBundleTypeExtensions</key>
 			<array>

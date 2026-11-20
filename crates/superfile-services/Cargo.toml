@@ -23,7 +23,8 @@ harness = false
 
 [dependencies]
 gpui-updater-core = { version = "=0.4.4", default-features = false }
-hayro = "=0.9.0"
+hayro = "=0.7.1"
+pdfcraft-render = { git = "https://github.com/storytold/pdfcraft", rev = "b503b2e62dfeec5598f344e4e287d9c9cbdb34fa" }
 plist-parser = { package = "plist", version = "=1.10.4", default-features = false, features = ["enable_unstable_features_that_may_break_with_minor_version_bumps"] }
 memmap2 = "0.9"
 dirs = "6"

@@ -10,6 +10,7 @@
 *.tiff binary
 *.exr binary
 *.hdr binary
+*.pdf binary
 *.wasm binary
 *.sqlite3 binary
 *.db binary

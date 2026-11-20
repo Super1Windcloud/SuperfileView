@@ -10,13 +10,19 @@ use std::{
 mod native;
 
 pub(super) fn offer_type(path: &Path, _: &str) -> Result<Option<(String, Application)>> {
-    const BUNDLE_ID: &str = "app.superfile.desktop";
-
     let executable = std::env::current_exe()?.canonicalize()?;
     let Some(bundle) = executable.ancestors().find(|path| {
         path.extension().is_some_and(|extension| extension == "app")
             && executable.starts_with(path.join("Contents/MacOS"))
     }) else {
+        return Ok(None);
+    };
+    let bundle_info = read_application_info(bundle, &Cancellation::default())?;
+    let Some(bundle_id) = bundle_info
+        .as_dictionary()
+        .and_then(|info| info.get("CFBundleIdentifier"))
+        .and_then(Value::as_string)
+    else {
         return Ok(None);
     };
     let Some(identifier) = native::file_type(path) else {
@@ -25,14 +31,14 @@ pub(super) fn offer_type(path: &Path, _: &str) -> Result<Option<(String, Applica
     if matches!(
         identifier.as_str(),
         "public.data" | "public.item" | "public.content"
-    ) || native::handler(&identifier).as_deref() == Some(BUNDLE_ID)
+    ) || native::handler(&identifier).as_deref() == Some(bundle_id)
         || !native::handlers(&identifier)
             .iter()
-            .any(|id| id == BUNDLE_ID)
+            .any(|id| id == bundle_id)
     {
         return Ok(None);
     }
-    let candidate = application(BUNDLE_ID.into(), &Cancellation::default());
+    let candidate = application(bundle_id.into(), &Cancellation::default());
     if candidate
         .path
         .as_ref()
@@ -403,6 +409,12 @@ mod tests {
             .filter_map(Value::as_dictionary)
             .find(|doc| strings(doc.get("LSItemContentTypes")).contains(&identifier))
             .expect("Superfile must register the native CSV type");
+        for uti in [
+            "public.comma-separated-values-text",
+            "org.libreoffice.csv-document",
+        ] {
+            assert!(strings(csv.get("LSItemContentTypes")).contains(&uti.to_owned()));
+        }
         assert!(strings(csv.get("CFBundleTypeExtensions")).contains(&"csv".into()));
         assert_eq!(csv["CFBundleTypeRole"].as_string(), Some("Viewer"));
         assert_eq!(csv["LSHandlerRank"].as_string(), Some("Alternate"));
