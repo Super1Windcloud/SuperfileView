@@ -1,5 +1,7 @@
 //! Extract on the target volume, validate the payload, and swap with rollback.
 use super::*;
+#[cfg(windows)]
+mod scoop;
 #[cfg(test)]
 mod tests;
 use gpui_updater_core::install::{OwnershipHints, ownership};
@@ -25,6 +27,8 @@ pub struct PreparedUpdate {
     pub artifact: PathBuf,
     pub install_blocker: Option<String>,
     version: Version,
+    #[cfg(windows)]
+    scoop: Option<scoop::Installation>,
 }
 
 impl PreparedUpdate {
@@ -81,6 +85,10 @@ fn blocker(target: &Path, allow_install: bool) -> Option<String> {
         return Some("Install the Superfile app bundle before using in-app updates.".into());
     }
     let owner = ownership(target, &OwnershipHints::new().query_package_database(false));
+    #[cfg(windows)]
+    if scoop::is_scoop(&owner) && scoop::Installation::inspect(target).is_ok() {
+        return None;
+    }
     if !owner.is_self_update() {
         return Some(owner.update_command().unwrap_or_else(|| {
             "Use the package manager that installed Superfile to update it.".into()
@@ -116,11 +124,26 @@ fn prepare_at(
 ) -> Result<PreparedUpdate> {
     cancelled(cancel)?;
     let install_blocker = blocker(&target, allow_install);
+    #[cfg(windows)]
+    let scoop = if install_blocker.is_none()
+        && scoop::is_scoop(&ownership(
+            &target,
+            &OwnershipHints::new().query_package_database(false),
+        )) {
+        Some(scoop::Installation::inspect(&target)?)
+    } else {
+        None
+    };
     let parent = if install_blocker.is_none() {
-        target
+        let parent = target
             .parent()
             .context("Install target has no parent directory")?
-            .to_owned()
+            .to_owned();
+        #[cfg(windows)]
+        let parent = scoop
+            .as_ref()
+            .map_or(parent, |install| install.root.clone());
+        parent
     } else {
         crate::platform::cache_directory()?.join("updates")
     };
@@ -136,6 +159,10 @@ fn prepare_at(
     extract(artifact, &contents, cancel)?;
     let payload = payload(&contents, &release.asset.name)?;
     validate_payload(&payload, &release.version)?;
+    #[cfg(windows)]
+    if let Some(install) = &scoop {
+        install.write_metadata(&contents, release)?;
+    }
     cancelled(cancel)?;
     Ok(PreparedUpdate {
         download: None,
@@ -145,6 +172,8 @@ fn prepare_at(
         artifact: artifact.to_owned(),
         install_blocker,
         version: release.version.clone(),
+        #[cfg(windows)]
+        scoop,
     })
 }
 
@@ -343,6 +372,11 @@ pub(super) fn commit(update: &PreparedUpdate) -> Result<Installed> {
         running_root()? == update.target,
         "Application install location changed"
     );
+    #[cfg(windows)]
+    if let Some(install) = &update.scoop {
+        validate_payload(&update.payload, &update.version)?;
+        return install.commit(update.staging.path(), &update.version);
+    }
     ensure!(
         update.staging.path().parent() == update.target.parent(),
         "Update staging must be on the target volume"

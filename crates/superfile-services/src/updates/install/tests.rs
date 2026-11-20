@@ -13,7 +13,7 @@ fn tar_entry(
     builder.append_data(&mut header, name, bytes).unwrap();
 }
 
-fn archive(root: &Path, name: &str) -> PathBuf {
+pub(super) fn archive(root: &Path, name: &str) -> PathBuf {
     let path = root.join(name);
     if cfg!(windows) {
         let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
