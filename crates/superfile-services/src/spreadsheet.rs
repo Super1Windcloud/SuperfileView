@@ -22,6 +22,7 @@ pub struct Spreadsheet {
     pub database: PathBuf,
     pub cache: PathBuf,
     pub information: String,
+    pub worksheets: usize,
     _directory: tempfile::TempDir,
 }
 fn connection(path: &Path) -> Result<Connection> {
@@ -323,6 +324,7 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
     Ok(Some(Spreadsheet {
         database,
         cache: cache_path,
+        worksheets: count,
         information: crate::locale::tr(
             "Read-only worksheet cells · Saved formula results · Select a worksheet, page through cells, or double-click a value to read it in full.",
         ),

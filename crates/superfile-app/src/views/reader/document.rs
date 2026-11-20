@@ -345,6 +345,20 @@ impl super::contract::ReaderView for super::surface::SurfaceEntity<DocumentReade
     }
 }
 impl super::surface::ReaderSurface for super::surface::SurfaceEntity<DocumentReader> {
+    fn file_detail(&self, cx: &App) -> Option<String> {
+        let view = self.read(cx);
+        if let Some(pdf) = &view.pdf {
+            let pages = pdf.read(cx).page_count();
+            return (pages > 0).then(|| super::statistics::count_label("Pages", pages));
+        }
+        if let Some(PreparedDocument::Workbook(book)) = &view.prepared {
+            return Some(super::statistics::count_label(
+                "Worksheets",
+                book.worksheets,
+            ));
+        }
+        None
+    }
     fn can_zoom_text(&self, cx: &App) -> bool {
         self.read(cx).state.is_some()
     }

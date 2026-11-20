@@ -235,7 +235,14 @@ impl ReaderView for OutlineSurface {
     }
 }
 
-impl super::surface::ReaderSurface for OutlineSurface {}
+impl super::surface::ReaderSurface for OutlineSurface {
+    fn file_detail(&self, cx: &App) -> Option<String> {
+        Some(super::statistics::count_label(
+            "Nodes",
+            self.0.read(cx).document.nodes.len(),
+        ))
+    }
+}
 
 #[cfg(test)]
 mod tests {

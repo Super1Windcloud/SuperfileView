@@ -322,11 +322,16 @@ impl Reader {
     }
 
     pub(crate) fn refresh_in_place(
-        &self,
+        &mut self,
         content: &superfile_services::documents::Content,
         cx: &mut App,
     ) -> bool {
-        matches!(&self.renderer, Renderer::Surface(view) if view.refresh_in_place(content, cx))
+        let refreshed =
+            matches!(&self.renderer, Renderer::Surface(view) if view.refresh_in_place(content, cx));
+        if refreshed {
+            self.document.advance_revision();
+        }
+        refreshed
     }
 
     pub fn render(&mut self, open: OpenLink, cx: &mut App) -> AnyElement {

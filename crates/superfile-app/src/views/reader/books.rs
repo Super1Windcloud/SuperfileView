@@ -510,6 +510,17 @@ impl crate::views::reader::contract::ReaderView for BookSurface {
     }
 }
 impl super::surface::ReaderSurface for BookSurface {
+    fn file_detail(&self, cx: &App) -> Option<String> {
+        let book = &self.view.read(cx).book;
+        Some(super::statistics::count_label(
+            if book.format == superfile_core::books::Format::Comic {
+                "Pages"
+            } else {
+                "Chapters"
+            },
+            book.chapters.len(),
+        ))
+    }
     fn can_zoom_text(&self, cx: &App) -> bool {
         self.view.read(cx).view.read(cx).has_content()
     }

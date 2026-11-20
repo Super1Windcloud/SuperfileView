@@ -11,12 +11,13 @@ use superfile_services::documents::{ReadFailure, ReadFailureKind};
 use superfile_services::limits as reader_limits;
 
 pub(super) struct ImageReader {
+    dimensions: Option<(f64, f64)>,
     pages: Vec<Entity<PreparedImage>>,
     page: Entity<usize>,
     _subscriptions: Vec<Subscription>,
 }
 impl ImageReader {
-    pub fn new(pages: Vec<Vec<u8>>, cx: &mut App) -> Self {
+    pub fn new(pages: Vec<Vec<u8>>, dimensions: Option<(f64, f64)>, cx: &mut App) -> Self {
         let pages: Vec<_> = pages
             .into_iter()
             .map(|bytes| cx.new(|cx| PreparedImage::new(bytes, cx)))
@@ -26,6 +27,7 @@ impl ImageReader {
             .map(|page| cx.observe(page, |_, cx| cx.refresh_windows()))
             .collect();
         Self {
+            dimensions,
             pages,
             page: cx.new(|_| 0),
             _subscriptions: subscriptions,
@@ -387,6 +389,7 @@ enum GifSource {
 /// Keeps one displayed frame and two small, byte-bounded lookahead batches.
 /// Hidden animations release decoded pixels; disk-backed input can be replayed on activation.
 pub(super) struct GifReader {
+    dimensions: Option<(f64, f64)>,
     source: GifSource,
     frame: Option<ManagedFrame>,
     error: Option<String>,
@@ -396,8 +399,14 @@ pub(super) struct GifReader {
     task: Option<Task<()>>,
 }
 impl GifReader {
-    pub fn from_file(path: std::path::PathBuf, cx: &mut Context<Self>) -> Self {
-        Self::new(GifSource::File(path), cx)
+    pub fn from_file(
+        path: std::path::PathBuf,
+        dimensions: Option<(f64, f64)>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let mut reader = Self::new(GifSource::File(path), cx);
+        reader.dimensions = dimensions;
+        reader
     }
     pub fn from_url(url: url::Url, cx: &mut Context<Self>) -> Self {
         Self::new(GifSource::Url(url), cx)
@@ -413,6 +422,7 @@ impl GifReader {
         .detach();
         Self {
             source,
+            dimensions: None,
             frame: None,
             error: None,
             input: None,
@@ -810,7 +820,16 @@ impl crate::views::reader::contract::ReaderView for ImageReader {
         }
     }
 }
-impl super::surface::ReaderSurface for ImageReader {}
+impl super::surface::ReaderSurface for ImageReader {
+    fn file_detail(&self, _cx: &App) -> Option<String> {
+        self.dimensions
+            .map(|(w, h)| format!("{w} × {h} px"))
+            .or_else(|| {
+                (self.pages.len() > 1)
+                    .then(|| super::statistics::count_label("Pages", self.pages.len()))
+            })
+    }
+}
 impl crate::views::reader::contract::CopyImage for ImageReader {
     fn copy_image(&self, cx: &mut App) -> bool {
         if let Some(page) = self.pages.get(*self.page.read(cx)) {
@@ -833,7 +852,13 @@ impl crate::views::reader::contract::ReaderView for super::surface::SurfaceEntit
         self.update(cx, |view, cx| view.set_active(active, cx));
     }
 }
-impl super::surface::ReaderSurface for super::surface::SurfaceEntity<GifReader> {}
+impl super::surface::ReaderSurface for super::surface::SurfaceEntity<GifReader> {
+    fn file_detail(&self, cx: &App) -> Option<String> {
+        self.read(cx)
+            .dimensions
+            .map(|(w, h)| format!("{w} × {h} px"))
+    }
+}
 impl crate::views::reader::contract::ReaderView for UnavailableReader {
     fn kind(&self) -> &'static str {
         "unavailable"

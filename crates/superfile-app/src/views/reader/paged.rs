@@ -85,6 +85,15 @@ impl PagedReader {
         reader.account();
         reader
     }
+    pub(super) fn byte_range_label(&self) -> Option<String> {
+        let page = &self.page;
+        (page.source.binary && page.end > page.start).then(|| {
+            superfile_services::locale::tr("Bytes {first}–{last}")
+                .replace("{first}", &page.start.to_string())
+                .replace("{last}", &(page.end - 1).to_string())
+        })
+    }
+
     fn set_text_scale(&mut self, scale: f32) {
         if self.text_scale == scale {
             return;

@@ -675,7 +675,14 @@ impl ReaderView for GraphSurface {
     }
 }
 
-impl super::surface::ReaderSurface for GraphSurface {}
+impl super::surface::ReaderSurface for GraphSurface {
+    fn file_detail(&self, cx: &App) -> Option<String> {
+        Some(super::statistics::count_label(
+            "Sheets",
+            self.0.read(cx).document.sheets.len(),
+        ))
+    }
+}
 
 #[cfg(test)]
 mod tests {

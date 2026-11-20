@@ -751,6 +751,12 @@ impl crate::views::reader::contract::ReaderView for super::surface::SurfaceEntit
     }
 }
 impl super::surface::ReaderSurface for super::surface::SurfaceEntity<SqliteReader> {
+    fn file_detail(&self, cx: &App) -> Option<String> {
+        self.read(cx)
+            .database
+            .as_ref()
+            .map(|db| super::statistics::count_label("Tables / Views", db.tables.len()))
+    }
     fn refresh_request(
         &self,
         path: &std::path::Path,

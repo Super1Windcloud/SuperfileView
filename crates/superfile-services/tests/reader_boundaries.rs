@@ -392,6 +392,7 @@ fn wide_qoi_streams_to_a_preview_instead_of_rejecting_the_source_scanline() -> R
     file.write_all(&[0, 0, 0, 0, 0, 0, 0, 1])?;
     drop(file);
     let preview = media::read_image(&path)?;
+    assert_eq!(preview.dimensions, Some((f64::from(width), 1.0)));
     let image = image::load_from_memory(&preview.png)?;
     assert!(image.width() > 0 && image.width() <= limits::IMAGE_PREVIEW_EDGE);
     assert_eq!(image.height(), 1);

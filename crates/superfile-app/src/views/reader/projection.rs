@@ -54,6 +54,15 @@ impl Projection {
             error: None,
         })
     }
+    pub(super) fn table_detail(&self, cx: &App) -> Option<String> {
+        if let View::Table { view, .. } = &self.view
+            && self.visible
+            && self.error.is_none()
+        {
+            return view.read(cx).page_detail(cx);
+        }
+        None
+    }
     pub fn table_format(&self) -> Option<TableFormat> {
         match self.view {
             View::Table { format, .. } => Some(format),

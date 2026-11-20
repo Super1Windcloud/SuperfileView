@@ -47,12 +47,15 @@ impl DocumentSession {
     }
     pub fn mark_saved(&mut self, snapshot: ContentSnapshot) {
         self.snapshot = snapshot;
+        self.advance_revision();
+    }
+    pub fn advance_revision(&mut self) {
         self.version.revision += 1;
     }
     pub fn inherit_identity(&mut self, previous: &Self) {
         self.remote = previous.remote.clone();
         self.version = previous.version;
-        self.version.revision += 1;
+        self.advance_revision();
         self.recovery_key.clone_from(&previous.recovery_key);
     }
 }

@@ -386,7 +386,14 @@ impl crate::views::reader::contract::ReaderView for super::surface::SurfaceEntit
         }
     }
 }
-impl super::surface::ReaderSurface for super::surface::SurfaceEntity<ArchiveReader> {}
+impl super::surface::ReaderSurface for super::surface::SurfaceEntity<ArchiveReader> {
+    fn file_detail(&self, cx: &App) -> Option<String> {
+        Some(super::statistics::count_label(
+            "Entries",
+            self.read(cx).archive.entries.len(),
+        ))
+    }
+}
 impl crate::views::reader::contract::ArchiveControls
     for super::surface::SurfaceEntity<ArchiveReader>
 {

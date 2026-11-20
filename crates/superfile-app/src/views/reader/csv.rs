@@ -70,6 +70,10 @@ impl CsvTable {
         }
         table
     }
+    pub(super) fn page_detail(&self, cx: &App) -> Option<String> {
+        let columns = self.view.read(cx).page.columns;
+        (columns > 0).then(|| super::statistics::count_label("Columns in preview", columns))
+    }
     pub fn input_snapshot(&self) -> Option<&Arc<TextSnapshot>> {
         match &self.source {
             Some(Source::Text(text) | Source::GeoText(text)) => Some(text),

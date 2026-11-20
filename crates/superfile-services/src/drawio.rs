@@ -513,6 +513,7 @@ pub fn read(path: &Path, cancel: &Cancellation) -> Result<ImageDocument> {
         png: Vec::new(),
         pages,
         gif: false,
+        dimensions: None,
         fingerprint: format!("drawio:{}:{:?}", stamp.len(), stamp.modified().ok()),
     })
 }

@@ -16,6 +16,7 @@ pub struct ImageDocument {
     pub png: Vec<u8>,
     pub fingerprint: String,
     pub gif: bool,
+    pub dimensions: Option<(f64, f64)>,
     pub pages: Vec<Vec<u8>>,
 }
 pub fn supports(path: &Path) -> bool {
@@ -27,22 +28,28 @@ pub fn read_image(path: &Path) -> Result<ImageDocument> {
         .is_some_and(|ext| ext.eq_ignore_ascii_case("gif"))
     {
         let stamp = std::fs::metadata(path)?;
-        GifPlayback::from_file(path.to_path_buf())?;
+        let dimensions = GifPlayback::from_file(path.to_path_buf())?.logical;
         return Ok(ImageDocument {
             path: std::path::absolute(path)?,
             png: Vec::new(),
             fingerprint: format!("gif:{}:{:?}", stamp.len(), stamp.modified().ok()),
             gif: true,
+            dimensions: Some((dimensions.0.into(), dimensions.1.into())),
             pages: Vec::new(),
         });
     }
     let stamp = std::fs::metadata(path)?;
-    let png = crate::inline_images::thumbnail_png(path, reader_limits::IMAGE_PREVIEW_EDGE)?;
+    let (png, dimensions) = crate::inline_images::thumbnail_with_dimensions(
+        path,
+        reader_limits::IMAGE_PREVIEW_EDGE,
+        &crate::work::Cancellation::default(),
+    )?;
     Ok(ImageDocument {
         path: std::path::absolute(path)?,
         png,
         fingerprint: format!("image:{}:{:?}", stamp.len(), stamp.modified().ok()),
         gif: false,
+        dimensions: Some(dimensions),
         pages: Vec::new(),
     })
 }

@@ -5,12 +5,6 @@ use std::{
     io::{BufReader, Read, Write},
     path::Path,
 };
-pub(crate) fn prepare(
-    path: &Path,
-    cancel: &crate::work::Cancellation,
-) -> Result<tempfile::NamedTempFile> {
-    prepare_with_size(path, cancel).map(|(file, _)| file)
-}
 pub(crate) fn prepare_with_size(
     path: &Path,
     cancel: &crate::work::Cancellation,

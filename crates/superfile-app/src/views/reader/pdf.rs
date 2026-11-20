@@ -16,6 +16,9 @@ pub(super) struct PdfReader {
     error: Option<String>,
 }
 impl PdfReader {
+    pub(super) fn page_count(&self) -> usize {
+        self.pages
+    }
     pub fn new(path: PathBuf, cx: &mut Context<Self>) -> Self {
         let mut view = Self {
             path,

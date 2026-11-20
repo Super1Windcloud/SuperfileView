@@ -352,6 +352,11 @@ mod tests {
                 |window, cx| {
                     cx.new(|cx| {
                         let mut workspace = Workspace::new(None, window, cx);
+                        workspace.file_statistics = cx.new(|_| {
+                            crate::views::reader::statistics::FileStatistics::new(
+                                superfile_services::work::scheduler::Scheduler::from_policy(),
+                            )
+                        });
                         for (name, text) in
                             [("menu.json", "{\"saved\":true}"), ("menu.txt", "Text")]
                         {
@@ -587,6 +592,56 @@ mod tests {
             view.update(cx, |workspace, cx| workspace.show_home(cx));
             window.render_frame(cx);
             assert!(window.try_find("file-statistics").is_none());
+        })
+        .unwrap();
+    }
+
+    #[gpui_kit::test]
+    fn document_footer_switches_between_non_text_readers(cx: &mut TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("image.png");
+        std::fs::write(
+            &path,
+            include_bytes!("../../../../../assets/file-icons/document.png"),
+        )
+        .unwrap();
+        let bytes = path.metadata().unwrap().len();
+        let picture = superfile_services::documents::read_content(&path).unwrap();
+        let (handle, view) = open(cx);
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |workspace, cx| {
+                workspace
+                    .tabs
+                    .push(Reader::from_content(picture, window, cx));
+                workspace.activate_tab(workspace.tabs.len() - 1, window, cx);
+            });
+            window.render_frame(cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(
+                window.find("file-statistics").label(),
+                Some(format!("PNG · 48 × 48 px · {bytes} B").as_str())
+            );
+            view.update(cx, |workspace, cx| {
+                let missing = directory.path().join("missing.pdf");
+                workspace.tabs.push(Reader::unavailable(
+                    missing,
+                    "missing".to_owned().into(),
+                    window,
+                    cx,
+                ));
+                workspace.activate_tab(workspace.tabs.len() - 1, window, cx);
+            });
+            window.render_frame(cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(window.find("file-statistics").label(), Some("PDF"));
         })
         .unwrap();
     }

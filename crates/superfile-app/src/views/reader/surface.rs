@@ -12,6 +12,9 @@ impl<T> std::ops::Deref for SurfaceEntity<T> {
 }
 
 pub(super) trait ReaderSurface: crate::views::reader::contract::ReaderView {
+    fn file_detail(&self, _cx: &App) -> Option<String> {
+        None
+    }
     fn can_zoom_text(&self, _cx: &App) -> bool {
         false
     }

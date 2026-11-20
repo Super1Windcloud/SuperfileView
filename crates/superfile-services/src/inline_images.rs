@@ -10,6 +10,7 @@ pub fn from_file_cancellable(
     let png = thumbnail_png_cancellable(path, reader_limits::INLINE_IMAGE_PREVIEW_EDGE, cancel)?;
     crate::media::decode_png(&png, cancel)
 }
+#[cfg(test)]
 pub(crate) fn thumbnail_png(path: &Path, max_edge: u32) -> Result<Vec<u8>> {
     thumbnail_png_cancellable(path, max_edge, &Cancellation::default())
 }
@@ -18,13 +19,23 @@ pub(crate) fn thumbnail_png_cancellable(
     max_edge: u32,
     cancel: &Cancellation,
 ) -> Result<Vec<u8>> {
+    thumbnail_with_dimensions(path, max_edge, cancel).map(|(png, _)| png)
+}
+pub(crate) fn thumbnail_with_dimensions(
+    path: &Path,
+    max_edge: u32,
+    cancel: &Cancellation,
+) -> Result<(Vec<u8>, (f64, f64))> {
     cancel.check()?;
     if path
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("qoi"))
     {
-        let converted = crate::qoi::prepare(path, cancel)?;
-        return thumbnail_png_cancellable(converted.path(), max_edge, cancel);
+        let (converted, size) = crate::qoi::prepare_with_size(path, cancel)?;
+        return Ok((
+            thumbnail_png_cancellable(converted.path(), max_edge, cancel)?,
+            (size.0.into(), size.1.into()),
+        ));
     }
     if path
         .extension()
@@ -59,7 +70,7 @@ pub(crate) fn thumbnail_png_cancellable(
             &mut pixmap.as_mut(),
         );
         cancel.check()?;
-        return Ok(pixmap.encode_png()?);
+        return Ok((pixmap.encode_png()?, size));
     }
     let (width, height) = reader.into_dimensions()?;
     ensure!(width > 0 && height > 0, "Invalid image dimensions");
@@ -77,7 +88,11 @@ pub(crate) fn thumbnail_png_cancellable(
     encode_thumbnail(image, width, height, max_edge, cancel)
 }
 
-fn thumbnail_png_from_bytes(bytes: &[u8], max_edge: u32, cancel: &Cancellation) -> Result<Vec<u8>> {
+fn thumbnail_png_from_bytes(
+    bytes: &[u8],
+    max_edge: u32,
+    cancel: &Cancellation,
+) -> Result<(Vec<u8>, (f64, f64))> {
     cancel.check()?;
     let reader = image::ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
     let (width, height) = reader.into_dimensions()?;
@@ -102,7 +117,7 @@ fn encode_thumbnail(
     height: u32,
     max_edge: u32,
     cancel: &Cancellation,
-) -> Result<Vec<u8>> {
+) -> Result<(Vec<u8>, (f64, f64))> {
     let thumbnail = if width <= max_edge && height <= max_edge {
         image
     } else {
@@ -117,7 +132,7 @@ fn encode_thumbnail(
     let mut output = Cursor::new(Vec::new());
     thumbnail.write_to(&mut output, image::ImageFormat::Png)?;
     cancel.check()?;
-    Ok(output.into_inner())
+    Ok((output.into_inner(), (width.into(), height.into())))
 }
 
 fn extract_icns_png(bytes: &[u8]) -> Result<Vec<u8>> {

@@ -223,14 +223,16 @@ impl Reader {
         cx: &mut App,
     ) -> Self {
         let renderer = if document.gif {
-            Renderer::entity(cx.new(|cx| GifReader::from_file(document.path.clone(), cx)))
+            Renderer::entity(
+                cx.new(|cx| GifReader::from_file(document.path.clone(), document.dimensions, cx)),
+            )
         } else {
             let pages = if document.pages.is_empty() {
                 vec![document.png]
             } else {
                 document.pages
             };
-            Renderer::surface(ImageReader::new(pages, cx))
+            Renderer::surface(ImageReader::new(pages, document.dimensions, cx))
         };
         Self {
             active: std::cell::Cell::new(None),
