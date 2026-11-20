@@ -14,6 +14,96 @@ use std::{
 };
 use superfile_core::DirectoryEntry;
 
+/// SFTP uses POSIX paths even when the client uses Windows paths for its cache.
+pub fn is_absolute_path(path: &Path) -> bool {
+    path.as_os_str().as_encoded_bytes().starts_with(b"/")
+}
+
+pub fn join_path(parent: &Path, child: &Path) -> PathBuf {
+    if is_absolute_path(child) || parent.as_os_str().is_empty() {
+        return child.to_owned();
+    }
+    let mut result = parent.as_os_str().to_owned();
+    if !result.as_encoded_bytes().ends_with(b"/") {
+        result.push("/");
+    }
+    result.push(child);
+    PathBuf::from(result)
+}
+
+fn cache_path(root: &Path, path: &Path) -> Result<PathBuf> {
+    ensure!(is_absolute_path(path), "Remote path must be absolute");
+    let mut cache = root.to_owned();
+    for component in path.components() {
+        match component {
+            Component::RootDir => {}
+            Component::Normal(name) => {
+                #[cfg(windows)]
+                {
+                    let name = name.to_str().context("Invalid remote filename")?;
+                    let stem = name
+                        .split('.')
+                        .next()
+                        .unwrap_or("")
+                        .trim_end()
+                        .to_ascii_uppercase();
+                    ensure!(
+                        !name.ends_with([' ', '.'])
+                            && !name.contains([':', '*', '?', '"', '<', '>', '|'])
+                            && !name.chars().any(char::is_control)
+                            && !matches!(
+                                stem.as_str(),
+                                "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+                            )
+                            && !stem
+                                .strip_prefix("COM")
+                                .or_else(|| stem.strip_prefix("LPT"))
+                                .is_some_and(|n| n.len() == 1 && n.as_bytes()[0].is_ascii_digit()
+                                    || matches!(n, "¹" | "²" | "³")),
+                        "Remote filename cannot be cached on Windows"
+                    );
+                }
+                cache.push(name);
+            }
+            _ => anyhow::bail!("Invalid remote path"),
+        }
+    }
+    Ok(cache)
+}
+
+fn document_url(path: &Path) -> Result<url::Url> {
+    #[cfg(unix)]
+    return url::Url::from_file_path(path)
+        .map_err(|_| anyhow::anyhow!("Invalid remote document path"));
+    #[cfg(windows)]
+    {
+        let mut url = url::Url::parse("file:///")?;
+        let mut segments = url.path_segments_mut().expect("file URL is hierarchical");
+        for component in path.components() {
+            if let Component::Normal(name) = component {
+                segments.push(name.to_str().context("Invalid remote filename")?);
+            }
+        }
+        drop(segments);
+        Ok(url)
+    }
+}
+
+fn resource_path(url: url::Url) -> Option<PathBuf> {
+    if url.scheme() != "file" || url.host_str().is_some() {
+        return None;
+    }
+    #[cfg(unix)]
+    return url.to_file_path().ok();
+    #[cfg(windows)]
+    {
+        let path = percent_encoding::percent_decode_str(url.path())
+            .decode_utf8()
+            .ok()?;
+        (!path.contains(['\\', '\0'])).then(|| PathBuf::from(path.as_ref()))
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Connection {
     pub id: String,
@@ -262,23 +352,14 @@ impl Session {
         Ok(crate::workspace::SearchPage { paths, more: false })
     }
     pub fn cache_path(&self, path: &Path) -> Result<PathBuf> {
-        ensure!(path.is_absolute(), "Remote path must be absolute");
-        let mut cache = self.cache.path().to_path_buf();
-        for component in path.components() {
-            match component {
-                Component::RootDir => {}
-                Component::Normal(name) => cache.push(name),
-                _ => anyhow::bail!("Invalid remote path"),
-            }
-        }
-        Ok(cache)
+        cache_path(self.cache.path(), path)
     }
     pub fn remote_path(&self, cached: &Path) -> Option<PathBuf> {
         let relative = cached.strip_prefix(self.cache.path()).ok()?;
         let mut path = PathBuf::from("/");
         for component in relative.components() {
             match component {
-                Component::Normal(name) => path.push(name),
+                Component::Normal(name) => path = join_path(&path, Path::new(name)),
                 Component::ParentDir => {
                     path.pop();
                 }
@@ -323,17 +404,13 @@ impl Session {
             let html =
                 extension.eq_ignore_ascii_case("html") || extension.eq_ignore_ascii_case("htm");
             if html || document.kind == superfile_core::DocumentKind::Markdown {
-                let base = url::Url::from_file_path(path)
-                    .map_err(|_| anyhow::anyhow!("Invalid remote document path"))?;
+                let base = document_url(path)?;
                 for uri in crate::markup_images::image_uris(&document.text, html) {
                     cancel.check()?;
                     let Ok(url) = base.join(&uri) else {
                         continue;
                     };
-                    if url.scheme() != "file" || url.host_str().is_some() {
-                        continue;
-                    }
-                    if let Ok(resource) = url.to_file_path()
+                    if let Some(resource) = resource_path(url)
                         && resource != path
                     {
                         self.read_dependency(&resource, &mut version, cancel);
@@ -362,5 +439,29 @@ impl Session {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+
+    #[test]
+    fn remote_paths_keep_posix_separators_and_stay_inside_the_cache() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let file = join_path(Path::new("/home/user"), Path::new("文 #1.md"));
+        assert_eq!(file.as_os_str(), "/home/user/文 #1.md");
+        assert_eq!(
+            cache_path(root.path(), &file)?,
+            root.path().join("home").join("user").join("文 #1.md")
+        );
+        assert!(cache_path(root.path(), Path::new("/../escape")).is_err());
+        assert!(cache_path(root.path(), Path::new("relative")).is_err());
+        let url = document_url(&file)?.join("../images/%23one.png")?;
+        assert_eq!(
+            resource_path(url).as_deref(),
+            Some(Path::new("/home/images/#one.png"))
+        );
+        Ok(())
     }
 }

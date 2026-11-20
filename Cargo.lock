@@ -7220,6 +7220,7 @@ version = "0.1.2"
 dependencies = [
  "anyhow",
  "arboard",
+ "ashpd",
  "embed-resource",
  "gpui-kit",
  "image",
@@ -7280,6 +7281,7 @@ dependencies = [
  "notify",
  "object",
  "open",
+ "percent-encoding",
  "plist",
  "png 0.17.16",
  "quick-xml 0.42.0",

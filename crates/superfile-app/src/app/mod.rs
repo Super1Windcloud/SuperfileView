@@ -30,7 +30,7 @@ pub(crate) mod theme;
 pub(crate) mod updates;
 pub(crate) mod workspace_sessions;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use gpui_kit::*;
 
 use crate::views::workspace::Workspace;
@@ -335,22 +335,10 @@ pub fn run() -> Result<()> {
     }
     #[cfg(feature = "reader-measurements")]
     let startup = reader_measurement::StartupMeasurement::start();
-    let mut arguments = std::env::args_os().skip(1);
-    let path = arguments.next().map(std::path::PathBuf::from);
-    #[cfg(target_os = "linux")]
-    let path = path.map(|path| {
-        path.to_str()
-            .filter(|value| value.starts_with("file://"))
-            .and_then(|value| url::Url::parse(value).ok())
-            .and_then(|url| url.to_file_path().ok())
-            .unwrap_or(path)
-    });
-    if arguments.next().is_some() {
-        bail!("Usage: superfile [file-or-folder]");
-    }
-    if path.as_deref() == Some(std::path::Path::new("--help")) {
+    let arguments: Vec<_> = std::env::args_os().skip(1).collect();
+    if arguments.as_slice() == [std::ffi::OsStr::new("--help")] {
         println!(
-            "Usage: superfile [file-or-folder]\n\nOpen a folder or UTF-8 file in the viewer and basic text editor."
+            "Usage: superfile [file-or-folder ...]\n\nOpen a folder or UTF-8 file in the viewer and basic text editor."
         );
         #[cfg(feature = "reader-measurements")]
         println!("Measurement build: superfile --measure-source-reader fixture.txt");
@@ -358,7 +346,11 @@ pub fn run() -> Result<()> {
     }
 
     use superfile_services::instance::Launch;
-    let Launch::Primary(instance, path) = superfile_services::instance::launch(path)? else {
+    let urls = arguments
+        .iter()
+        .map(|value| superfile_services::instance::launch_url(std::path::Path::new(value)))
+        .collect::<Result<Vec<_>>>()?;
+    let Launch::Primary(instance, mut urls) = superfile_services::instance::launch(urls)? else {
         return Ok(());
     };
     superfile_services::diagnostics::initialize()?;
@@ -636,8 +628,20 @@ pub fn run() -> Result<()> {
         })
         .detach();
 
-        let requested = std::mem::take(&mut *pending.borrow_mut());
-        updates::start_application(path, requested, cx);
+        // Preserve the original cold-start workspace behavior for a lone local path.
+        let local = if urls.len() == 1 && pending.borrow().is_empty() {
+            url::Url::parse(&urls[0])
+                .ok()
+                .filter(|url| url.scheme() == "file")
+                .and_then(|url| url.to_file_path().ok())
+        } else {
+            None
+        };
+        if local.is_some() {
+            urls.clear();
+        }
+        urls.append(&mut pending.borrow_mut());
+        updates::start_application(local, urls, cx);
     });
     Ok(())
 }

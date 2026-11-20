@@ -153,24 +153,21 @@ fn drawio_decodes_compressed_pages_and_produces_raster_output() -> Result<()> {
 }
 
 #[test]
-#[cfg(target_os = "macos")]
 fn binary_plist_preview_decodes_without_changing_original() -> Result<()> {
     let root = tempfile::tempdir()?;
     let path = root.path().join("fixture.plist");
-    fs::write(
-        &path,
-        r#"<?xml version="1.0"?><plist version="1.0"><dict><key>Name</key><string>Fixture</string></dict></plist>"#,
-    )?;
-    assert!(
-        std::process::Command::new("/usr/bin/plutil")
-            .args(["-convert", "binary1"])
-            .arg(&path)
-            .status()?
-            .success()
+    let mut dict = plist_parser::Dictionary::new();
+    dict.insert("Name".into(), "Fixture".into());
+    dict.insert(
+        "Ref".into(),
+        plist_parser::Value::Uid(plist_parser::Uid::new(9)),
     );
+    plist_parser::Value::Dictionary(dict).to_file_binary(&path)?;
     let bytes = fs::read(&path)?;
     assert!(superfile_services::plist::is_binary(&path));
-    let _preview = superfile_services::plist::read(&path, &Cancellation::default())?;
+    let preview = superfile_services::plist::read(&path, &Cancellation::default())?;
+    assert!(preview.text.contains("<string>Fixture</string>"));
+    assert!(preview.text.contains("<key>CF$UID</key>"));
     assert_eq!(fs::read(&path)?, bytes);
     Ok(())
 }

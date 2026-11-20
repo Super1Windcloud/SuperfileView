@@ -22,7 +22,6 @@ pub(super) struct FileSharing {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ShareAction {
-    #[cfg(any(target_os = "macos", windows))]
     System,
     Copy,
     SaveCopy,
@@ -32,6 +31,8 @@ fn menu_entries() -> &'static [(ShareAction, &'static str)] {
     &[
         #[cfg(any(target_os = "macos", windows))]
         (ShareAction::System, "System Share…"),
+        #[cfg(target_os = "linux")]
+        (ShareAction::System, "Share via Email…"),
         (ShareAction::Copy, "Copy File"),
         (ShareAction::SaveCopy, "Save a Copy…"),
     ]
@@ -162,6 +163,13 @@ impl Workspace {
                             view.file_sharing.session = Some(sharing::show(file, window)?);
                             Ok(())
                         })??;
+                        Ok(None)
+                    }
+                    #[cfg(target_os = "linux")]
+                    ShareAction::System => {
+                        cx.background_executor()
+                            .spawn(sharing::compose_email(file))
+                            .await?;
                         Ok(None)
                     }
                     ShareAction::SaveCopy => unreachable!("save copy uses the file picker"),

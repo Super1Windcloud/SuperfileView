@@ -21,13 +21,13 @@ pub(super) fn init(owner: Instance, cx: &mut App) {
             {
                 Ok(mut requests) if !requests.is_empty() => {
                     cx.update(|cx| {
-                        let urls = requests
-                            .iter_mut()
-                            .filter_map(|request| request.file_url.take())
-                            .collect::<Vec<_>>();
-                        if urls.len() < requests.len() {
+                        if requests.iter().any(|request| request.urls.is_empty()) {
                             activate(cx);
                         }
+                        let urls: Vec<_> = requests
+                            .iter_mut()
+                            .flat_map(|request| std::mem::take(&mut request.urls))
+                            .collect();
                         if !urls.is_empty() {
                             super::open_system_files(urls, cx);
                         }

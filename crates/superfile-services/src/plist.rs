@@ -1,11 +1,12 @@
 //! Decode Apple binary property lists to private, read-only XML preview pages.
 use crate::{paged::TextPage, work::Cancellation};
 use anyhow::Result;
-#[cfg(target_os = "macos")]
-use anyhow::ensure;
-#[cfg(target_os = "macos")]
-use std::process::{Command, Stdio};
-use std::{io::Read, path::Path};
+use plist_parser::stream::{BinaryReader, Event, Writer, XmlWriter};
+use std::{
+    fs::File,
+    io::{BufReader, BufWriter, Read, Write},
+    path::Path,
+};
 
 pub fn is_binary(path: &Path) -> bool {
     if !superfile_core::formats::FormatSet::BinaryPlist.matches(path) {
@@ -19,27 +20,25 @@ pub fn is_binary(path: &Path) -> bool {
 }
 pub fn read(path: &Path, cancel: &Cancellation) -> Result<TextPage> {
     cancel.check()?;
-    #[cfg(target_os = "macos")]
-    {
-        let output = tempfile::NamedTempFile::new()?;
-        let status = crate::work::run(
-            Command::new("/usr/bin/plutil")
-                .args(["-convert", "xml1", "-o"])
-                .arg(output.path())
-                .arg("--")
-                .arg(path)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null()),
-            cancel,
-        )?;
-        ensure!(status.success(), "Cannot decode binary property list");
+    let reader = BinaryReader::new(BufReader::new(File::open(path)?));
+    let mut output = tempfile::NamedTempFile::new()?;
+    let mut buffer = BufWriter::new(output.as_file_mut());
+    let mut xml = XmlWriter::new(&mut buffer);
+    for event in reader {
         cancel.check()?;
-        crate::paged::generated(path, output)
+        match event? {
+            // XML plists represent keyed-archive UIDs as CF$UID dictionaries.
+            Event::Uid(uid) => {
+                xml.write(Event::StartDictionary(Some(1)))?;
+                xml.write(Event::String("CF$UID".into()))?;
+                xml.write(Event::Integer(uid.get().into()))?;
+                xml.write(Event::EndCollection)?;
+            }
+            value => xml.write(value)?,
+        }
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = path;
-        anyhow::bail!("Binary property list preview requires macOS plutil")
-    }
+    buffer.flush()?;
+    drop(buffer);
+    cancel.check()?;
+    crate::paged::generated(path, output)
 }

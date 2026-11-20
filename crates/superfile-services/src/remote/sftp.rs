@@ -306,7 +306,7 @@ impl Sftp {
     pub fn realpath(&mut self, path: &Path, cancel: &Cancellation) -> Result<PathBuf> {
         cancel.check()?;
         let _watch = self.watch(cancel);
-        let reply = self.request(16, &string(path.as_os_str().as_encoded_bytes())?)?;
+        let reply = self.request(16, &string(&wire_path(path))?)?;
         let mut packet = Packet::body(&reply, 104)?;
         ensure!(packet.u32()? == 1, "Invalid canonical SFTP path");
         Ok(PathBuf::from(remote_name(packet.string()?.to_vec())?))
@@ -314,7 +314,7 @@ impl Sftp {
     pub fn stat(&mut self, path: &Path, cancel: &Cancellation) -> Result<super::FileStamp> {
         cancel.check()?;
         let _watch = self.watch(cancel);
-        let reply = self.request(17, &string(path.as_os_str().as_encoded_bytes())?)?;
+        let reply = self.request(17, &string(&wire_path(path))?)?;
         Packet::body(&reply, 105)?.file_stamp()
     }
     pub fn stat_optional(
@@ -337,7 +337,7 @@ impl Sftp {
     pub fn list(&mut self, path: &Path, cancel: &Cancellation) -> Result<Vec<DirectoryEntry>> {
         cancel.check()?;
         let _watch = self.watch(cancel);
-        let reply = self.request(11, &string(path.as_os_str().as_encoded_bytes())?)?;
+        let reply = self.request(11, &string(&wire_path(path))?)?;
         let handle = Packet::body(&reply, 102)?.string()?.to_vec();
         let result = self.read_directory(path, &handle, cancel);
         let close = self.request(4, &string(&handle)?);
@@ -377,10 +377,11 @@ impl Sftp {
                     !name.is_empty() && !name.contains(&b'/') && !name.contains(&0),
                     "Invalid SFTP filename"
                 );
-                let target = path.join(remote_name(name)?);
+                let name = remote_name(name)?;
+                let target = super::join_path(path, Path::new(&name));
                 let symlink = mode & 0o170000 == 0o120000;
                 let mode = if symlink {
-                    self.request(17, &string(target.as_os_str().as_encoded_bytes())?)
+                    self.request(17, &string(&wire_path(&target))?)
                         .ok()
                         .and_then(|reply| Packet::body(&reply, 105).ok()?.attrs().ok())
                         .unwrap_or(mode)
@@ -405,7 +406,7 @@ impl Sftp {
     ) -> Result<()> {
         cancel.check()?;
         let _watch = self.watch(cancel);
-        let mut open = string(path.as_os_str().as_encoded_bytes())?;
+        let mut open = string(&wire_path(path))?;
         open.extend_from_slice(&1u32.to_be_bytes()); // SSH_FXF_READ
         open.extend_from_slice(&0u32.to_be_bytes());
         let reply = self.request(3, &open)?;
@@ -438,7 +439,9 @@ impl Sftp {
             }
             cancel.check()?;
             crate::platform::restrict_permissions(file.path(), 0o400)?;
-            file.persist(target).map_err(|error| error.error)?;
+            file.into_temp_path()
+                .persist(target)
+                .map_err(|error| error.error)?;
             Ok(())
         })();
         let close = self.request(4, &string(&handle)?);
@@ -518,6 +521,19 @@ impl<'a> Packet<'a> {
     }
 }
 
+fn wire_path(path: &Path) -> std::borrow::Cow<'_, [u8]> {
+    let bytes = path.as_os_str().as_encoded_bytes();
+    #[cfg(windows)]
+    if bytes.contains(&b'\\') {
+        return bytes
+            .iter()
+            .map(|&b| if b == b'\\' { b'/' } else { b })
+            .collect::<Vec<_>>()
+            .into();
+    }
+    bytes.into()
+}
+
 fn remote_name(bytes: Vec<u8>) -> Result<OsString> {
     #[cfg(unix)]
     {
@@ -525,6 +541,10 @@ fn remote_name(bytes: Vec<u8>) -> Result<OsString> {
     }
     #[cfg(windows)]
     {
+        ensure!(
+            !bytes.contains(&b'\\'),
+            "Remote path contains a Windows separator"
+        );
         Ok(OsString::from(
             String::from_utf8(bytes).context("Remote filename is not UTF-8")?,
         ))

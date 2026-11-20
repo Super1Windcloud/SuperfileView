@@ -189,7 +189,7 @@ impl RemoteDialog {
         let identity = value(4);
         let identity = if !identity.is_empty() {
             Some(if let Some(path) = identity.strip_prefix("~/") {
-                PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(path)
+                superfile_services::platform::home()?.join(path)
             } else {
                 identity.into()
             })
@@ -221,10 +221,10 @@ impl RemoteDialog {
             return session.home.clone();
         }
         if let Ok(relative) = path.strip_prefix("~") {
-            return session.home.join(relative);
+            return superfile_services::remote::join_path(&session.home, relative);
         }
-        if path.is_relative() {
-            return self.directory.join(path);
+        if !superfile_services::remote::is_absolute_path(&path) {
+            return superfile_services::remote::join_path(&self.directory, &path);
         }
         path
     }

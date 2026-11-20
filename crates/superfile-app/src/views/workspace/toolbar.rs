@@ -493,16 +493,14 @@ mod tests {
                 );
                 window.click("share-file", cx);
                 let menu = window.within("popup-menu");
-                let mut index = 0usize;
-                if cfg!(any(target_os = "macos", windows)) {
-                    assert_eq!(menu.find(index).label(), Some(tr("System Share…").as_str()));
-                    index += 1;
-                }
-                assert_eq!(menu.find(index).label(), Some(tr("Copy File").as_str()));
-                assert_eq!(
-                    menu.find(index + 1).label(),
-                    Some(tr("Save a Copy…").as_str())
-                );
+                let share_label = if cfg!(target_os = "linux") {
+                    "Share via Email…"
+                } else {
+                    "System Share…"
+                };
+                assert_eq!(menu.find(0).label(), Some(tr(share_label).as_str()));
+                assert_eq!(menu.find(1).label(), Some(tr("Copy File").as_str()));
+                assert_eq!(menu.find(2).label(), Some(tr("Save a Copy…").as_str()));
                 window.click("share-file", cx);
             }
             view.update(cx, |workspace, cx| workspace.show_home(cx));
@@ -530,8 +528,7 @@ mod tests {
             assert!(view.read(cx).active_reader().unwrap().is_dirty());
             window.render_frame(cx);
             window.click("share-file", cx);
-            let index = 1 + usize::from(cfg!(any(target_os = "macos", windows)));
-            window.within("popup-menu").click(index, cx);
+            window.within("popup-menu").click(2usize, cx);
         })
         .unwrap();
         cx.simulate_new_path_selection(|_| Some(destination.clone()));

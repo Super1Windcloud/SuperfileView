@@ -93,6 +93,21 @@ Function .onInit
   ${EndIf}
 FunctionEnd
 
+!include "extensions.nsh"
+!define CAPABILITIES "Software\Superfile\Capabilities"
+!define CLASSES "Software\Classes"
+
+!macro RegisterExtension ext
+  WriteRegStr HKCU "${CAPABILITIES}\FileAssociations" "${ext}" "Superfile.Document"
+  WriteRegNone HKCU "${CLASSES}\${ext}\OpenWithProgids" "Superfile.Document"
+!macroend
+
+!macro UnregisterExtension ext
+  DeleteRegValue HKCU "${CLASSES}\${ext}\OpenWithProgids" "Superfile.Document"
+  DeleteRegKey /ifempty HKCU "${CLASSES}\${ext}\OpenWithProgids"
+  DeleteRegKey /ifempty HKCU "${CLASSES}\${ext}"
+!macroend
+
 Section "Superfile" SecMain
   SectionIn RO
   SetOutPath "$INSTDIR"
@@ -108,6 +123,28 @@ Section "Superfile" SecMain
   CreateShortcut "$SMPROGRAMS\Superfile.lnk" "$INSTDIR\superfile.exe"
 
   WriteRegStr HKCU "Software\Superfile" "InstallDir" "$INSTDIR"
+  SetRegView 64
+  WriteRegStr HKCU "${CAPABILITIES}" "ApplicationName" "Superfile"
+  WriteRegStr HKCU "${CAPABILITIES}" "ApplicationDescription" "Desktop file viewer and editor"
+  WriteRegStr HKCU "${CLASSES}\Superfile.Document" "" "Superfile Document"
+  WriteRegStr HKCU "${CLASSES}\Superfile.Document\shell\open\command" "" '"$INSTDIR\superfile.exe" "%1"'
+  ReadRegStr $1 HKCU "${CLASSES}\Superfile.Url\shell\open\command" ""
+  WriteRegStr HKCU "${CLASSES}\Superfile.Url" "" "URL:Superfile"
+  WriteRegStr HKCU "${CLASSES}\Superfile.Url" "URL Protocol" ""
+  WriteRegStr HKCU "${CLASSES}\Superfile.Url\shell\open\command" "" '"$INSTDIR\superfile.exe" "%1"'
+  WriteRegStr HKCU "${CAPABILITIES}\URLAssociations" "superfile" "Superfile.Url"
+  ReadRegStr $0 HKCU "${CLASSES}\superfile\shell\open\command" ""
+  ${If} $0 == ""
+  ${OrIf} $0 == $1
+    WriteRegStr HKCU "${CLASSES}\superfile" "" "URL:Superfile"
+    WriteRegStr HKCU "${CLASSES}\superfile" "URL Protocol" ""
+    WriteRegStr HKCU "${CLASSES}\superfile\shell\open\command" "" '"$INSTDIR\superfile.exe" "%1"'
+  ${EndIf}
+  !insertmacro SuperfileExtensions RegisterExtension
+  WriteRegStr HKCU "Software\RegisteredApplications" "Superfile" "${CAPABILITIES}"
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
+  SetRegView 32
+
   WriteRegStr HKCU "${UNINSTALL_REG}" "DisplayName" "Superfile"
   WriteRegStr HKCU "${UNINSTALL_REG}" "DisplayVersion" "${APP_VERSION}"
   WriteRegStr HKCU "${UNINSTALL_REG}" "Publisher" "Superfile Team"
@@ -139,6 +176,25 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\Superfile.lnk"
   Delete "$DESKTOP\Superfile.lnk"
   RMDir "$INSTDIR"
-  DeleteRegKey HKCU "${UNINSTALL_REG}"
-  DeleteRegKey HKCU "Software\Superfile"
+  SetRegView 64
+  ReadRegStr $0 HKCU "${CLASSES}\Superfile.Document\shell\open\command" ""
+  ${If} $0 == '"$INSTDIR\superfile.exe" "%1"'
+    !insertmacro SuperfileExtensions UnregisterExtension
+    DeleteRegValue HKCU "Software\RegisteredApplications" "Superfile"
+    DeleteRegKey HKCU "${CAPABILITIES}"
+    DeleteRegKey HKCU "${CLASSES}\Superfile.Document"
+    DeleteRegKey HKCU "${CLASSES}\Superfile.Url"
+    ReadRegStr $0 HKCU "${CLASSES}\superfile\shell\open\command" ""
+    ${If} $0 == '"$INSTDIR\superfile.exe" "%1"'
+      DeleteRegKey HKCU "${CLASSES}\superfile"
+    ${EndIf}
+    System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
+  ${EndIf}
+  SetRegView 32
+  ReadRegStr $0 HKCU "Software\Superfile" "InstallDir"
+  ${If} $0 == "$INSTDIR"
+    DeleteRegKey HKCU "${UNINSTALL_REG}"
+    DeleteRegValue HKCU "Software\Superfile" "InstallDir"
+    DeleteRegKey /ifempty HKCU "Software\Superfile"
+  ${EndIf}
 SectionEnd

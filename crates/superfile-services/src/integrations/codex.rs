@@ -58,7 +58,10 @@ impl RemoteOpen {
             "Invalid SSH address"
         );
         for path in std::iter::once(&self.root).chain(self.file.iter()) {
-            ensure!(path.is_absolute(), "Remote paths must be absolute");
+            ensure!(
+                crate::remote::is_absolute_path(path),
+                "Remote paths must be absolute"
+            );
             ensure!(
                 !path.as_os_str().as_encoded_bytes().contains(&0),
                 "Invalid remote path"

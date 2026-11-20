@@ -45,6 +45,7 @@ Priority: optional
 Architecture: amd64
 Maintainer: Superfile maintainers
 Depends: ${DEPENDS}, libglib2.0-0 | libglib2.0-0t64
+Recommends: xdg-desktop-portal
 Description: Desktop file viewer and editor
  A cross-platform file viewer and editor built with Rust and gpui-kit.
 EOF

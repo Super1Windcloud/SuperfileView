@@ -11,6 +11,23 @@ mod native;
 #[cfg(any(target_os = "macos", windows))]
 pub(crate) use native::{Session, prepare, show};
 
+#[cfg(target_os = "linux")]
+pub(crate) async fn compose_email(file: SharedFile) -> Result<()> {
+    use ashpd::desktop::{ResponseError, email::EmailRequest};
+    let attachment = std::fs::File::open(file.path())?;
+    let result = EmailRequest::default()
+        .attach(attachment.into())
+        .send()
+        .await
+        .and_then(|request| request.response());
+    match result {
+        Ok(()) => file.keep(),
+        Err(ashpd::Error::Response(ResponseError::Cancelled)) => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
 #[derive(Default)]
 struct FileClipboard(Option<arboard::Clipboard>);
 impl Global for FileClipboard {}
