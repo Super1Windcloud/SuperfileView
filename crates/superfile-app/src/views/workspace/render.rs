@@ -305,7 +305,7 @@ impl Render for Workspace {
                             .truncate()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child(superfile_services::locale::tr("Workspace")),
+                            .child(superfile_services::locale::tr("Folders")),
                     )
                     .child(self.workspace_actions_button(cx)),
             )
@@ -640,8 +640,8 @@ impl Workspace {
             )
             .small()
             .icon(gpui_kit::assets::IconName::Plus)
-            .tooltip(superfile_services::locale::tr("Workspace"))
-            .accessibility_label(superfile_services::locale::tr("Workspace"))
+            .tooltip(superfile_services::locale::tr("Add Folder to Workspace…"))
+            .accessibility_label(superfile_services::locale::tr("Add Folder to Workspace…"))
             .dropdown_menu({
                 let remote = superfile_services::remote::is_remote_id(&self.recent_id);
                 let has_roots = !self.roots.is_empty();
