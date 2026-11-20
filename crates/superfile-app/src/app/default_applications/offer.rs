@@ -105,7 +105,7 @@ fn complete(offer: DefaultOffer, confirmed: bool, handle: AnyWindowHandle, cx: &
                     return;
                 }
                 Ok(ChangeResult::Applied(_)) => "Default application updated.",
-                Ok(ChangeResult::ConfirmationPending) => CONFIRMATION_PENDING,
+                Ok(ChangeResult::ConfirmationPending { .. }) => CONFIRMATION_PENDING,
                 Err(error) => {
                     log::warn!("Cannot set Superfile as the default application: {error:#}");
                     "Could not change the default application."

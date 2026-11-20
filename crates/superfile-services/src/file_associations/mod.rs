@@ -22,7 +22,10 @@ mod windows;
 #[derive(Clone, Debug)]
 pub enum ChangeResult {
     Applied(Application),
-    ConfirmationPending,
+    /// A submitted change can be verified later without repeating the write.
+    ConfirmationPending {
+        read_handler: fn(&str) -> Option<String>,
+    },
     SystemSettingsRequired,
 }
 

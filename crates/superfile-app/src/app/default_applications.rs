@@ -15,6 +15,7 @@ use gpui_kit::{
     *,
 };
 use picker::ApplicationPicker;
+use std::{collections::BTreeMap, time::Duration};
 use superfile_services::{
     file_associations::{self, Application, Association, ChangeResult, Snapshot},
     locale::tr,
@@ -27,6 +28,8 @@ type Setter = fn(&str, &Application) -> anyhow::Result<ChangeResult>;
 
 const CONFIRMATION_PENDING: &str =
     "Default application change requested. Waiting for macOS confirmation.";
+const NOT_CONFIRMED: &str =
+    "macOS has not confirmed this change. Refresh to check the current default.";
 const WINDOWS_CONFIRMATION: &str =
     "Confirm the file type and application in Windows Settings, then refresh.";
 
@@ -105,6 +108,7 @@ struct Associations {
     setter: Setter,
     picker: Option<(String, Entity<ApplicationPicker>)>,
     applying: bool,
+    confirmations: BTreeMap<String, Task<()>>,
     change_error: Option<String>,
     status: Option<(&'static str, String)>,
     _subscription: Subscription,
@@ -134,6 +138,7 @@ impl Associations {
             setter: file_associations::set_default,
             picker: None,
             applying: false,
+            confirmations: BTreeMap::new(),
             change_error: None,
             status: None,
             _subscription: subscription,
@@ -144,6 +149,12 @@ impl Associations {
 
     fn filter(&mut self, cx: &mut Context<Self>) {
         self.picker = None;
+        self.update_visible(cx);
+        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
+        cx.notify();
+    }
+
+    fn update_visible(&mut self, cx: &App) {
         let query = self.search.read(cx).value();
         self.visible = self
             .snapshot
@@ -152,11 +163,10 @@ impl Associations {
             .enumerate()
             .filter_map(|(index, entry)| entry.matches(&query).then_some(index))
             .collect();
-        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
-        cx.notify();
     }
 
     fn cancel(&mut self) {
+        self.confirmations.clear();
         self.picker = None;
         self.task = None;
         self.loading = false;
@@ -203,6 +213,8 @@ impl Associations {
         if self.applying {
             return;
         }
+        self.confirmations.remove(&identifier);
+        self.cancelled = false;
         self.applying = true;
         self.picker = None;
         self.change_error = None;
@@ -214,6 +226,7 @@ impl Associations {
                 previous.await;
             }
             let query = identifier.clone();
+            let selected = application.clone();
             let name = application_name(&application);
             let result = cx
                 .background_executor()
@@ -223,25 +236,18 @@ impl Associations {
                 view.applying = false;
                 match result {
                     Ok(ChangeResult::Applied(application)) => {
-                        if let Some(entry) = view
-                            .snapshot
-                            .associations
-                            .iter_mut()
-                            .find(|entry| entry.identifier == identifier)
-                        {
-                            entry.application = Some(application);
-                            entry.issue = None;
-                        }
+                        view.confirm_row(&identifier, application, cx);
                         view.status = Some((
                             "Default application updated.",
                             format!("{identifier} → {name}"),
                         ));
-                        view.filter(cx);
                     }
-                    Ok(ChangeResult::ConfirmationPending) => {
+                    Ok(ChangeResult::ConfirmationPending { read_handler }) if !view.cancelled => {
                         view.status =
                             Some((CONFIRMATION_PENDING, format!("{identifier} → {name}")));
+                        view.watch_confirmation(identifier, selected, read_handler, cx);
                     }
+                    Ok(ChangeResult::ConfirmationPending { .. }) => {}
                     Ok(ChangeResult::SystemSettingsRequired) => {
                         view.status =
                             Some((WINDOWS_CONFIRMATION, format!("{identifier} → {name}")));
@@ -254,6 +260,75 @@ impl Associations {
         });
         retain_write(task, cx);
         cx.notify();
+    }
+
+    fn confirm_row(&mut self, identifier: &str, application: Application, cx: &App) {
+        if let Some(entry) = self
+            .snapshot
+            .associations
+            .iter_mut()
+            .find(|row| row.identifier == identifier)
+        {
+            entry.application = Some(application);
+            entry.issue = None;
+            if self.picker.as_ref().is_some_and(|(id, _)| id == identifier) {
+                self.picker = None;
+            }
+            self.update_visible(cx);
+        }
+    }
+
+    fn watch_confirmation(
+        &mut self,
+        identifier: String,
+        selected: Application,
+        read_handler: fn(&str) -> Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let key = identifier.clone();
+        let task = cx.spawn(async move |view, cx| {
+            let detail = format!("{identifier} → {}", application_name(&selected));
+            for attempt in 1.. {
+                cx.background_executor().timer(Duration::from_secs(2)).await;
+                let query = identifier.clone();
+                let current = cx
+                    .background_executor()
+                    .spawn(async move { read_handler(&query) })
+                    .await;
+                let confirmed = current.is_some() && current == selected.identifier;
+                if !confirmed && attempt < 60 {
+                    continue;
+                }
+                let finished = view.update(cx, |view, cx| {
+                    // Let an in-flight scan publish its snapshot before updating this row.
+                    if view.loading {
+                        return false;
+                    }
+                    if confirmed {
+                        view.confirm_row(&identifier, selected.clone(), cx);
+                    }
+                    if view.status.as_ref().is_some_and(|(message, target)| {
+                        *message == CONFIRMATION_PENDING && *target == detail
+                    }) {
+                        view.status = Some((
+                            if confirmed {
+                                "Default application updated."
+                            } else {
+                                NOT_CONFIRMED
+                            },
+                            detail.clone(),
+                        ));
+                    }
+                    view.confirmations.remove(&identifier);
+                    cx.notify();
+                    true
+                });
+                if finished.unwrap_or(true) {
+                    break;
+                }
+            }
+        });
+        self.confirmations.insert(key, task);
     }
 
     fn row(&mut self, entry: Association, index: usize, cx: &mut Context<Self>) -> AnyElement {
@@ -500,7 +575,9 @@ mod tests {
         anyhow::bail!("Permission denied")
     }
     fn pending(_: &str, _: &Application) -> anyhow::Result<ChangeResult> {
-        Ok(ChangeResult::ConfirmationPending)
+        Ok(ChangeResult::ConfirmationPending {
+            read_handler: |_| None,
+        })
     }
     fn system(_: &str, _: &Application) -> anyhow::Result<ChangeResult> {
         Ok(ChangeResult::SystemSettingsRequired)
@@ -665,6 +742,76 @@ mod tests {
                 view.reload(cx);
                 assert!(view.status.is_none());
             })
+        });
+    }
+
+    #[gpui_kit::test]
+    fn delayed_confirmation_updates_the_filtered_row_and_expires_unconfirmed_requests(
+        cx: &mut TestAppContext,
+    ) {
+        use std::time::Duration;
+        fn delayed(_: &str, _: &Application) -> anyhow::Result<ChangeResult> {
+            Ok(ChangeResult::ConfirmationPending {
+                read_handler: |id| (id == "example/0").then(|| "test.alternate".into()),
+            })
+        }
+        cx.update(gpui_kit::init);
+        let handle = cx.update(|cx| {
+            gpui_kit::open_window(WindowOptions::default(), cx, |_, cx| {
+                cx.new(|_| gpui_kit::Empty)
+            })
+            .unwrap()
+            .0
+        });
+        let view = cx
+            .update_window(handle, |_, window, cx| show(window, cx, fixture).unwrap())
+            .unwrap();
+        cx.run_until_parked();
+        let selected = choices("", &Default::default()).unwrap().remove(1);
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |panel, cx| {
+                panel.search.update(cx, |input, cx| {
+                    input.set_value("type0 alternate", window, cx);
+                    cx.emit(InputEvent::Change);
+                });
+                panel.setter = delayed;
+                panel.apply_default("example/0".into(), selected.clone(), cx);
+            });
+        })
+        .unwrap();
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let panel = view.read(cx);
+            assert!(panel.visible.is_empty());
+            assert_eq!(panel.status.as_ref().unwrap().0, CONFIRMATION_PENDING);
+        });
+        cx.executor().advance_clock(Duration::from_secs(2));
+        cx.run_until_parked();
+        cx.update(|cx| {
+            view.update(cx, |panel, cx| {
+                assert_eq!(panel.visible, vec![0]);
+                assert_eq!(
+                    panel.snapshot.associations[0].application.as_ref(),
+                    Some(&selected)
+                );
+                assert_eq!(
+                    panel.status.as_ref().unwrap().0,
+                    "Default application updated."
+                );
+                assert!(panel.confirmations.is_empty());
+                panel.apply_default("example/1".into(), selected, cx);
+            })
+        });
+        cx.run_until_parked();
+        for _ in 0..60 {
+            cx.executor().advance_clock(Duration::from_secs(2));
+            cx.run_until_parked();
+        }
+        cx.update(|cx| {
+            let panel = view.read(cx);
+            assert!(panel.confirmations.is_empty());
+            assert_eq!(panel.status.as_ref().unwrap().0, super::NOT_CONFIRMED);
+            assert!(panel.snapshot.associations[1].application.is_none());
         });
     }
 

@@ -846,6 +846,7 @@
   "Could not change the default application.": "无法更改默认应用。",
   "Confirm the file type and application in Windows Settings, then refresh.": "请在 Windows 系统设置中选择相应文件格式和应用，完成后刷新。",
   "Default application updated.": "默认应用已更新。",
+  "macOS has not confirmed this change. Refresh to check the current default.": "macOS 尚未确认此次更改。可刷新查看当前默认应用。",
   "Default application change requested. Waiting for macOS confirmation.": "已提交默认应用更改，等待 macOS 确认。",
   "Make Superfile the default for this file type?": "将 Superfile 设为此文件类型的默认应用？",
   "Set as Default": "设为默认",

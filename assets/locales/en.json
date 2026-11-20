@@ -846,6 +846,7 @@
   "Could not change the default application.": "Could not change the default application.",
   "Confirm the file type and application in Windows Settings, then refresh.": "Confirm the file type and application in Windows Settings, then refresh.",
   "Default application updated.": "Default application updated.",
+  "macOS has not confirmed this change. Refresh to check the current default.": "macOS has not confirmed this change. Refresh to check the current default.",
   "Default application change requested. Waiting for macOS confirmation.": "Default application change requested. Waiting for macOS confirmation.",
   "Make Superfile the default for this file type?": "Make Superfile the default for this file type?",
   "Set as Default": "Set as Default",

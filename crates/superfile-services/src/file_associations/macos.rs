@@ -111,7 +111,9 @@ fn confirm_change(
             return ChangeResult::Applied(selected.clone());
         }
     }
-    ChangeResult::ConfirmationPending
+    ChangeResult::ConfirmationPending {
+        read_handler: native::handler,
+    }
 }
 
 #[derive(Default)]
@@ -404,7 +406,7 @@ mod tests {
         assert!(matches!(confirmed, ChangeResult::Applied(application) if application == selected));
 
         let pending = confirm_change(&selected, &[0; 2], || Some("previous.handler".into()));
-        assert!(matches!(pending, ChangeResult::ConfirmationPending));
+        assert!(matches!(pending, ChangeResult::ConfirmationPending { .. }));
     }
 
     #[test]
