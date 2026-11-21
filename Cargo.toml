@@ -79,6 +79,11 @@ codegen-units = 8
 
 # PdfCraft uses APIs from its pinned rendering and PDF parser patches.
 [patch.crates-io]
+# Office patches are based on clark-labs-inc/libreoffice-rs at cfce6055320db3c4e93f462a403476d45e137cb7.
+# Share imported XML subtrees and retain Unicode text when embedding Office fonts.
+lo_core = { path = "vendor/lo_core" }
+# Preserve Word page and table geometry and image aspect ratios in generated pages.
+lo_writer = { path = "vendor/lo_writer" }
 hayro = { git = "https://github.com/storytold/pdfcraft", rev = "b503b2e62dfeec5598f344e4e287d9c9cbdb34fa" }
 hayro-interpret = { git = "https://github.com/storytold/pdfcraft", rev = "b503b2e62dfeec5598f344e4e287d9c9cbdb34fa" }
 hayro-syntax = { git = "https://github.com/storytold/pdfcraft", rev = "b503b2e62dfeec5598f344e4e287d9c9cbdb34fa" }

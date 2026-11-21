@@ -111,6 +111,7 @@ fn preview(value: Preview) -> String {
         Preview::Audio => tr("Audio"),
         Preview::Pdf => tr("PDF pages"),
         Preview::DocumentPages => tr("Document pages"),
+        Preview::Word => tr("Continuous Word preview"),
         Preview::Font => tr("Font specimen"),
         Preview::OfficeText => tr("Extracted document text"),
         Preview::Workbook => tr("Spreadsheet cells"),

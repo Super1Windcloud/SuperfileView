@@ -1,4 +1,5 @@
-//! Portable document preparation. UI consumers receive pages or a retained workbook snapshot.
+//! Portable document preparation for the desktop reader.
+pub mod docx;
 mod fixed_layout;
 pub(crate) use fixed_layout::zip_size as package_size;
 mod iwork_reader;
@@ -14,9 +15,56 @@ use std::{
 pub use tempfile::TempPath as DocumentPages;
 
 pub enum PreparedDocument {
-    Text { page: paged::TextPage, html: bool },
+    Text {
+        page: paged::TextPage,
+        html: bool,
+    },
+    FallbackText {
+        page: paged::TextPage,
+        reason: LayoutFallback,
+    },
     Workbook(crate::spreadsheet::Spreadsheet),
+    Word(docx::WordDocument),
     Pages(DocumentPages),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LayoutFallback {
+    MemoryInUse,
+    PreviewLimit,
+    Unavailable,
+}
+
+impl LayoutFallback {
+    pub fn from_error(error: &anyhow::Error) -> Self {
+        if let Some(pressure) = error.downcast_ref::<crate::resources::WorkingPressure>() {
+            if pressure.minimum <= crate::limits::RESOURCES_WORKING_BYTES {
+                return Self::MemoryInUse;
+            }
+            return Self::PreviewLimit;
+        }
+        if error.is::<crate::limits::PreviewBudgetExceeded>() {
+            return Self::PreviewLimit;
+        }
+        Self::Unavailable
+    }
+}
+
+pub fn retry_layout(path: &Path, cancel: &Cancellation) -> Result<PreparedDocument> {
+    let extension = path
+        .extension()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_ascii_lowercase();
+    if extension == "docx" {
+        return docx::prepare(path, cancel).map(PreparedDocument::Word);
+    }
+    ensure!(
+        is_fixed_document_extension(&extension),
+        "Unsupported page layout"
+    );
+    cancel.check()?;
+    fixed_layout::convert(path, &extension, cancel).map(PreparedDocument::Pages)
 }
 
 pub(crate) fn is_workbook_extension(extension: &str) -> bool {
@@ -24,13 +72,14 @@ pub(crate) fn is_workbook_extension(extension: &str) -> bool {
 }
 
 pub(crate) fn is_fixed_document_extension(extension: &str) -> bool {
-    matches!(extension, "docx" | "pptx" | "odt" | "odp")
+    matches!(extension, "pptx" | "odt" | "odp")
 }
 
 pub fn has_text_view(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| is_fixed_document_extension(&ext.to_ascii_lowercase()))
+        .map(str::to_ascii_lowercase)
+        .is_some_and(|ext| ext == "docx" || is_fixed_document_extension(&ext))
 }
 
 pub fn read_document_text(path: &Path, cancel: &Cancellation) -> Result<PreparedDocument> {
@@ -40,7 +89,10 @@ pub fn read_document_text(path: &Path, cancel: &Cancellation) -> Result<Prepared
         .unwrap_or_default()
         .to_string_lossy()
         .to_ascii_lowercase();
-    extract_text(path, &extension, cancel)
+    Ok(PreparedDocument::Text {
+        page: extract_text(path, &extension, cancel)?,
+        html: false,
+    })
 }
 
 pub fn prepare(path: &Path, cancel: &Cancellation) -> Result<PreparedDocument> {
@@ -62,14 +114,29 @@ pub fn prepare(path: &Path, cancel: &Cancellation) -> Result<PreparedDocument> {
         }
         bail!("Workbook has no readable worksheets");
     }
-    if is_fixed_document_extension(&extension) {
-        match fixed_layout::convert(path, &extension, cancel) {
-            Ok(file) => return Ok(PreparedDocument::Pages(file)),
+    if extension == "docx" || is_fixed_document_extension(&extension) {
+        let formatted = if extension == "docx" {
+            docx::prepare(path, cancel).map(PreparedDocument::Word)
+        } else {
+            fixed_layout::convert(path, &extension, cancel).map(PreparedDocument::Pages)
+        };
+        let reason = match formatted {
+            Ok(document) => return Ok(document),
             Err(error) => {
                 cancel.check()?;
-                log::warn!("Office page layout unavailable, reading document text: {error:#}");
+                log::warn!("Office layout unavailable, reading document text: {error:#}");
+                LayoutFallback::from_error(&error)
             }
-        }
+        };
+        let page = match extract_text(path, &extension, cancel) {
+            Err(error) if matches!(extension.as_str(), "odt" | "odp") => {
+                cancel.check()?;
+                log::warn!("OpenDocument text unavailable, reading container report: {error:#}");
+                crate::formats::read_preview_cancellable(path, cancel)?
+            }
+            page => page?,
+        };
+        return Ok(PreparedDocument::FallbackText { page, reason });
     }
     if matches!(extension.as_str(), "doc" | "ppt" | "rtf") {
         return fixed_layout::legacy(path, &extension, cancel);
@@ -86,23 +153,10 @@ pub fn prepare(path: &Path, cancel: &Cancellation) -> Result<PreparedDocument> {
             html: true,
         });
     }
-    if is_fixed_document_extension(&extension) {
-        return match extract_text(path, &extension, cancel) {
-            Err(error) if matches!(extension.as_str(), "odt" | "odp") => {
-                cancel.check()?;
-                log::warn!("OpenDocument text unavailable, reading container report: {error:#}");
-                Ok(PreparedDocument::Text {
-                    page: crate::formats::read_preview_cancellable(path, cancel)?,
-                    html: false,
-                })
-            }
-            result => result,
-        };
-    }
     bail!("This format does not yet have a portable reader: {extension}")
 }
 
-fn extract_text(path: &Path, extension: &str, cancel: &Cancellation) -> Result<PreparedDocument> {
+fn extract_text(path: &Path, extension: &str, cancel: &Cancellation) -> Result<paged::TextPage> {
     let mut archive = zip::ZipArchive::new(File::open(path)?)?;
     let parts = if extension == "docx" {
         vec!["word/document.xml".to_owned()]
@@ -188,8 +242,38 @@ fn extract_text(path: &Path, extension: &str, cancel: &Cancellation) -> Result<P
     }
     ensure!(has_text, "This document contains no readable text");
     output.flush()?;
-    Ok(PreparedDocument::Text {
-        page: paged::generated(path, output)?,
-        html: false,
-    })
+    paged::generated(path, output)
+}
+
+#[cfg(test)]
+mod fallback_tests {
+    use super::*;
+    use crate::resources::WorkingPressure;
+
+    #[test]
+    fn distinguishes_temporary_pressure_from_permanent_layout_limits() {
+        for (minimum, reason) in [
+            (1024, LayoutFallback::MemoryInUse),
+            (
+                crate::limits::RESOURCES_WORKING_BYTES + 1,
+                LayoutFallback::PreviewLimit,
+            ),
+        ] {
+            let error = anyhow::Error::new(WorkingPressure {
+                minimum,
+                available: 0,
+            })
+            .context("Opening document pages");
+            assert_eq!(LayoutFallback::from_error(&error), reason);
+        }
+        let error = crate::limits::preview_budget(false, "layout limit").unwrap_err();
+        assert_eq!(
+            LayoutFallback::from_error(&error),
+            LayoutFallback::PreviewLimit
+        );
+        assert_eq!(
+            LayoutFallback::from_error(&anyhow::anyhow!("invalid Office package")),
+            LayoutFallback::Unavailable
+        );
+    }
 }

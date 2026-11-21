@@ -16,6 +16,7 @@ pub enum Preview {
     Audio,
     Video,
     OfficeText,
+    Word,
     DocumentPages,
     Font,
     Workbook,
@@ -127,6 +128,8 @@ fn capability(path: &Path) -> Option<(Preview, Editing)> {
         read_only(Preview::Pdf)
     } else if crate::rich_documents::is_workbook_extension(extension) {
         read_only(Preview::Workbook)
+    } else if extension == "docx" {
+        read_only(Preview::Word)
     } else if crate::rich_documents::is_fixed_document_extension(extension) {
         read_only(Preview::DocumentPages)
     } else if FormatSet::NativeFont.matches(path) {
@@ -175,7 +178,7 @@ mod tests {
             (".svg", Preview::Image, Editing::ReadOnly),
             (".fb2.zip", Preview::Book, Editing::ReadOnly),
             (".tar.gz", Preview::Archive, Editing::ReadOnly),
-            (".docx", Preview::DocumentPages, Editing::ReadOnly),
+            (".docx", Preview::Word, Editing::ReadOnly),
             (".ods", Preview::Workbook, Editing::ReadOnly),
             (".doc", Preview::OfficeText, Editing::ReadOnly),
             (".ttf", Preview::Font, Editing::ReadOnly),

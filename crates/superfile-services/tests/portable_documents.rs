@@ -22,7 +22,7 @@ fn docx_and_pptx_use_portable_text_reading() -> Result<()> {
     let docx = directory.path().join("文档.docx");
     zip(&docx, &[("word/document.xml", br#"<w:document xmlns:w="word"><w:p><w:r><w:t>Hello &amp; world</w:t></w:r></w:p><w:p><w:r><w:t>Second paragraph</w:t></w:r></w:p></w:document>"#)])?;
     let PreparedDocument::Text { page, .. } =
-        rich_documents::prepare(&docx, &Cancellation::default())?
+        rich_documents::read_document_text(&docx, &Cancellation::default())?
     else {
         panic!("expected text")
     };
@@ -42,7 +42,7 @@ fn docx_and_pptx_use_portable_text_reading() -> Result<()> {
             ),
         ],
     )?;
-    let PreparedDocument::Text { page, .. } =
+    let PreparedDocument::FallbackText { page, .. } =
         rich_documents::prepare(&pptx, &Cancellation::default())?
     else {
         panic!("expected text")
@@ -174,7 +174,6 @@ fn office_pages_use_the_pdf_viewport_and_editor_palette() -> Result<()> {
         .add_diagram_slide("Second");
     let cancel = Cancellation::default();
     for (ext, bytes, count) in [
-        ("docx", lo_writer::save_as(&word.document, "docx")?, 1),
         ("odt", lo_writer::save_as(&word.document, "odt")?, 1),
         (
             "pptx",
@@ -268,9 +267,8 @@ fn reads_iwork_packages_and_spreadsheet_cells() -> Result<()> {
 }
 
 #[test]
-fn dark_word_page_preserves_embedded_image_pixels() -> Result<()> {
-    use superfile_core::reader_palette::ReaderPalette;
-    use superfile_services::pdf::PdfDocument;
+fn continuous_word_preserves_embedded_image_pixels() -> Result<()> {
+    use superfile_services::rich_documents::docx::model::Block;
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("photo.docx");
     let pixel = image::Rgb([220, 22, 44]);
@@ -282,26 +280,19 @@ fn dark_word_page_preserves_embedded_image_pixels() -> Result<()> {
         ("word/media/photo.png", png.get_ref()),
     ])?;
     let cancel = Cancellation::default();
-    let PreparedDocument::Pages(pdf) = rich_documents::prepare(&path, &cancel)? else {
-        panic!("expected Word page")
+    let PreparedDocument::Word(doc) = rich_documents::prepare(&path, &cancel)? else {
+        panic!("expected continuous Word content")
     };
-    let doc = PdfDocument::open(&pdf, &cancel)?;
-    let palette = ReaderPalette {
-        paper: [18, 25, 35],
-        ink: [218, 220, 225],
-        accent: [75, 160, 200],
-        surface: [40; 3],
+    let [Block::Image(photo)] = doc.blocks.as_slice() else {
+        panic!("expected the original embedded image")
     };
-    for mode in [None, Some(palette)] {
-        let frame = doc.render_with_palette(0, mode, &cancel)?;
-        let image = image::load_from_memory(&frame.png)?.to_rgb8();
-        assert!(
-            image
-                .pixels()
-                .any(|p| p.0.iter().zip(pixel.0).all(|(a, b)| a.abs_diff(b) <= 2)),
-            "embedded image changed or missing in {mode:?}"
-        );
-    }
+    assert_eq!(photo.data, *png.get_ref());
+    assert_eq!(
+        image::load_from_memory(&photo.data)?
+            .to_rgb8()
+            .get_pixel(0, 0),
+        &pixel
+    );
     Ok(())
 }
 
@@ -374,21 +365,77 @@ fn biff_workbook_and_rtf_read_their_native_content() -> Result<()> {
 }
 
 #[test]
+fn nested_word_table_keeps_its_continuous_layout() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("tables.docx");
+    let cell = r#"<w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/><w:tcBorders><w:bottom w:val="single"/></w:tcBorders></w:tcPr><w:p><w:r><w:rPr><w:b/><w:color w:val="012345"/><w:sz w:val="20"/></w:rPr><w:t>Cell text</w:t></w:r></w:p></w:tc>"#;
+    let row = format!("<w:tr>{}</w:tr>", cell.repeat(4));
+    let nested_table = format!("<w:tbl>{row}</w:tbl>");
+    let body = format!(
+        "<w:tbl>{}</w:tbl>",
+        format!("<w:tr><w:tc>{nested_table}<w:p/></w:tc></w:tr>").repeat(180)
+    );
+    let xml = format!(
+        r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{body}</w:body></w:document>"#
+    );
+    zip(&path, &[("word/document.xml", xml.as_bytes())])?;
+    let cancel = Cancellation::default();
+    let PreparedDocument::Word(word) = rich_documents::prepare(&path, &cancel)? else {
+        panic!("ordinary nested tables should open in the formatted preview");
+    };
+    let [rich_documents::docx::model::Block::Table(table)] = word.blocks.as_slice() else {
+        panic!("expected the Word table");
+    };
+    assert_eq!(table.rows.len(), 180);
+    let nested = &table.rows[0].cells[0].tables[0].table;
+    assert_eq!(nested.rows[0].cells.len(), 4);
+    Ok(())
+}
+
+#[test]
 fn oversized_office_layout_reuses_searchable_text() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("large.docx");
     let nested = format!(
         "<document><body>{}<p><t>Readable</t></p>{}</body></document>",
-        "<span>".repeat(25),
-        "</span>".repeat(25)
+        "<span>".repeat(256),
+        "</span>".repeat(256)
     );
     zip(&path, &[("word/document.xml", nested.as_bytes())])?;
-    let PreparedDocument::Text { page, .. } =
+    let PreparedDocument::FallbackText { page, reason } =
         rich_documents::prepare(&path, &Cancellation::default())?
     else {
         panic!("expected bounded fallback")
     };
+    assert_eq!(reason, rich_documents::LayoutFallback::PreviewLimit);
     assert!(page.text.contains("Readable"));
+    Ok(())
+}
+
+#[test]
+fn oversized_embedded_png_reserves_pixel_memory_before_layout() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("large-image.docx");
+    let mut header = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+    header.extend(12_000u32.to_be_bytes());
+    header.extend(16_000u32.to_be_bytes());
+    zip(
+        &path,
+        &[
+            (
+                "word/document.xml",
+                b"<document><body><p><t>Caption</t></p></body></document>",
+            ),
+            ("word/media/picture.png", &header),
+        ],
+    )?;
+    let PreparedDocument::FallbackText { page, reason } =
+        rich_documents::prepare(&path, &Cancellation::default())?
+    else {
+        panic!("expected a bounded preview")
+    };
+    assert_eq!(reason, rich_documents::LayoutFallback::PreviewLimit);
+    assert!(page.text.contains("Caption"));
     Ok(())
 }
 

@@ -32,10 +32,12 @@ pub(crate) fn zip_size(bytes: &[u8], cancel: &Cancellation) -> Result<u64> {
     Ok(total)
 }
 
-// The layout library retains each XML child in both its ordered and indexed
-// representations. Account for their transitive copies before building that
-// tree, since compressed size alone greatly understates nested markup.
-fn inspect_layout(bytes: &[u8], cancel: &Cancellation) -> Result<(u64, bool)> {
+// The importer shares subtrees between child order and mixed-content order.
+// Its DOM cost grows with node/attribute count, while embedded PNGs expand
+// into pixel buffers during PDF export. Recursive tree traversal also needs
+// an independent nesting limit.
+const MAX_LAYOUT_XML_DEPTH: u32 = 128;
+pub(super) fn inspect_layout(bytes: &[u8], cancel: &Cancellation) -> Result<(u64, bool)> {
     use quick_xml::events::Event;
     let mut references_images = false;
     let mut budget = zip_size(bytes, cancel)?
@@ -46,12 +48,19 @@ fn inspect_layout(bytes: &[u8], cancel: &Cancellation) -> Result<(u64, bool)> {
         cancel.check()?;
         let entry = archive.by_index(index)?;
         let expected = entry.size();
-        ensure!(
+        crate::limits::preview_budget(
             expected <= crate::limits::RESOURCES_WORKING_BYTES,
-            "Office part exceeds layout memory"
-        );
+            "Office part exceeds layout memory",
+        )?;
+        crate::limits::preview_budget(
+            budget <= crate::limits::RESOURCES_WORKING_BYTES,
+            "Office layout exceeds working memory",
+        )?;
         let xml = entry.name_raw().ends_with(b".xml") || entry.name_raw().ends_with(b".rels");
         let body = matches!(entry.name_raw(), b"word/document.xml" | b"content.xml");
+        let image = entry.name_raw().starts_with(b"word/media/")
+            || entry.name_raw().starts_with(b"ppt/media/")
+            || entry.name_raw().starts_with(b"Pictures/");
         let mut bounded = entry.take(expected + 1);
         if xml {
             let mut reader = quick_xml::Reader::from_reader(BufReader::new(&mut bounded));
@@ -65,14 +74,19 @@ fn inspect_layout(bytes: &[u8], cancel: &Cancellation) -> Result<(u64, bool)> {
                     references_images |=
                         matches!(tag.local_name().as_ref(), "blip" | "imagedata" | "image");
                 }
-                let copies = 1u64.checked_shl(depth).unwrap_or(u64::MAX);
                 let overhead = match event {
                     Event::Eof => break,
-                    Event::Start(_) => {
-                        depth += 1;
-                        192
+                    Event::Start(ref tag) | Event::Empty(ref tag) => {
+                        crate::limits::preview_budget(
+                            depth < MAX_LAYOUT_XML_DEPTH,
+                            "Office XML nesting exceeds layout limits",
+                        )?;
+                        if matches!(event, Event::Start(_)) {
+                            depth += 1;
+                        }
+                        // Strings, child handles and the attribute map are separate allocations.
+                        384 + 128 * tag.attributes().count() as u64
                     }
-                    Event::Empty(_) => 192,
                     Event::End(_) => {
                         depth = depth.saturating_sub(1);
                         0
@@ -80,17 +94,33 @@ fn inspect_layout(bytes: &[u8], cancel: &Cancellation) -> Result<(u64, bool)> {
                     Event::DocType(_) => {
                         anyhow::bail!("External document entities are unsupported")
                     }
-                    _ => 48,
+                    _ => 64,
                 };
-                let size = reader.buffer_position() - start + overhead;
-                budget = budget.saturating_add(size.saturating_mul(copies));
-                ensure!(
+                let size = reader.buffer_position() - start;
+                budget = budget
+                    .saturating_add(size.saturating_mul(2))
+                    .saturating_add(overhead);
+                crate::limits::preview_budget(
                     budget <= crate::limits::RESOURCES_WORKING_BYTES,
-                    "Office layout exceeds working memory"
-                );
+                    "Office layout exceeds working memory",
+                )?;
                 event_bytes.clear();
             }
         } else {
+            if image && expected >= 24 {
+                let mut header = [0u8; 24];
+                bounded.read_exact(&mut header)?;
+                if header.starts_with(b"\x89PNG\r\n\x1a\n") && &header[12..16] == b"IHDR" {
+                    let width = u32::from_be_bytes(header[16..20].try_into()?);
+                    let height = u32::from_be_bytes(header[20..24].try_into()?);
+                    let pixels = u64::from(width) * u64::from(height);
+                    budget = budget.saturating_add(pixels.saturating_mul(16));
+                    crate::limits::preview_budget(
+                        budget <= crate::limits::RESOURCES_WORKING_BYTES,
+                        "Office image exceeds layout memory",
+                    )?;
+                }
+            }
             cancel.copy(&mut bounded, std::io::sink())?;
         }
         ensure!(
@@ -106,7 +136,7 @@ pub(super) fn convert(path: &Path, extension: &str, cancel: &Cancellation) -> Re
     let bytes = snapshot.as_ref();
     let (required, references_images) = inspect_layout(bytes, cancel)?;
     let _memory = resources::pool().reserve_working(required, required)?;
-    let output = if matches!(extension, "docx" | "odt") {
+    let output = if extension == "odt" {
         let document = lo_writer::load_bytes("", bytes, extension)?;
         // Writer leaves an empty paragraph when it drops every source drawing.
         // Its text projection includes descriptions of imported image blocks.
