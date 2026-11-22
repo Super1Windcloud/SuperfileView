@@ -16,6 +16,7 @@ pub(super) fn show_pinned(
     cx: &mut App,
 ) {
     superfile_services::telemetry::reader_feature("embedded_image", "open_detail", []);
+    let drag = cx.new(|_| crate::views::dialog_drag::DialogDrag::default());
     let content = cx.new(|_| ImageDetail {
         source,
         zoom: 1.,
@@ -23,8 +24,9 @@ pub(super) fn show_pinned(
         pan: None,
         zoom_reported: false,
         _resource: Box::new(resource),
+        drag: drag.clone(),
     });
-    window.open_dialog(cx, move |dialog, window, _| {
+    crate::views::dialog_drag::open_with(drag, window, cx, move |dialog, window, _, _| {
         let size = popup_size(window);
         dialog
             .width(size.width)
@@ -50,6 +52,7 @@ struct ImageDetail {
     pan: Option<(Point<Pixels>, Point<Pixels>)>,
     zoom_reported: bool,
     _resource: Box<dyn Any>,
+    drag: gpui_kit::Entity<crate::views::dialog_drag::DialogDrag>,
 }
 
 impl ImageDetail {
@@ -89,8 +92,11 @@ impl Render for ImageDetail {
             .w_full()
             .h(size.height)
             .overflow_hidden()
-            .child(
+            .child(crate::views::dialog_drag::handle(
+                "image-detail-drag",
+                self.drag.clone(),
                 h_flex()
+                    .w_full()
                     .h(px(52.))
                     .flex_shrink_0()
                     .px_3()
@@ -135,7 +141,8 @@ impl Render for ImageDetail {
                         .ghost()
                         .on_click(|_, window, cx| window.close_dialog(cx)),
                     ),
-            )
+                cx,
+            ))
             .child(
                 div()
                     .id("image-detail-viewport")

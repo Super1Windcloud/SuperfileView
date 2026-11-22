@@ -149,9 +149,13 @@ fn show_dialog(model: &Entity<State>, allow_inactive: bool, cx: &mut App) -> boo
                     crate::views::software_update::SoftwareUpdate::new(model.clone(), cx)
                 });
                 model.update(cx, |state, _| state.dialog = Some(view.downgrade()));
-                window.open_dialog(cx, move |dialog, _, _| {
+                crate::views::dialog_drag::open(window, cx, move |dialog, _, cx, drag| {
                     dialog
-                        .title(tr("Software Update"))
+                        .title(crate::views::dialog_drag::title(
+                            drag,
+                            tr("Software Update"),
+                            cx,
+                        ))
                         .width(px(520.))
                         .child(view.clone())
                 });

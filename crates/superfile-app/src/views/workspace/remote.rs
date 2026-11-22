@@ -3,6 +3,7 @@ mod watch;
 
 use super::Workspace;
 use crate::app::remote::{Connections, persist};
+use crate::views::dialog_drag::DialogDrag;
 use gpui_kit::{
     component::{
         ActiveTheme, Disableable, Icon, Sizable,
@@ -57,6 +58,7 @@ pub(super) struct RemoteDialog {
     connections_scroll: ScrollHandle,
     scroll: UniformListScrollHandle,
     focus: FocusHandle,
+    drag: Entity<DialogDrag>,
 }
 
 impl RemoteDialog {
@@ -127,6 +129,7 @@ impl RemoteDialog {
             connections_scroll: ScrollHandle::new(),
             scroll: UniformListScrollHandle::new(),
             focus: cx.focus_handle().tab_stop(true),
+            drag: cx.new(|_| DialogDrag::default()),
         }
     }
     fn success(&mut self, message: &str, window: &mut Window, cx: &mut Context<Self>) {

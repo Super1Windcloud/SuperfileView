@@ -764,6 +764,8 @@ impl Render for RemoteDialog {
             Mode::Directories => self.render_directories(window, cx),
         };
         let dialog = cx.entity().downgrade();
+        let offset = self.drag.read(cx).offset();
+        let drag = self.drag.clone();
         gpui_kit::base::Dialog::new(cx)
             .focus_handle(self.modal_focus.clone())
             .close_on_backdrop_press(false)
@@ -776,6 +778,8 @@ impl Render for RemoteDialog {
                 v_flex()
                     .id("ssh-dialog")
                     .relative()
+                    .left(offset.x)
+                    .top(offset.y)
                     .w(px(560.))
                     .max_w((window.viewport_size().width - px(32.)).max(px(0.)))
                     .max_h((window.viewport_size().height - px(32.)).max(px(0.)))
@@ -792,10 +796,17 @@ impl Render for RemoteDialog {
                             .w_full()
                             .justify_between()
                             .child(
-                                gpui_kit::base::DialogTitle::new()
-                                    .text_base()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(self.title()),
+                                div().flex_1().min_w(px(0.)).child(
+                                    crate::views::dialog_drag::handle(
+                                        "ssh-dialog-drag",
+                                        drag,
+                                        gpui_kit::base::DialogTitle::new()
+                                            .text_base()
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .child(self.title()),
+                                        cx,
+                                    ),
+                                ),
                             )
                             .when(self.mode == Mode::Connections, |header| {
                                 header.child(

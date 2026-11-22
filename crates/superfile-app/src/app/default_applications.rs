@@ -82,11 +82,15 @@ fn show(window: &mut Window, cx: &mut App, loader: Loader) -> Option<Entity<Asso
     let view = cx.new(|cx| Associations::new(window, cx, loader));
     let content = view.clone();
     let close = view.clone();
-    window.open_dialog(cx, move |dialog, window, _| {
+    crate::views::dialog_drag::open(window, cx, move |dialog, window, cx, drag| {
         let height = (window.viewport_size().height - px(190.)).clamp(px(200.), px(560.));
         let close = close.clone();
         dialog
-            .title(tr("Default File Types…"))
+            .title(crate::views::dialog_drag::title(
+                drag,
+                tr("Default File Types…"),
+                cx,
+            ))
             .width(px(980.))
             .child(div().h(height).child(content.clone()))
             .on_close(move |_, _, cx| close.update(cx, |view, _| view.cancel()))

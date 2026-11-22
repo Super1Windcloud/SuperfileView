@@ -2,7 +2,7 @@ use super::super::minimap::Minimap;
 use crate::app::reader_jobs::{self, JobClass, Priority};
 use gpui_kit::{
     component::{
-        ActiveTheme, WindowExt,
+        ActiveTheme,
         input::{Editor, EditorState, InputEvent},
     },
     *,
@@ -216,9 +216,9 @@ impl Render for TextDialog {
 }
 pub(super) fn show_text_dialog(title: String, text: String, window: &mut Window, cx: &mut App) {
     let content = cx.new(|cx| TextDialog::new(text, window, cx));
-    window.open_dialog(cx, move |dialog, _, _| {
+    crate::views::dialog_drag::open(window, cx, move |dialog, _, cx, drag| {
         dialog
-            .title(title.clone())
+            .title(crate::views::dialog_drag::title(drag, title.clone(), cx))
             .width(px(640.))
             .child(div().h(px(360.)).child(content.clone()))
     });

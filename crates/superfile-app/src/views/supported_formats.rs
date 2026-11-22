@@ -29,10 +29,14 @@ fn show(window: &mut Window, cx: &mut App) -> Option<Entity<SupportedFormats>> {
     }
     let view = cx.new(|cx| SupportedFormats::new(window, cx));
     let content = view.clone();
-    window.open_dialog(cx, move |dialog, window, _| {
+    crate::views::dialog_drag::open(window, cx, move |dialog, window, cx, drag| {
         let size = window.viewport_size();
         dialog
-            .title(tr("Supported File Formats"))
+            .title(crate::views::dialog_drag::title(
+                drag,
+                tr("Supported File Formats"),
+                cx,
+            ))
             .width((size.width - px(24.)).min(px(700.)))
             .child(
                 div()
