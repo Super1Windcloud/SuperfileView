@@ -46,11 +46,16 @@ def say(message):
 
 class Repository:
     def __init__(self, path, name, branch):
-        self.path = path.resolve()
+        self.path = Path(path).resolve()
         self.ref = f"refs/heads/{branch}"
+        # A missing cwd becomes WinError 267 ("The directory name is invalid") on Windows.
+        require(self.path.is_dir(), f"Expected a Git checkout directory at {self.path}")
         require(Path(self.git("rev-parse", "--show-toplevel")).resolve() == self.path,
                 f"Expected a checkout at {self.path}")
-        local_branch = self.git("symbolic-ref", "--short", "HEAD")
+        try:
+            local_branch = self.git("symbolic-ref", "--short", "HEAD")
+        except subprocess.CalledProcessError:
+            local_branch = ""
         require(local_branch == branch, f"Check out {branch} in {self.path}")
         self.remote = self.git("config", "--get", f"branch.{local_branch}.remote")
         require(self.git("config", "--get", f"branch.{local_branch}.merge") == self.ref,
@@ -399,20 +404,40 @@ def sync_bucket(parent, bucket, tag, directory, verified, deadline):
     say(f"Verified Hyperscoop bucket {bucket_commit} and parent pointer {parent_commit}")
 
 
+def resolve_hyperscoop(explicit, home, root, environ):
+    # ~/demo/hyperscoop is the historical default. A sibling checkout covers
+    # machines that keep both repositories side by side, including Windows.
+    if explicit is not None:
+        return Path(explicit)
+    configured = environ.get("SUPERFILE_HYPERSCOOP")
+    if configured:
+        return Path(configured)
+    preferred = Path(home) / "demo" / "hyperscoop"
+    sibling = Path(root).resolve().parent / "hyperscoop"
+    for candidate in (preferred, sibling):
+        if candidate.is_dir():
+            return candidate
+    raise ValueError(
+        "Hyperscoop checkout not found. "
+        f"Expected {preferred} or {sibling}, or set SUPERFILE_HYPERSCOOP "
+        f"to a checkout whose {SUBMODULE} submodule is on master."
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["publish", "plan", "resume"])
     parser.add_argument("version", nargs="?", default="patch")
-    parser.add_argument("--hyperscoop", type=Path,
-                        default=Path(os.environ.get("SUPERFILE_HYPERSCOOP", Path.home() / "demo/hyperscoop")))
+    parser.add_argument("--hyperscoop", type=Path)
     parser.add_argument("--timeout-minutes", type=int, default=240)
     args = parser.parse_args()
     tag = None
     try:
         require(args.timeout_minutes > 0, "The wait timeout must be positive")
+        hyperscoop = resolve_hyperscoop(args.hyperscoop, Path.home(), release.ROOT, os.environ)
         source = Repository(release.ROOT, "SuperfileView", "main")
-        parent = Repository(args.hyperscoop, "hyperscoop", "main")
-        bucket = Repository(args.hyperscoop / SUBMODULE, SUBMODULE, "master")
+        parent = Repository(hyperscoop, "hyperscoop", "main")
+        bucket = Repository(hyperscoop / SUBMODULE, SUBMODULE, "master")
         check_bucket(parent, bucket, resume=args.command == "resume")
         if args.command == "resume":
             tag = "v" + ".".join(map(str, stable_version(args.version)))

@@ -91,7 +91,7 @@ just publish v1.2.3         # Or publish an explicit stable version
 just publish-resume v1.2.3  # Continue an existing tag after an interruption
 ```
 
-Use `just publish-plan minor` or `just publish-plan major` to check the target version. `just publish` runs the workspace checks, commits the version and lockfile, pushes `main` and the tag atomically, waits for GitHub Actions, verifies all release assets, and synchronizes Hyperscoop. The default Hyperscoop checkout is `~/demo/hyperscoop`; set `SUPERFILE_HYPERSCOOP` to use another location with its bucket submodule initialized. Git uses the repositories' configured credentials. The public GitHub reads can also use an existing `GH_TOKEN` to avoid anonymous rate limits. If Actions fails, rerun the failed workflow before resuming the same tag.
+Use `just publish-plan minor` or `just publish-plan major` to check the target version. `just publish` runs the workspace checks, commits the version and lockfile, pushes `main` and the tag atomically, waits for GitHub Actions, verifies all release assets, and synchronizes Hyperscoop. The default Hyperscoop checkout is `~/demo/hyperscoop` when that directory exists, otherwise a `hyperscoop` directory next to this repository. Set `SUPERFILE_HYPERSCOOP` to use another location with its bucket submodule initialized. Git uses the repositories' configured credentials. The public GitHub reads can also use an existing `GH_TOKEN` to avoid anonymous rate limits. If Actions fails, rerun the failed workflow before resuming the same tag.
 
 To trigger the packaging workflow manually, push the workflow and packaging scripts first, then tag that commit:
 

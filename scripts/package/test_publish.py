@@ -126,6 +126,56 @@ class PublishTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "asset digest mismatch"):
                     publish.verify_release(tag, destination, deadline)
 
+    def test_hyperscoop_resolution_prefers_configured_then_home_then_sibling(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            home = root / "home"
+            repo = root / "src" / "superfile"
+            sibling = root / "src" / "hyperscoop"
+            configured = root / "configured"
+            preferred = home / "demo" / "hyperscoop"
+            for path in (home, repo, sibling, configured, preferred):
+                path.mkdir(parents=True)
+            self.assertEqual(
+                publish.resolve_hyperscoop(configured / "explicit", home, repo, {}),
+                configured / "explicit",
+            )
+            self.assertEqual(
+                publish.resolve_hyperscoop(None, home, repo, {"SUPERFILE_HYPERSCOOP": str(configured)}),
+                configured,
+            )
+            self.assertEqual(
+                publish.resolve_hyperscoop(None, home, repo, {"SUPERFILE_HYPERSCOOP": ""}),
+                preferred,
+            )
+            self.assertEqual(publish.resolve_hyperscoop(None, home, repo, {}), preferred)
+            preferred.rmdir()
+            (home / "demo").rmdir()
+            self.assertEqual(publish.resolve_hyperscoop(None, home, repo, {}), sibling)
+            sibling.rmdir()
+            with self.assertRaisesRegex(ValueError, "Hyperscoop checkout not found"):
+                publish.resolve_hyperscoop(None, home, repo, {})
+
+    def test_missing_checkout_reports_the_path(self):
+        missing = Path(tempfile.gettempdir()) / "superfile-publish-missing-checkout"
+        self.assertFalse(missing.exists())
+        with self.assertRaises(ValueError) as caught:
+            publish.Repository(missing, "hyperscoop", "main")
+        self.assertIn(str(missing.resolve()), str(caught.exception))
+
+    def test_detached_checkout_asks_for_the_branch(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            work = root / "work"
+            work.mkdir()
+            repo = LocalRepository(work, root / "remote.git")
+            (work / "README").write_text("x\n", encoding="utf-8")
+            repo.git("add", "README")
+            repo.git("commit", "-qm", "Initial")
+            repo.git("checkout", "--detach")
+            with self.assertRaisesRegex(ValueError, "Check out main"):
+                publish.Repository(work, "SuperfileView", "main")
+
     def test_windows_archive_architecture_and_shortcuts(self):
         with tempfile.TemporaryDirectory() as scratch:
             path = Path(scratch) / "windows.zip"

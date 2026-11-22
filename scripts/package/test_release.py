@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 from pathlib import Path
 import subprocess
 import tempfile
@@ -78,14 +79,30 @@ class ReleaseTests(unittest.TestCase):
     def test_shell_packagers_reject_missing_release_instead_of_falling_back(self):
         with tempfile.TemporaryDirectory() as temporary:
             environment = {**os.environ, 'SUPERFILE_PACKAGE_BINARY': str(Path(temporary) / 'missing')}
+            bash = 'bash'
+            if os.name == 'nt':
+                # System32 bash is the WSL launcher and exits before the script runs when no
+                # distro is installed. Git Bash can execute the packagers. python3 must be this
+                # interpreter: the Microsoft Store alias exits 49 without a message.
+                exec_path = subprocess.run(
+                    ['git', '--exec-path'], check=True, capture_output=True, text=True,
+                ).stdout.strip()
+                bash = str(Path(exec_path).resolve().parents[2] / 'bin' / 'bash.exe')
+                shim = Path(temporary) / 'shims'
+                shim.mkdir()
+                python = Path(sys.executable).as_posix()
+                (shim / 'python3').write_text(
+                    f"#!/usr/bin/env bash\nexec '{python}' \"$@\"\n", encoding='utf-8', newline='\n',
+                )
+                environment['PATH'] = str(shim) + os.pathsep + environment.get('PATH', '')
             for script, arguments in [
                 ('macos/package-dmg.sh', ['aarch64-apple-darwin', 'aarch64', 'v1.2.3']),
                 ('linux/package-deb.sh', ['x86_64-unknown-linux-gnu', 'v1.2.3']),
             ]:
                 with self.subTest(script=script):
-                    result = subprocess.run(['bash', str(ROOT / 'scripts/package' / script), *arguments],
+                    result = subprocess.run([bash, str(ROOT / 'scripts/package' / script), *arguments],
                                             env=environment, capture_output=True, text=True)
-                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotEqual(result.returncode, 0, result.stderr)
                     self.assertIn('Missing release binary:', result.stderr)
 
     def test_versions_and_prerelease_order(self):
