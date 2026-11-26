@@ -13,6 +13,30 @@ enum Opened {
     Folder(FolderSnapshot),
     File(PathBuf, anyhow::Result<Box<Content>>),
 }
+
+async fn load_folder_paths(
+    view: WeakEntity<Workspace>,
+    paths: Vec<PathBuf>,
+    cx: &mut AsyncWindowContext,
+) {
+    let (cancel, guard) = superfile_services::work::Cancellation::task();
+    let _guard = guard;
+    for path in paths {
+        let cancel = cancel.clone();
+        let folder = cx
+            .background_executor()
+            .spawn(async move { open_folder_cancellable(&path, &cancel) })
+            .await;
+        let _ = view.update_in(cx, |v, window, cx| {
+            match folder {
+                Ok(folder) => v.add_folder(folder, window, cx),
+                Err(error) => v.error = Some(format!("{error:#}").into()),
+            }
+            cx.notify();
+        });
+    }
+}
+
 impl Workspace {
     pub(super) fn pending_open_path(&self) -> Option<&PathBuf> {
         if self.loading {
@@ -611,27 +635,27 @@ impl Workspace {
                     return;
                 }
             };
-            let (cancel, guard) = superfile_services::work::Cancellation::task();
-            let _guard = guard;
-            for path in paths {
-                let cancel = cancel.clone();
-                let folder = cx
-                    .background_executor()
-                    .spawn(async move { open_folder_cancellable(&path, &cancel) })
-                    .await;
-                let _ = view.update_in(cx, |v, window, cx| {
-                    match folder {
-                        Ok(folder) => v.add_folder(folder, window, cx),
-                        Err(error) => v.error = Some(format!("{error:#}").into()),
-                    }
-                    cx.notify();
-                });
-            }
+            load_folder_paths(view.clone(), paths, cx).await;
             let _ = view.update(cx, |v, cx| {
                 v.picking = false;
                 cx.notify();
             });
         }));
+    }
+
+    pub(crate) fn add_folder_paths(
+        &mut self,
+        paths: Vec<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if paths.is_empty() || crate::app::updates::busy(cx) {
+            return;
+        }
+        cx.spawn_in(window, async move |view, cx| {
+            load_folder_paths(view.clone(), paths, cx).await;
+        })
+        .detach();
     }
 
     pub(super) fn choose_path(

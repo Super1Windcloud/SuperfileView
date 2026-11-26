@@ -28,10 +28,29 @@ fn validate_url(value: &str) -> Result<url::Url> {
     ensure!(
         (url.scheme() == "file" && url.to_file_path().is_ok())
             || (url.scheme() == "superfile"
-                && matches!(url.host_str(), Some("open-workspace" | "open-remote"))),
+                && matches!(
+                    url.host_str(),
+                    Some("open-workspace" | "open-remote" | "open-cli")
+                )),
         "Unsupported launch URL"
     );
+    if url.scheme() == "superfile" && url.host_str() == Some("open-cli") {
+        crate::cli::validate_open_cli_url(&url)?;
+    }
     Ok(url)
+}
+
+fn resolve_local_path(argument: &Path) -> Result<PathBuf> {
+    let absolute = std::path::absolute(argument)?;
+    if let Ok(canonical) = fs::canonicalize(&absolute) {
+        return Ok(canonical);
+    }
+    if let (Some(parent), Some(name)) = (absolute.parent(), absolute.file_name())
+        && let Ok(canonical_parent) = fs::canonicalize(parent)
+    {
+        return Ok(canonical_parent.join(name));
+    }
+    Ok(absolute)
 }
 
 pub fn launch_url(argument: &Path) -> Result<String> {
@@ -42,7 +61,7 @@ pub fn launch_url(argument: &Path) -> Result<String> {
     {
         return Ok(validate_url(value)?.to_string());
     }
-    url::Url::from_file_path(std::path::absolute(argument)?)
+    url::Url::from_file_path(resolve_local_path(argument)?)
         .map(String::from)
         .map_err(|_| anyhow::anyhow!("Cannot open file path: {}", argument.display()))
 }
@@ -52,19 +71,76 @@ pub fn launch(urls: Vec<String>) -> Result<Launch> {
         .context("Cannot start or contact the Superfile instance")
 }
 
-fn launch_at(directory: &Path, urls: Vec<String>) -> Result<Launch> {
+/// Forwards `urls` to an already-running primary instance, returning `false` when no instance owns the lock.
+pub fn try_forward(urls: &[String]) -> Result<bool> {
+    try_forward_at(&crate::platform::data_directory()?.join("instance"), urls)
+        .context("Cannot contact the running Superfile instance")
+}
+
+fn open_lock(directory: &Path) -> Result<File> {
     fs::DirBuilder::new()
         .recursive(true)
         .private_mode(0o700)
         .create(directory)?;
     crate::platform::restrict_permissions(directory, 0o700)?;
-    let lock = OpenOptions::new()
+    Ok(OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
         .private_mode(0o600)
-        .open(directory.join("owner.lock"))?;
+        .open(directory.join("owner.lock"))?)
+}
+
+enum ForwardOutcome {
+    Forwarded,
+    OwnerExited { marker_exists: bool },
+}
+
+fn wait_for_forward(
+    directory: &Path,
+    lock: &File,
+    urls: &[String],
+) -> Result<(ForwardOutcome, PathBuf)> {
+    let marker = enqueue(directory, urls)?;
+    let deadline = Instant::now() + FORWARD_WAIT;
+    while marker.try_exists()? {
+        if try_lock(lock)? {
+            return Ok((
+                ForwardOutcome::OwnerExited {
+                    marker_exists: marker.try_exists()?,
+                },
+                marker,
+            ));
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(35));
+    }
+    Ok((ForwardOutcome::Forwarded, marker))
+}
+
+fn try_forward_at(directory: &Path, urls: &[String]) -> Result<bool> {
+    let lock = open_lock(directory)?;
+    if try_lock(&lock)? {
+        return Ok(false);
+    }
+    match wait_for_forward(directory, &lock, urls)? {
+        (ForwardOutcome::Forwarded, _) => Ok(true),
+        (ForwardOutcome::OwnerExited { marker_exists }, marker) => {
+            // The former owner exited before acknowledging the marker; discard
+            // the stale marker so the detached child launches with `urls`.
+            if marker_exists {
+                let _ = fs::remove_file(&marker);
+            }
+            Ok(false)
+        }
+    }
+}
+
+fn launch_at(directory: &Path, urls: Vec<String>) -> Result<Launch> {
+    let lock = open_lock(directory)?;
     let primary = |lock, urls| {
         Launch::Primary(
             Instance {
@@ -78,24 +154,23 @@ fn launch_at(directory: &Path, urls: Vec<String>) -> Result<Launch> {
         return Ok(primary(lock, urls));
     }
 
-    let marker = enqueue(directory, &urls)?;
-    let deadline = Instant::now() + FORWARD_WAIT;
-    while marker.try_exists()? {
-        if try_lock(&lock)? {
-            // The former owner was exiting. Drain the existing request on
-            // startup if it was not acknowledged before the lock passed to us.
-            return if marker.try_exists()? {
-                Ok(primary(lock, Vec::new()))
-            } else {
-                Ok(Launch::Forwarded)
-            };
-        }
-        if Instant::now() >= deadline {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(35));
+    match wait_for_forward(directory, &lock, &urls)? {
+        (ForwardOutcome::Forwarded, _) => Ok(Launch::Forwarded),
+        // The former owner was exiting. Drain the existing request on
+        // startup if it was not acknowledged before the lock passed to us.
+        (
+            ForwardOutcome::OwnerExited {
+                marker_exists: true,
+            },
+            _,
+        ) => Ok(primary(lock, Vec::new())),
+        (
+            ForwardOutcome::OwnerExited {
+                marker_exists: false,
+            },
+            _,
+        ) => Ok(Launch::Forwarded),
     }
-    Ok(Launch::Forwarded)
 }
 
 fn try_lock(file: &File) -> Result<bool> {
@@ -260,6 +335,41 @@ mod tests {
         };
         assert!(urls.is_empty());
         assert_eq!(pending(directory.path())?.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn try_forward_returns_false_without_owner_and_forwards_when_owned() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let canonical_dir = fs::canonicalize(directory.path())?;
+        let dot_url = launch_url(&canonical_dir)?;
+        assert!(!try_forward_at(
+            &canonical_dir,
+            std::slice::from_ref(&dot_url)
+        )?);
+        assert!(pending(&canonical_dir)?.is_empty());
+
+        let Launch::Primary(instance, _) = launch_at(&canonical_dir, vec![])? else {
+            anyhow::bail!("Expected primary instance");
+        };
+        let dir = canonical_dir.clone();
+        let expected = vec![dot_url.clone()];
+        let spawned = std::thread::spawn(move || try_forward_at(&dir, &expected));
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let request = loop {
+            if let Some(request) = pending(&canonical_dir)?.pop() {
+                break request;
+            }
+            ensure!(
+                Instant::now() < deadline,
+                "Forwarded request did not arrive"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(request.urls, vec![dot_url]);
+        request.acknowledge()?;
+        assert!(spawned.join().expect("forward thread")?);
+        drop(instance);
         Ok(())
     }
 }

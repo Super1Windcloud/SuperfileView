@@ -38,7 +38,7 @@ use gpui_kit::*;
 use crate::views::workspace::Workspace;
 use actions::{
     About, AddFolder, CheckForUpdates, CloseWindow, CloseWorkspace, DefaultApplications,
-    KeyboardShortcuts, LanguageChinese, LanguageEnglish, LanguageSystem, NavigateBack,
+    InstallCli, KeyboardShortcuts, LanguageChinese, LanguageEnglish, LanguageSystem, NavigateBack,
     NavigateForward, NewFile, NewWindow, NextTab, OpenFile, OpenFolder, OpenSettings, OpenThemes,
     PreviousTab, Quit, Refresh, SaveFile, SearchWorkspace, SupportedFormats, ToggleDarkMode,
     TogglePreview, ToggleSidebar, ToggleWordWrap,
@@ -370,21 +370,39 @@ pub fn run() -> Result<()> {
     }
     #[cfg(feature = "reader-measurements")]
     let startup = reader_measurement::StartupMeasurement::start();
-    let arguments: Vec<_> = std::env::args_os().skip(1).collect();
-    if arguments.as_slice() == [std::ffi::OsStr::new("--help")] {
-        println!(
-            "Usage: superfile [file-or-folder ...]\n\nOpen a folder or UTF-8 file in the viewer and basic text editor."
-        );
-        #[cfg(feature = "reader-measurements")]
-        println!("Measurement build: superfile --measure-source-reader fixture.txt");
+
+    use superfile_services::cli::{self, CliAction};
+    let action = match cli::parse_env_args() {
+        Ok(action) => action,
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(2);
+        }
+    };
+    let options = match action {
+        CliAction::Help => {
+            println!("{}", cli::help_text(cfg!(feature = "reader-measurements")));
+            return Ok(());
+        }
+        CliAction::Version => {
+            println!("{}", cli::version_text());
+            return Ok(());
+        }
+        CliAction::Launch(options) => options,
+    };
+
+    let urls = cli::resolve_urls(&options)?;
+    let argv0 = std::env::args_os().next();
+    if cli::should_detach(&options, argv0.as_deref()) {
+        if superfile_services::instance::try_forward(&urls)? {
+            return Ok(());
+        }
+        let executable = std::env::current_exe()?;
+        cli::spawn_detached(&executable, &urls)?;
         return Ok(());
     }
 
     use superfile_services::instance::Launch;
-    let urls = arguments
-        .iter()
-        .map(|value| superfile_services::instance::launch_url(std::path::Path::new(value)))
-        .collect::<Result<Vec<_>>>()?;
     let Launch::Primary(instance, mut urls) = superfile_services::instance::launch(urls)? else {
         return Ok(());
     };
@@ -627,6 +645,7 @@ pub fn run() -> Result<()> {
         cx.on_action(|_: &LanguageEnglish, cx| change_language("en", cx));
         cx.on_action(|_: &KeyboardShortcuts, cx| shortcuts::open(cx));
         cx.on_action(|_: &SupportedFormats, cx| crate::views::supported_formats::open(cx));
+        cx.on_action(|_: &InstallCli, cx| install_cli(cx));
         cx.on_action(|_: &CheckForUpdates, cx| updates::open(cx));
         cx.bind_keys([
             KeyBinding::new("secondary-q", Quit, None),
@@ -724,6 +743,191 @@ fn reveal_open_file(
         })
 }
 
+fn install_cli(cx: &mut App) {
+    if updates::busy(cx) {
+        return;
+    }
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async { superfile_services::cli::install_cli() })
+            .await;
+        cx.update(|cx| {
+            let (success, message) = match result {
+                Ok(outcome) => {
+                    let path = outcome.path.display().to_string();
+                    if outcome.in_path {
+                        (
+                            true,
+                            superfile_services::locale::tr(
+                                "Installed 'superfile' command at {path}",
+                            )
+                            .replace("{path}", &path),
+                        )
+                    } else {
+                        let dir = outcome
+                            .path
+                            .parent()
+                            .map(|dir| dir.display().to_string())
+                            .unwrap_or_default();
+                        (
+                            true,
+                            superfile_services::locale::tr(
+                                "Installed 'superfile' command at {path}. Add {dir} to PATH to use it from any terminal.",
+                            )
+                            .replace("{path}", &path)
+                            .replace("{dir}", &dir),
+                        )
+                    }
+                }
+                Err(error) => {
+                    log::error!("Cannot install CLI command: {error:#}");
+                    (
+                        false,
+                        superfile_services::locale::tr(
+                            "Could not install 'superfile' command: {error}",
+                        )
+                        .replace("{error}", &format!("{error:#}")),
+                    )
+                }
+            };
+            let target = cx
+                .active_window()
+                .or_else(|| cx.windows().into_iter().next());
+            if let Some(window) = target {
+                let _ = window.update(cx, |_, window, cx| {
+                    use gpui_kit::component::{WindowExt, notification::Notification};
+                    let notification = if success {
+                        Notification::success(message)
+                    } else {
+                        Notification::error(message)
+                    };
+                    window.push_notification(notification, cx);
+                });
+            }
+        });
+    })
+    .detach();
+}
+
+fn recent_workspace_for(
+    path: &std::path::Path,
+    cx: &App,
+) -> Option<superfile_services::preferences::RecentWorkspace> {
+    cx.try_global::<RecentWorkspaces>()?
+        .0
+        .iter()
+        .find(|workspace| workspace.folders.as_slice() == [path.to_path_buf()])
+        .cloned()
+}
+
+fn active_visible_workspace(cx: &App) -> Option<(Entity<Workspace>, AnyWindowHandle)> {
+    let active = cx.active_window();
+    let mut windows = OpenWorkspaces::windows(cx);
+    windows.sort_by_key(|(_, handle)| Some(*handle) == active);
+    windows.into_iter().rev().find_map(|(weak, handle)| {
+        let view = weak.upgrade()?;
+        view.read(cx)
+            .is_visible_workspace(cx)
+            .then_some((view, handle))
+    })
+}
+
+fn open_file_in_active_workspace(path: std::path::PathBuf, cx: &mut App) {
+    let windows = OpenWorkspaces::windows(cx);
+    let reused = windows.iter().rev().any(|(view, handle)| {
+        handle
+            .update(cx, |_, window, cx| {
+                view.update(cx, |v, cx| {
+                    v.is_visible_workspace(cx) && v.open_system_file(path.clone(), window, cx)
+                })
+                .unwrap_or(false)
+            })
+            .unwrap_or(false)
+    });
+    if reused {
+        cx.activate(true);
+    } else {
+        open_external_workspace(path, cx);
+    }
+}
+
+fn open_files_in_new_window(paths: Vec<std::path::PathBuf>, cx: &mut App) {
+    if paths.is_empty() {
+        return;
+    }
+    match open_detached_window(cx) {
+        Ok((view, handle)) => {
+            let _ = handle.update(cx, |_, window, cx| {
+                view.update(cx, |view, cx| {
+                    for path in paths {
+                        view.open_system_file(path, window, cx);
+                    }
+                });
+            });
+        }
+        Err(error) => log::error!("Cannot open Superfile window for CLI files: {error:#}"),
+    }
+}
+
+fn open_cli_url(url: &url::Url, cx: &mut App) -> bool {
+    let Ok(Some(request)) = superfile_services::cli::decode_open_cli_url(url) else {
+        return false;
+    };
+    let mut file_paths = Vec::new();
+    let mut other_urls = Vec::new();
+    for value in request.urls {
+        if let Ok(parsed) = url::Url::parse(&value)
+            && parsed.scheme() == "file"
+            && let Ok(path) = parsed.to_file_path()
+        {
+            file_paths.push(path);
+        } else {
+            other_urls.push(value);
+        }
+    }
+
+    if request.add {
+        let (folders, files): (Vec<_>, Vec<_>) = file_paths
+            .into_iter()
+            .partition(|path| path.is_dir() && !superfile_services::preview::is_iwork(path));
+        let target = if request.new_window {
+            open_detached_window(cx).ok()
+        } else {
+            active_visible_workspace(cx).or_else(|| open_detached_window(cx).ok())
+        };
+        if let Some((view, handle)) = target {
+            let _ = handle.update(cx, |_, window, cx| {
+                view.update(cx, |view, cx| {
+                    view.add_folder_paths(folders, window, cx);
+                    for file in files {
+                        view.open_system_file(file, window, cx);
+                    }
+                });
+                window.activate_window();
+            });
+            cx.activate(true);
+        }
+    } else if request.new_window {
+        if file_paths.is_empty() && other_urls.is_empty() {
+            open_workspace(None, cx);
+        } else {
+            let (folders, files): (Vec<_>, Vec<_>) = file_paths
+                .into_iter()
+                .partition(|path| path.is_dir() && !superfile_services::preview::is_iwork(path));
+            for folder in folders {
+                open_workspace(Some(folder), cx);
+            }
+            open_files_in_new_window(files, cx);
+        }
+    }
+
+    if !other_urls.is_empty() {
+        open_system_files(other_urls, cx);
+    }
+    true
+}
+
 fn open_system_files(urls: Vec<String>, cx: &mut App) {
     updates::interrupt_for_files(cx);
     if updates::queue_files(&urls, cx) {
@@ -736,6 +940,11 @@ fn open_system_files(urls: Vec<String>, cx: &mut App) {
             continue;
         }
         if let Ok(url) = url::Url::parse(&value)
+            && open_cli_url(&url, cx)
+        {
+            continue;
+        }
+        if let Ok(url) = url::Url::parse(&value)
             && system_open::receive(&url, cx)
         {
             continue;
@@ -744,26 +953,14 @@ fn open_system_files(urls: Vec<String>, cx: &mut App) {
             && url.scheme() == "file"
             && let Ok(path) = url.to_file_path()
         {
+            if path.is_dir() && !superfile_services::preview::is_iwork(&path) {
+                open_folder_workspace(path.clone(), recent_workspace_for(&path, cx), cx);
+                continue;
+            }
             if reveal_open_file(&path, None, true, cx) {
                 continue;
             }
-            let windows = OpenWorkspaces::windows(cx);
-            let reused = windows.iter().rev().any(|(view, handle)| {
-                handle
-                    .update(cx, |_, window, cx| {
-                        view.update(cx, |v, cx| {
-                            v.is_visible_workspace(cx)
-                                && v.open_system_file(path.clone(), window, cx)
-                        })
-                        .unwrap_or(false)
-                    })
-                    .unwrap_or(false)
-            });
-            if reused {
-                cx.activate(true);
-            } else {
-                open_external_workspace(path, cx);
-            }
+            open_file_in_active_workspace(path, cx);
         }
     }
 }
@@ -801,12 +998,10 @@ fn open_folder_workspace(
         else {
             continue;
         };
-        let id = host
-            .read(cx)
-            .slots
-            .iter()
-            .find(|slot| slot.workspace.folders.as_slice() == [path.clone()])
-            .map(|slot| slot.workspace.id.clone());
+        let id = host.read(cx).slots.iter().find_map(|slot| {
+            let workspace = slot.view.read(cx).workspace_descriptor();
+            (workspace.folders.as_slice() == [path.clone()]).then_some(workspace.id)
+        });
         if let Some(id) = id {
             let _ = handle.update(cx, |_, window, cx| {
                 host.update(cx, |host, cx| host.select(&id, window, cx));
@@ -1031,6 +1226,105 @@ mod window_tests {
         .unwrap();
         cx.run_until_parked();
         assert!(cx.update(|cx| !view.read(cx).is_home()));
+    }
+
+    #[gpui_kit::test]
+    fn cli_directory_open_and_add_preserve_existing_workspace_tabs(cx: &mut TestAppContext) {
+        let dir_a = tempfile::tempdir().unwrap();
+        let dir_b = tempfile::tempdir().unwrap();
+        let dir_a_path = std::fs::canonicalize(dir_a.path()).unwrap();
+        let dir_b_path = std::fs::canonicalize(dir_b.path()).unwrap();
+        let alpha_path = dir_a_path.join("alpha.txt");
+        std::fs::write(&alpha_path, "alpha").unwrap();
+        std::fs::write(dir_b_path.join("beta.txt"), "beta").unwrap();
+
+        let (view, _handle) = cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::app::remote::init(Default::default(), cx);
+            crate::app::recent_paths::init(cx);
+            crate::app::updates::init(cx);
+            cx.set_global(OpenWorkspaces::default());
+            cx.set_global(super::RecentWorkspaces::default());
+            super::open_workspace(Some(dir_a_path.clone()), cx);
+            OpenWorkspaces::windows(cx)
+                .into_iter()
+                .next()
+                .map(|(view, handle)| (view.upgrade().unwrap(), handle))
+                .unwrap()
+        });
+        cx.run_until_parked();
+
+        // Open a file tab inside dir_a, then re-open dir_a via CLI; tabs must stay intact.
+        let alpha_url = superfile_services::instance::launch_url(&alpha_path).unwrap();
+        cx.update(|cx| super::open_system_files(vec![alpha_url], cx));
+        cx.run_until_parked();
+        assert_eq!(
+            cx.update(|cx| view.read(cx).open_document_paths()),
+            vec![alpha_path.clone()]
+        );
+
+        let url_a = superfile_services::instance::launch_url(&dir_a_path).unwrap();
+        cx.update(|cx| super::open_system_files(vec![url_a], cx));
+        cx.run_until_parked();
+        assert_eq!(
+            cx.update(|cx| view.read(cx).open_document_paths()),
+            vec![alpha_path.clone()]
+        );
+
+        // Forwarding a different folder adds a workspace tab in the same window instead
+        // of overwriting dir_a.
+        let url_b = superfile_services::instance::launch_url(&dir_b_path).unwrap();
+        cx.update(|cx| super::open_system_files(vec![url_b], cx));
+        cx.run_until_parked();
+        let slots = cx.update(|cx| {
+            view.read(cx)
+                .workspace_window
+                .as_ref()
+                .unwrap()
+                .upgrade()
+                .unwrap()
+                .read(cx)
+                .slots
+                .len()
+        });
+        assert_eq!(slots, 2);
+        assert_eq!(
+            cx.update(|cx| view.read(cx).open_document_paths()),
+            vec![alpha_path]
+        );
+
+        // `--add` adds a folder root into the currently active workspace rather than creating a slot.
+        let add_dir = tempfile::tempdir().unwrap();
+        let add_path = std::fs::canonicalize(add_dir.path()).unwrap();
+        let add_url = superfile_services::cli::encode_open_cli_url(
+            &superfile_services::cli::CliOpenRequest {
+                new_window: false,
+                add: true,
+                urls: vec![superfile_services::instance::launch_url(&add_path).unwrap()],
+            },
+        )
+        .unwrap();
+        cx.update(|cx| super::open_system_files(vec![add_url], cx));
+        cx.run_until_parked();
+        let active_folders = cx.update(|cx| {
+            let (active, _) = super::active_visible_workspace(cx).unwrap();
+            active.read(cx).workspace_descriptor().folders
+        });
+        assert!(active_folders.contains(&add_path));
+
+        // `--new` opens a fresh window instead of reusing the current window.
+        let windows_before = cx.update(|cx| cx.windows().len());
+        let new_url = superfile_services::cli::encode_open_cli_url(
+            &superfile_services::cli::CliOpenRequest {
+                new_window: true,
+                add: false,
+                urls: vec![],
+            },
+        )
+        .unwrap();
+        cx.update(|cx| super::open_system_files(vec![new_url], cx));
+        cx.run_until_parked();
+        assert_eq!(cx.update(|cx| cx.windows().len()), windows_before + 1);
     }
 
     #[gpui_kit::test]

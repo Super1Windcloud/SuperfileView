@@ -12,6 +12,7 @@ gpui_kit::actions!(
         LanguageEnglish,
         KeyboardShortcuts,
         SupportedFormats,
+        InstallCli,
         SearchWorkspace,
         ToggleSidebar,
         TogglePreview,

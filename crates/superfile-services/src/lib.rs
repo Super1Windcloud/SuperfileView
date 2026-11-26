@@ -3,6 +3,7 @@
 pub mod archive;
 pub mod audio;
 pub mod binary;
+pub mod cli;
 pub mod code_themes;
 pub mod csv;
 pub mod diagnostics;

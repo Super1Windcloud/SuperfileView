@@ -919,5 +919,11 @@
   "Move Superfile out of the disk image or translocated folder before updating.": "Move Superfile out of the disk image or translocated folder before updating.",
   "Install the Superfile app bundle before using in-app updates.": "Install the Superfile app bundle before using in-app updates.",
   "Use the package manager that installed Superfile to update it.": "Use the package manager that installed Superfile to update it.",
-  "Show Downloaded Update": "Show Downloaded Update"
+  "Show Downloaded Update": "Show Downloaded Update",
+  "Install 'superfile' Command…": "Install 'superfile' Command…",
+  "Command Line": "Command Line",
+  "Install…": "Install…",
+  "Installed 'superfile' command at {path}": "Installed 'superfile' command at {path}",
+  "Installed 'superfile' command at {path}. Add {dir} to PATH to use it from any terminal.": "Installed 'superfile' command at {path}. Add {dir} to PATH to use it from any terminal.",
+  "Could not install 'superfile' command: {error}": "Could not install 'superfile' command: {error}"
 }

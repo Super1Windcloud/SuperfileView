@@ -1,5 +1,5 @@
 use super::Workspace;
-use crate::app::actions::{CheckForUpdates, DefaultApplications, SupportedFormats};
+use crate::app::actions::{CheckForUpdates, DefaultApplications, InstallCli, SupportedFormats};
 use gpui_kit::{
     component::{
         ActiveTheme, Disableable, Icon, Sizable,
@@ -290,6 +290,19 @@ impl Workspace {
                                         ))
                                         .on_click(|_, window, cx| {
                                             window.dispatch_action(Box::new(SupportedFormats), cx)
+                                        })
+                                        .into_any_element(),
+                                ))
+                                .child(divider())
+                                .child(row(
+                                    "Command Line",
+                                    "",
+                                    action_button("settings-install-cli", "Install…")
+                                        .accessibility_label(superfile_services::locale::tr(
+                                            "Install 'superfile' Command…",
+                                        ))
+                                        .on_click(|_, window, cx| {
+                                            window.dispatch_action(Box::new(InstallCli), cx)
                                         })
                                         .into_any_element(),
                                 ))
