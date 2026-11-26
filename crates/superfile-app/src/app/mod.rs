@@ -870,6 +870,13 @@ fn open_files_in_new_window(paths: Vec<std::path::PathBuf>, cx: &mut App) {
     }
 }
 
+fn url_file_path(url: &url::Url) -> Option<std::path::PathBuf> {
+    (url.scheme() == "file")
+        .then(|| url.to_file_path().ok())
+        .flatten()
+        .map(|path| std::fs::canonicalize(&path).unwrap_or(path))
+}
+
 fn open_cli_url(url: &url::Url, cx: &mut App) -> bool {
     let Ok(Some(request)) = superfile_services::cli::decode_open_cli_url(url) else {
         return false;
@@ -878,8 +885,7 @@ fn open_cli_url(url: &url::Url, cx: &mut App) -> bool {
     let mut other_urls = Vec::new();
     for value in request.urls {
         if let Ok(parsed) = url::Url::parse(&value)
-            && parsed.scheme() == "file"
-            && let Ok(path) = parsed.to_file_path()
+            && let Some(path) = url_file_path(&parsed)
         {
             file_paths.push(path);
         } else {
@@ -950,8 +956,7 @@ fn open_system_files(urls: Vec<String>, cx: &mut App) {
             continue;
         }
         if let Ok(url) = url::Url::parse(&value)
-            && url.scheme() == "file"
-            && let Ok(path) = url.to_file_path()
+            && let Some(path) = url_file_path(&url)
         {
             if path.is_dir() && !superfile_services::preview::is_iwork(&path) {
                 open_folder_workspace(path.clone(), recent_workspace_for(&path, cx), cx);
@@ -981,6 +986,7 @@ fn open_folder_workspace(
     recent: Option<superfile_services::preferences::RecentWorkspace>,
     cx: &mut App,
 ) {
+    let path = std::fs::canonicalize(&path).unwrap_or(path);
     updates::interrupt_for_files(cx);
     if let Ok(url) = url::Url::from_directory_path(&path)
         && updates::queue_files(&[url.to_string()], cx)

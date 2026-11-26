@@ -474,7 +474,10 @@ fn install_windows_shim(destination: &Path, executable: &Path) -> Result<()> {
         .suffix(".cmd.tmp")
         .tempfile_in(parent)?;
     temp.write_all(content.as_bytes())?;
-    temp.persist(destination).map_err(|error| error.error)?;
+    temp.as_file().sync_all()?;
+    temp.into_temp_path()
+        .persist(destination)
+        .map_err(|error| error.error)?;
     Ok(())
 }
 
@@ -586,7 +589,8 @@ mod tests {
         let fake_exe = temp.path().join("superfile-bin");
         fs::write(&fake_exe, b"binary")?;
 
-        let outcome = install_cli_in_dir(&bin_dir, &fake_exe, Some(bin_dir.as_os_str()))?;
+        let path_env = std::env::join_paths([&bin_dir])?;
+        let outcome = install_cli_in_dir(&bin_dir, &fake_exe, Some(path_env.as_os_str()))?;
         assert!(outcome.in_path);
         assert!(fs::symlink_metadata(&outcome.path).is_ok());
 
