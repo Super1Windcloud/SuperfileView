@@ -29,6 +29,20 @@ pub enum ChangeResult {
     SystemSettingsRequired,
 }
 
+pub enum BulkChangeResult {
+    Completed(Application, BulkChange),
+    SuperfileNotRegistered,
+    SystemSettingsRequired,
+}
+
+#[derive(Default)]
+pub struct BulkChange {
+    pub confirmed: std::collections::BTreeSet<String>,
+    pub pending: usize,
+    pub skipped: usize,
+    pub failed: usize,
+}
+
 const OFFER_RECORD: &str = "default-application-offer";
 
 pub struct DefaultOffer {
@@ -78,9 +92,11 @@ pub fn default_offer(path: &Path) -> Result<Option<DefaultOffer>> {
 
 fn offered_extension(path: &Path) -> Option<String> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
-    superfile_core::formats::CATALOG_SUFFIXES
-        .contains(&extension.as_str())
-        .then_some(extension)
+    supported_extension(&extension).then_some(extension)
+}
+
+fn supported_extension(extension: &str) -> bool {
+    superfile_core::formats::CATALOG_SUFFIXES.contains(&extension)
 }
 
 pub fn applications(identifier: &str, cancel: &Cancellation) -> Result<Vec<Application>> {
@@ -110,6 +126,16 @@ pub fn set_default(identifier: &str, application: &Application) -> Result<Change
             anyhow::anyhow!("The application is no longer registered for this file type")
         })?;
     platform::set_default(identifier, selected)
+}
+
+/// Apply Superfile's registered document associations without depending on the dialog's snapshot.
+pub fn set_default_for_supported_types() -> Result<BulkChangeResult> {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    return platform::set_default_for_supported_types();
+    #[cfg(windows)]
+    return Ok(BulkChangeResult::SystemSettingsRequired);
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    anyhow::bail!("System file associations are unavailable on this platform");
 }
 
 fn validate_identifier(identifier: &str) -> Result<()> {

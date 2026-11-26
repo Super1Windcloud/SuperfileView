@@ -17,7 +17,7 @@ use gpui_kit::{
 use picker::ApplicationPicker;
 use std::{collections::BTreeMap, time::Duration};
 use superfile_services::{
-    file_associations::{self, Application, Association, ChangeResult, Snapshot},
+    file_associations::{self, Application, Association, BulkChangeResult, ChangeResult, Snapshot},
     locale::tr,
     work::Cancellation,
 };
@@ -25,6 +25,7 @@ use superfile_services::{
 type Loader = fn(&Cancellation) -> anyhow::Result<Snapshot>;
 type ChoicesLoader = fn(&str, &Cancellation) -> anyhow::Result<Vec<Application>>;
 type Setter = fn(&str, &Application) -> anyhow::Result<ChangeResult>;
+type BulkSetter = fn() -> anyhow::Result<BulkChangeResult>;
 
 const CONFIRMATION_PENDING: &str =
     "Default application change requested. Waiting for macOS confirmation.";
@@ -110,6 +111,7 @@ struct Associations {
     loader: Loader,
     choices_loader: ChoicesLoader,
     setter: Setter,
+    bulk_setter: BulkSetter,
     picker: Option<(String, Entity<ApplicationPicker>)>,
     applying: bool,
     confirmations: BTreeMap<String, Task<()>>,
@@ -140,6 +142,7 @@ impl Associations {
             loader,
             choices_loader: file_associations::applications,
             setter: file_associations::set_default,
+            bulk_setter: file_associations::set_default_for_supported_types,
             picker: None,
             applying: false,
             confirmations: BTreeMap::new(),
@@ -280,6 +283,69 @@ impl Associations {
             }
             self.update_visible(cx);
         }
+    }
+
+    fn apply_superfile_defaults(&mut self, cx: &mut Context<Self>) {
+        if self.loading || self.applying {
+            return;
+        }
+        self.applying = true;
+        self.cancelled = false;
+        self.picker = None;
+        self.status = None;
+        self.change_error = None;
+        self.confirmations.clear();
+        let previous = take_write(cx);
+        let setter = self.bulk_setter;
+        let task = cx.spawn(async move |view, cx| {
+            if let Some(previous) = previous {
+                previous.await;
+            }
+            let result = cx.background_executor().spawn(async move { setter() }).await;
+            let _ = view.update(cx, |view, cx| {
+                view.applying = false;
+                match result {
+                    Ok(BulkChangeResult::Completed(application, change)) => {
+                        for row in &mut view.snapshot.associations {
+                            if change.confirmed.contains(&row.identifier) {
+                                row.application = Some(application.clone());
+                                row.issue = None;
+                            }
+                        }
+                        view.update_visible(cx);
+                        let summary = tr("{confirmed} confirmed · {pending} pending · {skipped} unavailable · {failed} failed")
+                            .replace("{confirmed}", &change.confirmed.len().to_string())
+                            .replace("{pending}", &change.pending.to_string())
+                            .replace("{skipped}", &change.skipped.to_string())
+                            .replace("{failed}", &change.failed.to_string());
+                        view.status = Some((
+                            if change.pending == 0 {
+                                "Superfile default file types"
+                            } else {
+                                "Some changes are pending. Refresh to check the current defaults."
+                            },
+                            summary,
+                        ));
+                    }
+                    Ok(BulkChangeResult::SuperfileNotRegistered) => {
+                        view.change_error = Some(tr(
+                            "Run a copy of Superfile that is registered with the system.",
+                        ));
+                    }
+                    Ok(BulkChangeResult::SystemSettingsRequired) => {
+                        view.status = Some((
+                            "Choose Superfile in Windows Default Apps, set its file types, then refresh.",
+                            String::new(),
+                        ));
+                        cx.open_url("ms-settings:defaultapps");
+                    }
+                    Err(error) => view.change_error = Some(format!("{error:#}")),
+                }
+                cx.notify();
+            });
+        });
+        retain_write(task, cx);
+        cx.notify();
     }
 
     fn watch_confirmation(
@@ -488,7 +554,11 @@ impl Render for Associations {
         };
         v_flex().id("system-file-associations").size_full().gap_3()
             .child(h_flex().w_full().gap_2()
-                .child(Input::new(&self.search).small().flex_1())
+                .child(Input::new(&self.search).small().flex_1().min_w_0())
+                .child(Button::new("set-superfile-defaults").small().flex_shrink_0()
+                    .label(if cfg!(windows) { tr("Set Superfile in Windows Settings") } else { tr("Set All Supported Types to Superfile") })
+                    .disabled(loading || self.applying)
+                    .on_click(cx.listener(|view, _, _, cx| view.apply_superfile_defaults(cx))))
                 .when(loading, |row| row.child(Button::new("cancel-associations-load").small().label(tr("Cancel"))
                     .on_click(cx.listener(|view, _, _, cx| { view.cancel(); cx.notify(); }))))
                 .child(Button::new("refresh-associations").small().icon(gpui_kit::assets::IconName::RotateCw)
@@ -502,7 +572,7 @@ impl Render for Associations {
             .when_some(self.change_error.clone(), |column, error| column.child(v_flex().text_sm().text_color(cx.theme().danger)
                 .child(tr("Could not change the default application.")).child(error)))
             .when_some(self.status.clone(), |column, (message, detail)| column.child(v_flex().text_xs().text_color(cx.theme().muted_foreground)
-                .child(tr(message)).child(detail)))
+                .child(tr(message)).when(!detail.is_empty(), |text| text.child(detail))))
             .when_some(error, |column, error| column.child(v_flex().gap_1().text_sm().text_color(cx.theme().danger)
                 .child(tr("Could not read system file associations.")).child(error)))
             .when(!warnings.is_empty(), |column| column.child(div().id("association-warnings").text_xs().text_color(cx.theme().warning)
@@ -525,7 +595,7 @@ impl Render for Associations {
 #[cfg(test)]
 mod tests {
     use super::{
-        Association, Associations, CONFIRMATION_PENDING, ChangeResult, Snapshot,
+        Association, Associations, BulkChangeResult, CONFIRMATION_PENDING, ChangeResult, Snapshot,
         WINDOWS_CONFIRMATION, open_with_loader, show,
     };
     use gpui_kit::{
@@ -585,6 +655,85 @@ mod tests {
     }
     fn system(_: &str, _: &Application) -> anyhow::Result<ChangeResult> {
         Ok(ChangeResult::SystemSettingsRequired)
+    }
+
+    #[gpui_kit::test]
+    fn bulk_button_updates_confirmed_rows_outside_the_search(cx: &mut TestAppContext) {
+        use superfile_services::file_associations::BulkChange;
+
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            cx.set_reduce_motion(true);
+        });
+        let handle = cx.update(|cx| {
+            gpui_kit::open_window(WindowOptions::default(), cx, |_, cx| {
+                cx.new(|_| gpui_kit::Empty)
+            })
+            .unwrap()
+            .0
+        });
+        let view = cx
+            .update_window(handle, |_, window, cx| show(window, cx, fixture).unwrap())
+            .unwrap();
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |panel, cx| {
+                panel.search.update(cx, |input, cx| {
+                    input.set_value("type0", window, cx);
+                    cx.emit(InputEvent::Change);
+                });
+                panel.bulk_setter = || {
+                    Ok(BulkChangeResult::Completed(
+                        Application {
+                            name: "Superfile".into(),
+                            identifier: Some("test.superfile".into()),
+                            path: None,
+                        },
+                        BulkChange {
+                            confirmed: ["example/0".into(), "example/1".into()].into(),
+                            pending: 1,
+                            skipped: 2,
+                            failed: 3,
+                        },
+                    ))
+                };
+            });
+            window.render_frame(cx);
+            window.click("set-superfile-defaults", cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        cx.update(|cx| {
+            view.update(cx, |panel, cx| {
+                assert_eq!(panel.search.read(cx).value().as_str(), "type0");
+                assert_eq!(panel.visible, vec![0]);
+                for row in &panel.snapshot.associations[..2] {
+                    assert_eq!(row.application.as_ref().unwrap().name, "Superfile");
+                }
+                assert_eq!(
+                    panel.snapshot.associations[2]
+                        .application
+                        .as_ref()
+                        .unwrap()
+                        .name,
+                    "Test Viewer"
+                );
+                let (message, summary) = panel.status.as_ref().unwrap();
+                assert_eq!(
+                    *message,
+                    "Some changes are pending. Refresh to check the current defaults."
+                );
+                assert!(["1", "2", "3"].iter().all(|count| summary.contains(count)));
+                panel.bulk_setter = || Ok(BulkChangeResult::SystemSettingsRequired);
+            });
+        });
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            window.click("set-superfile-defaults", cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        assert_eq!(cx.opened_url().as_deref(), Some("ms-settings:defaultapps"));
     }
 
     #[gpui_kit::test]

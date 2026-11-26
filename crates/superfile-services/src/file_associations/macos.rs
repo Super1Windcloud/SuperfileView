@@ -9,7 +9,9 @@ use std::{
 };
 mod native;
 
-pub(super) fn offer_type(path: &Path, _: &str) -> Result<Option<(String, Application)>> {
+const CONFIRMATION_DELAYS_MS: &[u64] = &[0, 50, 100, 200, 450, 700];
+
+fn running_bundle() -> Result<Option<(PathBuf, Value)>> {
     let executable = std::env::current_exe()?.canonicalize()?;
     let Some(bundle) = executable.ancestors().find(|path| {
         path.extension().is_some_and(|extension| extension == "app")
@@ -17,38 +19,45 @@ pub(super) fn offer_type(path: &Path, _: &str) -> Result<Option<(String, Applica
     }) else {
         return Ok(None);
     };
-    let bundle_info = read_application_info(bundle, &Cancellation::default())?;
-    let Some(bundle_id) = bundle_info
-        .as_dictionary()
+    let info = read_application_info(bundle, &Cancellation::default())?;
+    Ok(Some((bundle.to_owned(), info)))
+}
+
+fn bundle_id(info: &Value) -> Option<&str> {
+    info.as_dictionary()
         .and_then(|info| info.get("CFBundleIdentifier"))
         .and_then(Value::as_string)
-    else {
+}
+
+fn registered_application(bundle: &Path, id: &str) -> Option<Application> {
+    let candidate = application(id.into(), &Cancellation::default());
+    let registered_path = candidate.path.as_ref()?.canonicalize().ok()?;
+    (registered_path == bundle).then_some(candidate)
+}
+
+pub(super) fn offer_type(path: &Path, _: &str) -> Result<Option<(String, Application)>> {
+    let Some((bundle, info)) = running_bundle()? else {
+        return Ok(None);
+    };
+    let Some(bundle_id) = bundle_id(&info) else {
         return Ok(None);
     };
     let Some(identifier) = native::file_type(path) else {
         return Ok(None);
     };
-    if matches!(
-        identifier.as_str(),
-        "public.data" | "public.item" | "public.content"
-    ) || native::handler(&identifier).as_deref() == Some(bundle_id)
+    if abstract_type(&identifier)
+        || native::handler(&identifier).as_deref() == Some(bundle_id)
         || !native::handlers(&identifier)
             .iter()
             .any(|id| id == bundle_id)
     {
         return Ok(None);
     }
-    let candidate = application(bundle_id.into(), &Cancellation::default());
-    if candidate
-        .path
-        .as_ref()
-        .and_then(|path| path.canonicalize().ok())
-        .as_deref()
-        != Some(bundle)
-    {
-        return Ok(None);
-    }
-    Ok(Some((identifier, candidate)))
+    Ok(registered_application(&bundle, bundle_id).map(|candidate| (identifier, candidate)))
+}
+
+fn abstract_type(identifier: &str) -> bool {
+    matches!(identifier, "public.data" | "public.item" | "public.content")
 }
 
 fn application(id: String, cancel: &Cancellation) -> Application {
@@ -95,11 +104,9 @@ pub(super) fn set_default(identifier: &str, selected: &Application) -> Result<Ch
     }
     native::set_handler(identifier, id)?;
     // Launch Services can still report the previous handler after accepting the write.
-    Ok(confirm_change(
-        selected,
-        &[0, 50, 100, 200, 450, 700],
-        || native::handler(identifier),
-    ))
+    Ok(confirm_change(selected, CONFIRMATION_DELAYS_MS, || {
+        native::handler(identifier)
+    }))
 }
 
 fn confirm_change(
@@ -120,6 +127,100 @@ fn confirm_change(
     ChangeResult::ConfirmationPending {
         read_handler: native::handler,
     }
+}
+
+pub(super) fn set_default_for_supported_types() -> Result<BulkChangeResult> {
+    let Some((bundle, info)) = running_bundle()? else {
+        return Ok(BulkChangeResult::SuperfileNotRegistered);
+    };
+    let Some((id, selected)) =
+        bundle_id(&info).and_then(|id| registered_application(&bundle, id).map(|app| (id, app)))
+    else {
+        return Ok(BulkChangeResult::SuperfileNotRegistered);
+    };
+    let (targets, skipped) = declared_targets(&info, native::identifiers);
+    let mut change = BulkChange {
+        skipped,
+        ..BulkChange::default()
+    };
+    let mut pending = Vec::new();
+    for identifier in targets {
+        if native::handler(&identifier).as_deref() == Some(id) {
+            change.confirmed.insert(identifier);
+        } else if !native::handlers(&identifier).iter().any(|app| app == id) {
+            change.skipped += 1;
+        } else {
+            match native::set_handler(&identifier, id) {
+                Ok(()) => pending.push(identifier),
+                Err(error) => {
+                    change.failed += 1;
+                    log::warn!("Cannot set Superfile as the default for {identifier}: {error:#}");
+                }
+            }
+        }
+    }
+    // Poll as a group so a stale Launch Services read only incurs one shared delay.
+    for &delay in CONFIRMATION_DELAYS_MS {
+        if pending.is_empty() {
+            break;
+        }
+        if delay != 0 {
+            std::thread::sleep(Duration::from_millis(delay));
+        }
+        pending.retain(|identifier| {
+            if native::handler(identifier).as_deref() == Some(id) {
+                change.confirmed.insert(identifier.clone());
+                false
+            } else {
+                true
+            }
+        });
+    }
+    change.pending = pending.len();
+    Ok(BulkChangeResult::Completed(selected, change))
+}
+
+fn declared_targets(
+    info: &Value,
+    resolve: impl Fn(&str) -> Vec<String>,
+) -> (BTreeSet<String>, usize) {
+    let mut targets = BTreeSet::new();
+    let mut skipped = 0;
+    let documents = info
+        .as_dictionary()
+        .and_then(|info| info.get("CFBundleDocumentTypes"))
+        .and_then(Value::as_array);
+    for document in documents
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_dictionary)
+    {
+        let extensions = strings(document.get("CFBundleTypeExtensions"))
+            .into_iter()
+            .map(|extension| extension.to_ascii_lowercase())
+            .filter(|extension| supported_extension(extension))
+            .collect::<Vec<_>>();
+        if extensions.is_empty() {
+            continue;
+        }
+        let explicit = strings(document.get("LSItemContentTypes"));
+        if !explicit.is_empty() {
+            targets.extend(explicit.into_iter().filter(|id| !abstract_type(id)));
+            continue;
+        }
+        for extension in extensions {
+            let identifiers = resolve(&extension);
+            let mut specific = identifiers
+                .into_iter()
+                .filter(|id| !abstract_type(id))
+                .peekable();
+            if specific.peek().is_none() {
+                skipped += 1;
+            }
+            targets.extend(specific);
+        }
+    }
+    (targets, skipped)
 }
 
 #[derive(Default)]
@@ -418,6 +519,32 @@ mod tests {
         assert!(strings(csv.get("CFBundleTypeExtensions")).contains(&"csv".into()));
         assert_eq!(csv["CFBundleTypeRole"].as_string(), Some("Viewer"));
         assert_eq!(csv["LSHandlerRank"].as_string(), Some("Alternate"));
+    }
+
+    #[test]
+    fn bulk_targets_use_explicit_types_and_deduplicate_extension_mappings() {
+        let info = Value::from_reader_xml(
+            br#"<?xml version="1.0"?><plist version="1.0"><dict>
+                <key>CFBundleDocumentTypes</key><array>
+                    <dict><key>CFBundleTypeExtensions</key><array><string>TS</string></array>
+                        <key>LSItemContentTypes</key><array><string>com.microsoft.typescript</string></array></dict>
+                    <dict><key>CFBundleTypeExtensions</key><array><string>tif</string><string>tiff</string><string>txt</string></array></dict>
+                    <dict><key>CFBundleTypeExtensions</key><array><string>*</string><string>test-unknown</string></array>
+                        <key>LSItemContentTypes</key><array><string>test.unrelated</string></array></dict>
+                </array></dict></plist>"#
+                .as_slice(),
+        )
+        .unwrap();
+        let (targets, skipped) = declared_targets(&info, |extension| match extension {
+            "tif" | "tiff" => vec!["public.tiff".into()],
+            "txt" => vec!["public.data".into()],
+            _ => panic!("Unexpected extension: {extension}"),
+        });
+        assert_eq!(
+            targets,
+            ["com.microsoft.typescript".into(), "public.tiff".into()].into()
+        );
+        assert_eq!(skipped, 1);
     }
 
     #[test]

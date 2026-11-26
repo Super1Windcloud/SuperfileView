@@ -5,12 +5,15 @@ use anyhow::{Context, anyhow};
 use libloading::Library;
 use std::io::Read;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     ffi::{CStr, CString, c_char, c_void},
     os::unix::ffi::OsStrExt,
     path::PathBuf,
     sync::OnceLock,
 };
+
+const DESKTOP_ID: &CStr = c"superfile.desktop";
+const DESKTOP_ENTRY: &str = include_str!("../../../../assets/linux/superfile.desktop");
 
 #[repr(C)]
 struct List {
@@ -29,6 +32,9 @@ struct Gio {
     _libraries: [Library; 3],
     types: unsafe extern "C" fn() -> *mut List,
     guess: unsafe extern "C" fn(*const c_char, *const u8, usize, *mut i32) -> *mut c_char,
+    content_type: unsafe extern "C" fn(*const c_char) -> *mut c_char,
+    desktop_app: unsafe extern "C" fn(*const c_char) -> *mut c_void,
+    supported_types: unsafe extern "C" fn(*mut c_void) -> *const *const c_char,
     default: unsafe extern "C" fn(*const c_char, i32) -> *mut c_void,
     name: unsafe extern "C" fn(*mut c_void) -> *const c_char,
     identifier: unsafe extern "C" fn(*mut c_void) -> *const c_char,
@@ -53,6 +59,9 @@ impl Gio {
             Ok(Self {
                 types: *gio.get(b"g_content_types_get_registered\0")?,
                 guess: *gio.get(b"g_content_type_guess\0")?,
+                content_type: *gio.get(b"g_content_type_from_mime_type\0")?,
+                desktop_app: *gio.get(b"g_desktop_app_info_new\0")?,
+                supported_types: *gio.get(b"g_app_info_get_supported_types\0")?,
                 default: *gio.get(b"g_app_info_get_default_for_type\0")?,
                 name: *gio.get(b"g_app_info_get_display_name\0")?,
                 identifier: *gio.get(b"g_app_info_get_id\0")?,
@@ -67,6 +76,13 @@ impl Gio {
                 _libraries: [gio, object, glib],
             })
         }
+    }
+
+    fn canonical_type(&self, mime: &CStr) -> Option<String> {
+        let content_type = unsafe { (self.content_type)(mime.as_ptr()) };
+        let result = string(content_type);
+        unsafe { (self.free)(content_type.cast()) };
+        result
     }
 }
 
@@ -162,8 +178,6 @@ fn describe(api: &Gio, app: *mut c_void) -> Application {
 }
 
 pub(super) fn offer_type(path: &Path, _: &str) -> Result<Option<(String, Application)>> {
-    const DESKTOP_ID: &str = "superfile.desktop";
-
     let Some(name) = path.file_name() else {
         return Ok(None);
     };
@@ -178,16 +192,12 @@ pub(super) fn offer_type(path: &Path, _: &str) -> Result<Option<(String, Applica
         return Ok(None);
     };
     let native_type = CString::new(mime.as_str())?;
-    let current = unsafe { (api.default)(native_type.as_ptr(), 0) };
-    if !current.is_null() {
-        let current = AppInfo(current, api);
-        if string(unsafe { (api.identifier)(current.0) }).as_deref() == Some(DESKTOP_ID) {
-            return Ok(None);
-        }
+    if current_default(api, &native_type).is_some_and(|app| is_superfile(api, app.0)) {
+        return Ok(None);
     }
     let candidate = applications(&mime, &Cancellation::default())?
         .into_iter()
-        .find(|app| app.identifier.as_deref() == Some(DESKTOP_ID));
+        .find(|app| app.identifier.as_deref().map(str::as_bytes) == Some(DESKTOP_ID.to_bytes()));
     Ok(candidate.map(|app| (mime, app)))
 }
 
@@ -219,33 +229,98 @@ pub(super) fn set_default(identifier: &str, selected: &Application) -> Result<Ch
         if raw.is_null() || !describe(api, raw).same_handler(selected) {
             continue;
         }
-        let mut error = std::ptr::null_mut();
-        let success = unsafe { (api.set_default)(raw, mime.as_ptr(), &mut error) };
-        let message = if error.is_null() {
-            None
-        } else {
-            let message = string(unsafe { (*error).message });
-            unsafe {
-                (api.free_error)(error);
-            }
-            message
-        };
-        anyhow::ensure!(
-            success != 0,
-            "{}",
-            message
-                .as_deref()
-                .unwrap_or("GIO rejected the default application change")
-        );
-        let current = unsafe { (api.default)(mime.as_ptr(), 0) };
-        anyhow::ensure!(
-            !current.is_null(),
-            "GIO did not return a default handler after the change"
-        );
-        let current = AppInfo(current, api);
-        return super::verified(describe(api, current.0), selected);
+        return super::verified(write_default(api, raw, &mime)?, selected);
     }
     anyhow::bail!("The application is no longer registered for this file type")
+}
+
+fn current_default<'a>(api: &'a Gio, mime: &CStr) -> Option<AppInfo<'a>> {
+    let raw = unsafe { (api.default)(mime.as_ptr(), 0) };
+    if raw.is_null() {
+        None
+    } else {
+        Some(AppInfo(raw, api))
+    }
+}
+
+fn is_superfile(api: &Gio, app: *mut c_void) -> bool {
+    let id = unsafe { (api.identifier)(app) };
+    !id.is_null() && unsafe { CStr::from_ptr(id) } == DESKTOP_ID
+}
+
+fn write_default(api: &Gio, app: *mut c_void, mime: &CStr) -> Result<Application> {
+    let mut error = std::ptr::null_mut();
+    let success = unsafe { (api.set_default)(app, mime.as_ptr(), &mut error) };
+    let message = if error.is_null() {
+        None
+    } else {
+        let message = string(unsafe { (*error).message });
+        unsafe { (api.free_error)(error) };
+        message
+    };
+    anyhow::ensure!(
+        success != 0,
+        "{}",
+        message
+            .as_deref()
+            .unwrap_or("GIO rejected the default application change")
+    );
+    let current = current_default(api, mime)
+        .context("GIO did not return a default handler after the change")?;
+    Ok(describe(api, current.0))
+}
+
+pub(super) fn set_default_for_supported_types() -> Result<BulkChangeResult> {
+    let api = api()?;
+    let app = unsafe { (api.desktop_app)(DESKTOP_ID.as_ptr()) };
+    if app.is_null() {
+        return Ok(BulkChangeResult::SuperfileNotRegistered);
+    }
+    let app = AppInfo(app, api);
+    let selected = describe(api, app.0);
+    let mut installed = BTreeSet::new();
+    let mut types = unsafe { (api.supported_types)(app.0) };
+    if !types.is_null() {
+        // GIO owns this null-terminated array for the lifetime of the desktop app.
+        while !unsafe { *types }.is_null() {
+            let mime = unsafe { CStr::from_ptr(*types) };
+            installed.extend(api.canonical_type(mime));
+            types = unsafe { types.add(1) };
+        }
+    }
+    let mut change = BulkChange::default();
+    let mut targets = BTreeSet::new();
+    for mime in DESKTOP_ENTRY
+        .lines()
+        .find_map(|line| line.strip_prefix("MimeType="))
+        .unwrap_or_default()
+        .split(';')
+        .filter(|mime| !mime.is_empty() && !mime.starts_with("x-scheme-handler/"))
+    {
+        match api.canonical_type(&CString::new(mime)?) {
+            Some(identifier) if installed.contains(&identifier) => {
+                targets.insert(identifier);
+            }
+            _ => change.skipped += 1,
+        }
+    }
+    for identifier in targets {
+        let mime = CString::new(identifier.as_str())?;
+        if current_default(api, &mime).is_some_and(|app| is_superfile(api, app.0)) {
+            change.confirmed.insert(identifier);
+            continue;
+        }
+        match write_default(api, app.0, &mime).and_then(|current| verified(current, &selected)) {
+            Ok(_) => {
+                change.confirmed.insert(identifier);
+            }
+            Err(error) => {
+                change.failed += 1;
+                log::warn!("Cannot set Superfile as the default for {identifier}: {error:#}");
+            }
+        }
+    }
+    Ok(BulkChangeResult::Completed(selected, change))
 }
 
 pub(super) fn scan(cancel: &Cancellation) -> Result<Snapshot> {

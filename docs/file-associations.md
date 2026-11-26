@@ -8,6 +8,8 @@
 
 Windows 8 及以后要求用户在系统界面确认默认应用修改，详情见 [Windows app defaults platform](https://learn.microsoft.com/en-us/windows/apps/develop/windows-integration/default-apps-platform)。下拉框列出 Shell 提供的候选应用；选择后打开 Windows 默认应用设置，并提示要配置的文件类型和应用。请在系统设置中完成选择，再点击刷新；此时界面不会提前把待确认选择标记为已生效。这里使用 Windows 10/11 通用的 `ms-settings:defaultapps` 入口，不绕过 UserChoice 保护或直接改写其注册表。
 
+搜索栏旁的「所有支持类型设为 Superfile」会批量处理 Superfile 已登记的文件类型，搜索条件只影响表格显示。macOS 按应用包的 UTI 和扩展名声明设置，Linux 按已安装桌面入口支持的文件 MIME 类型设置。完成后会显示已确认、待确认、不可用和失败的数量。待确认的更改可以刷新查看。Windows 对应按钮会打开系统默认应用设置，在那里选择 Superfile 并设置文件类型。
+
 开发运行和安装版均可使用；不要求 Release 构建。本功能不会额外注册 Superfile；应用是否出现在候选列表中取决于操作系统的应用注册信息。
 
 ## 平台来源与边界
