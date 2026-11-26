@@ -158,6 +158,10 @@ impl Workspace {
             .accessibility_label(superfile_services::locale::tr("Default File Types…"))
             .on_click(|_, window, cx| window.dispatch_action(Box::new(DefaultApplications), cx))
             .into_any_element();
+        let code_theme = action_button("settings-code-theme", "Manage…")
+            .accessibility_label(superfile_services::locale::tr("Code Theme"))
+            .on_click(|_, window, cx| crate::views::code_themes::open(window, cx))
+            .into_any_element();
         let connections = action_button("settings-ssh", "Manage…")
             .accessibility_label(superfile_services::locale::tr("SSH Connections"))
             .on_click(
@@ -252,6 +256,8 @@ impl Workspace {
                                 .child(row("Theme", "", theme))
                                 .child(divider())
                                 .child(row("Color scheme", "", color_scheme))
+                                .child(divider())
+                                .child(row("Code Theme", "", code_theme))
                                 .child(divider())
                                 .child(row("Accent color", "", accent_color))
                                 .child(divider())

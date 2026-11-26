@@ -1,4 +1,5 @@
 pub(crate) mod about;
+pub(crate) mod code_themes;
 pub(crate) mod community_themes;
 mod context_menu;
 pub(crate) mod dialog_drag;

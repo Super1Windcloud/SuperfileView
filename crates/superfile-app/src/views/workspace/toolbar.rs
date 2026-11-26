@@ -709,6 +709,8 @@ mod tests {
     fn application_menu_opens_preferences_with_sidebar_hidden_and_preserves_document(
         cx: &mut TestAppContext,
     ) {
+        use gpui_kit::component::WindowExt as _;
+
         let (handle, view) = open(cx);
         let editor = cx.update(|cx| view.read(cx).active_reader().unwrap().editor().unwrap());
         cx.update_window(handle, |_, window, cx| {
@@ -721,6 +723,10 @@ mod tests {
             assert!(view.read(cx).page == Page::Settings);
             assert!(window.find("browse-community-themes").visible());
             assert!(!view.read(cx).sidebar_visible);
+            window.click("settings-code-theme", cx);
+            assert!(window.has_active_dialog(cx));
+            window.close_dialog(cx);
+            window.render_frame(cx);
             click_application_entry("Browse themes…", window, cx);
         })
         .unwrap();

@@ -1,4 +1,14 @@
-# Obsidian 社区主题配色
+# 主题配色
+
+## 代码主题
+
+「设置 → 代码主题」默认按应用明暗外观使用 Xcode Light / Dark。还可以离线选择 Catppuccin Latte / Mocha 和 Rosé Pine Dawn / Moon。选中主题可预览源码配色，再应用到浅色外观、深色外观或两者。选择「跟随应用主题」可以使用当前应用主题的源码配色。已打开的源码视图会即时更新。走纯文本分页的代码文件使用基础编辑器配色。
+
+导入支持 Zed 主题家族 JSON、Xcode `.xccolortheme` / `.dvtcolortheme` 和 Superfile 导出的主题 JSON。导入后可以选取编辑器颜色或语法颜色、恢复单项、另存副本和导出。导入与另存会保留一份配色副本，浅色和深色选择会在重启后恢复。语法配色使用各语言已有的高亮分类。
+
+Xcode Light / Dark 采用 [vim-colors-xcode](https://github.com/lunacookies/vim-colors-xcode/tree/2329a3ed092b4f72e9361a94567a5431e36e7d9c) 的 Xcode 11 预设配色。其他预设来自 [Catppuccin for Zed](https://github.com/catppuccin/zed/tree/4314cb05c74d141b7962290a41d6087e8c0ad02f) 和 [Rosé Pine for Zed](https://github.com/rose-pine/zed/tree/1446d31a2eec6bee627883d523ec63ef5c78ec9b)。上游版权和许可证随 [LICENSE](../LICENSE) 分发。
+
+## Obsidian 社区主题配色
 
 在「设置 → 主题配色 → 浏览主题」中搜索、下载并使用社区主题，也可以只查看已安装的主题。默认配色采用 Obsidian 的浅色/深色基础色板，默认强调色为 `#8B5CF6`。设置中的强调色选择器可覆盖当前主题的强调色，恢复按钮会返回当前主题的强调色。切换主题时清除强调色覆盖；单模式主题会切换到其支持的明暗模式。
 

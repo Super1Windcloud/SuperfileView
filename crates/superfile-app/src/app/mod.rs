@@ -2,6 +2,7 @@ mod about;
 pub mod actions;
 mod askpass;
 mod assets;
+pub(crate) mod code_theme;
 pub(crate) mod default_applications;
 pub(crate) mod diagram_engine;
 pub(crate) mod diagram_palette;
@@ -381,6 +382,10 @@ pub fn run() -> Result<()> {
     let reader_font_offset = superfile_services::preferences::reader_font_offset();
     let appearance = superfile_services::preferences::appearance();
     let theme_preferences = superfile_services::preferences::theme_preferences();
+    let code_themes = superfile_services::code_themes::load().unwrap_or_else(|error| {
+        log::warn!("Cannot load code themes: {error:#}");
+        Default::default()
+    });
     let theme_scheme = theme_preferences
         .scheme
         .as_deref()
@@ -431,6 +436,7 @@ pub fn run() -> Result<()> {
         cx.set_global(LanguagePreference(language));
         cx.set_global(AppearancePreference(appearance));
         theme::init(theme_preferences, theme_scheme, cx);
+        code_theme::init(code_themes, cx);
         apply_appearance(appearance, cx);
         cx.set_global(AppearanceSaveTask::default());
         cx.set_global(WorkspaceSaveTask::default());
@@ -463,6 +469,7 @@ pub fn run() -> Result<()> {
                 .take();
             let telemetry = telemetry::shutdown(cx);
             let accent_write = theme::take_write(cx);
+            let code_theme_write = code_theme::take_write(cx);
             let text_zoom_write = text_zoom::take_write(cx);
             let shortcut_write = shortcuts::take_write(cx);
             let recovery = recovery::shutdown(cx);
@@ -478,6 +485,9 @@ pub fn run() -> Result<()> {
                 .take();
             async move {
                 if let Some(write) = accent_write {
+                    write.await;
+                }
+                if let Some(write) = code_theme_write {
                     write.await;
                 }
                 if let Some(write) = text_zoom_write {

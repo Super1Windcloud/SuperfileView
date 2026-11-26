@@ -1,4 +1,5 @@
 use super::super::minimap::Minimap;
+use crate::app::code_theme;
 use crate::app::reader_jobs::{self, JobClass, Priority};
 use gpui_kit::{
     component::{
@@ -16,6 +17,7 @@ pub(super) struct SourceReader {
     pub minimap: Entity<Minimap>,
     pub find: Entity<super::find::FindBar>,
     font_size: Option<Pixels>,
+    code_page: bool,
     _minimap_subscription: Subscription,
 }
 impl SourceReader {
@@ -64,6 +66,7 @@ impl SourceReader {
             minimap,
             find,
             font_size: None,
+            code_page: false,
             _minimap_subscription: subscription,
         }
     }
@@ -80,6 +83,10 @@ impl SourceReader {
             .editor()
             .update(cx, |s, cx| s.set_scroll_offset(offset, cx));
     }
+    pub(super) fn use_code_theme_for_page(&mut self) {
+        self.code_page = true;
+    }
+
     pub fn render(&mut self, cx: &mut App) -> AnyElement {
         let font_size = crate::app::text_zoom::font_size(cx.theme().mono_font_size, cx);
         if let Some(previous) = self.font_size.replace(font_size)
@@ -93,11 +100,40 @@ impl SourceReader {
         }
         // The toolkit invokes custom menus while updating EditorState. Capture
         // capabilities during rendering instead of re-entering that entity.
-        let capabilities = self.edit.editor().read(cx).context_menu_capabilities();
+        let editor_state = self.edit.editor();
+        let state = editor_state.read(cx);
+        let capabilities = state.context_menu_capabilities();
         let menu_editable = capabilities.is_editable();
         let menu_copyable = capabilities.is_copyable();
-        self.minimap
-            .update(cx, |map, cx| map.set_preview(false, cx));
+        let palette = (self.code_page || state.language_name().as_ref() != "plain")
+            .then(|| code_theme::active(cx))
+            .flatten();
+        let paper = palette
+            .as_ref()
+            .map_or_else(|| super::editor_paper(cx), |palette| palette.background());
+        let editor = code_theme::editor(
+            Editor::new(editor_state)
+                .text_size(font_size)
+                .context_menu(move |menu, _, _| {
+                    super::editor_menu(menu, menu_editable, menu_copyable)
+                })
+                .readonly(self.edit.is_readonly() || self.edit.is_locked())
+                .appearance(false)
+                .bordered(false)
+                .size_full(),
+            editor_state,
+            palette.clone(),
+            cx,
+        );
+        self.minimap.update(cx, |map, cx| {
+            map.set_preview(false, cx);
+            map.set_code_colors(
+                palette
+                    .as_ref()
+                    .map(|palette| (palette.background(), palette.foreground())),
+                cx,
+            );
+        });
         let content = gpui_kit::component::h_flex()
             .size_full()
             .font_family("Menlo")
@@ -113,17 +149,7 @@ impl SourceReader {
                     .min_w_0()
                     .h_full()
                     .overflow_hidden()
-                    .child(
-                        Editor::new(self.edit.editor())
-                            .text_size(font_size)
-                            .context_menu(move |menu, _, _| {
-                                super::editor_menu(menu, menu_editable, menu_copyable)
-                            })
-                            .readonly(self.edit.is_readonly() || self.edit.is_locked())
-                            .appearance(false)
-                            .bordered(false)
-                            .size_full(),
-                    )
+                    .child(editor)
                     // Hide the duplicate vertical rail, not the horizontal scroll track.
                     .child(
                         div()
@@ -132,7 +158,7 @@ impl SourceReader {
                             .bottom_0()
                             .right_0()
                             .w(px(12.))
-                            .bg(super::editor_paper(cx)),
+                            .bg(paper),
                     ),
             )
             .child(

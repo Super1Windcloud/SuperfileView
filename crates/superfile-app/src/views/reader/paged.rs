@@ -33,14 +33,18 @@ pub(super) struct PagedReader {
 impl PagedReader {
     pub fn new(page: TextPage, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let source_editor = page.source.is_editable().then(|| {
-            super::source::SourceReader::new(
+            let mut editor = super::source::SourceReader::new(
                 &page.text,
                 "plain",
                 false,
                 ScrollHandle::new(),
                 window,
                 cx,
-            )
+            );
+            if superfile_core::language_for_path(&page.path) != "plain" {
+                editor.use_code_theme_for_page();
+            }
+            editor
         });
         if let Some(editor) = &source_editor {
             editor

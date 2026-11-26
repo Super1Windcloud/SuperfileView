@@ -17,6 +17,7 @@ pub struct Minimap {
     preview_scroll: ScrollHandle,
     preview: bool,
     preview_list: Option<ListState>,
+    code_colors: Option<(Hsla, Hsla)>,
     dragging: bool,
     bounds: Rc<Cell<Bounds<Pixels>>>,
     _subscription: Subscription,
@@ -40,6 +41,7 @@ impl Minimap {
             preview_scroll,
             preview: false,
             preview_list: None,
+            code_colors: None,
             dragging: false,
             bounds: Rc::new(Cell::new(Bounds::default())),
             _subscription: subscription,
@@ -76,6 +78,13 @@ impl Minimap {
     pub fn set_preview(&mut self, preview: bool, cx: &mut Context<Self>) {
         if self.preview != preview {
             self.preview = preview;
+            cx.notify();
+        }
+    }
+
+    pub fn set_code_colors(&mut self, colors: Option<(Hsla, Hsla)>, cx: &mut Context<Self>) {
+        if self.code_colors != colors {
+            self.code_colors = colors;
             cx.notify();
         }
     }
@@ -132,14 +141,19 @@ impl Render for Minimap {
         let scroll = self.preview_scroll.clone();
         let preview_list = self.preview_list.clone();
         let preview = self.preview;
-        let foreground = cx.theme().muted_foreground.opacity(0.45);
-        let viewport = cx.theme().primary.opacity(0.12);
+        let colors = (!preview).then_some(self.code_colors).flatten();
+        let (background, foreground) =
+            colors.unwrap_or((cx.theme().background, cx.theme().muted_foreground));
+        let foreground = foreground.opacity(0.45);
+        let viewport = colors
+            .map_or(cx.theme().primary, |(_, ink)| ink)
+            .opacity(0.12);
         div()
             .id("minimap")
             .w(px(110.))
             .h_full()
             .cursor_pointer()
-            .bg(cx.theme().background)
+            .bg(background)
             .border_l_1()
             .border_color(cx.theme().border)
             .on_mouse_down(
