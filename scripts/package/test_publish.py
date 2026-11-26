@@ -151,7 +151,7 @@ class PublishTest(unittest.TestCase):
             self.assertEqual(publish.resolve_hyperscoop(None, home, repo, {}), preferred)
             preferred.rmdir()
             (home / "demo").rmdir()
-            self.assertEqual(publish.resolve_hyperscoop(None, home, repo, {}), sibling)
+            self.assertEqual(publish.resolve_hyperscoop(None, home, repo, {}), sibling.resolve())
             sibling.rmdir()
             with self.assertRaisesRegex(ValueError, "Hyperscoop checkout not found"):
                 publish.resolve_hyperscoop(None, home, repo, {})
