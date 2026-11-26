@@ -47,8 +47,7 @@ impl Workspace {
             return;
         }
         let parents = self
-            .tabs
-            .iter()
+            .readers()
             .filter(|r| r.document.draft_directory.is_none())
             .filter_map(|r| r.document.path.parent().map(ToOwned::to_owned))
             .collect::<std::collections::BTreeSet<_>>();
@@ -107,18 +106,17 @@ impl Workspace {
             || self.refresh_task.is_some()
             || self.watch_scan_task.is_some()
             || self.is_saving()
-            || self.tabs.iter().any(|reader| reader.refresh_busy(cx))
+            || self.readers().any(|reader| reader.refresh_busy(cx))
         {
             return;
         }
         let changes = std::mem::take(&mut self.pending_refresh);
         let force = std::mem::take(&mut self.force_refresh);
-        for reader in &mut self.tabs {
+        for reader in self.readers_mut() {
             reader.refresh_dependencies(cx);
         }
         let mut targets = self
-            .tabs
-            .iter()
+            .readers()
             .filter_map(|reader| {
                 Some((
                     reader.refresh_version(cx),
@@ -126,11 +124,7 @@ impl Workspace {
                 ))
             })
             .collect::<Vec<_>>();
-        if let Some(active) = self
-            .active
-            .and_then(|i| self.tabs.get(i))
-            .map(|r| r.refresh_version(cx))
-        {
+        if let Some(active) = self.active_reader().map(|r| r.refresh_version(cx)) {
             targets.sort_by_key(|(version, _)| *version != active);
         }
         let changes = std::sync::Arc::new(changes);
@@ -156,19 +150,21 @@ impl Workspace {
                 .await;
                 if view
                     .update_in(cx, |view, window, cx| {
-                        let Some(index) = view
-                            .tabs
-                            .iter()
-                            .position(|r| r.refresh_version(cx) == version)
-                        else {
+                        let Some(index) = view.tabs.iter().position(|tab| {
+                            tab.as_reader()
+                                .is_some_and(|r| r.refresh_version(cx) == version)
+                        }) else {
                             view.pending_refresh.merge((*changes).clone());
                             return;
                         };
-                        if view.tabs[index].refresh_busy(cx) {
+                        let Some(current) = view.tabs[index].as_reader() else {
+                            return;
+                        };
+                        if current.refresh_busy(cx) {
                             view.pending_refresh.merge((*changes).clone());
                             return;
                         }
-                        if view.tabs[index].is_dirty() || view.is_saving() {
+                        if current.is_dirty() || view.is_saving() {
                             return;
                         }
                         let content = match result {
@@ -178,8 +174,8 @@ impl Workspace {
                                 if error.is::<superfile_services::work::Cancelled>() {
                                     return;
                                 }
-                                let path = view.tabs[index].document.path.clone();
-                                let unavailable = view.tabs[index].is_unavailable();
+                                let path = current.document.path.clone();
+                                let unavailable = current.is_unavailable();
                                 let failure =
                                     superfile_services::documents::ReadFailure::from(&error);
                                 log::warn!("Cannot refresh {}: {error:#}", path.display());
@@ -188,28 +184,36 @@ impl Workspace {
                                 }
                                 // A failed refresh must never replace readable or edited content.
                                 if unavailable {
-                                    view.tabs[index] = crate::views::reader::Reader::unavailable(
-                                        path, failure, window, cx,
+                                    view.tabs[index] = super::Tab::document(
+                                        crate::views::reader::Reader::unavailable(
+                                            path, failure, window, cx,
+                                        ),
                                     );
                                     cx.notify();
                                 }
                                 return;
                             }
                         };
-                        if view.tabs[index].refresh_in_place(&content, cx) {
+                        if view.tabs[index]
+                            .as_reader_mut()
+                            .is_some_and(|r| r.refresh_in_place(&content, cx))
+                        {
                             return;
                         }
-                        if content.matches_snapshot(&view.tabs[index].document.snapshot)
-                            && !view.tabs[index].is_unavailable()
+                        let Some(current) = view.tabs[index].as_reader() else {
+                            return;
+                        };
+                        if content.matches_snapshot(&current.document.snapshot)
+                            && !current.is_unavailable()
                         {
                             return;
                         }
                         let mut reader =
                             crate::views::reader::Reader::from_content(content, window, cx);
-                        reader.inherit_view(&view.tabs[index], cx);
+                        reader.inherit_view(current, cx);
                         reader.set_word_wrap(view.word_wrap, window, cx);
                         reader.set_editing_locked(view.editing_locked, cx);
-                        view.tabs[index] = reader;
+                        view.tabs[index] = super::Tab::document(reader);
                         view.observe_autosave(window, cx);
                         cx.notify();
                     })

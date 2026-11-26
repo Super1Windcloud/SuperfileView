@@ -1,4 +1,4 @@
-use super::Workspace;
+use super::{Tab, Workspace};
 use crate::app::reader_jobs::{self, JobClass, Priority};
 use crate::views::reader::Reader;
 use gpui_kit::*;
@@ -10,7 +10,7 @@ impl Workspace {
             let mut session = pending.clone();
             session.name = self.workspace_name.clone();
             session.show_home = self.is_home();
-            for reader in &self.tabs {
+            for reader in self.readers() {
                 let tab = reader.session_tab(cx);
                 let path = |tab: &SessionTab| match tab {
                     SessionTab::File { path, .. } | SessionTab::Playlist { path, .. } => {
@@ -30,17 +30,21 @@ impl Workspace {
         WorkspaceSession {
             roots: self.roots.clone(),
             tabs: self
-                .tabs
-                .iter()
+                .readers()
                 .filter(|r| r.document.draft_directory.is_none())
                 .map(|r| r.session_tab(cx))
                 .collect(),
             active: self
                 .active
-                .filter(|index| self.tabs[*index].document.draft_directory.is_none())
+                .filter(|index| {
+                    self.tabs[*index]
+                        .as_reader()
+                        .is_some_and(|r| r.document.draft_directory.is_none())
+                })
                 .map(|index| {
                     self.tabs[..index]
                         .iter()
+                        .filter_map(Tab::as_reader)
                         .filter(|r| r.document.draft_directory.is_none())
                         .count()
                 }),
@@ -92,8 +96,7 @@ impl Workspace {
         }
     }
     pub(crate) fn take_reader_writes(&mut self, cx: &mut App) -> Vec<Task<()>> {
-        self.tabs
-            .iter_mut()
+        self.readers_mut()
             .filter_map(|r| r.take_reader_write(cx))
             .collect()
     }
@@ -129,7 +132,7 @@ impl Workspace {
             self.recent_id = session.workspace_id.unwrap_or_default();
             self.roots = session.roots;
             self.workspace_name = session.name;
-            self.page = super::Page::Document;
+            self.empty_home = session.show_home;
             self.remote_disconnected = true;
             self.error = Some(
                 superfile_services::locale::tr(
@@ -143,11 +146,7 @@ impl Workspace {
             self.recent_id = id.clone();
         }
         self.workspace_name = session.name.clone();
-        self.page = if session.show_home {
-            super::Page::Start
-        } else {
-            super::Page::Document
-        };
+        self.empty_home = session.show_home;
         self.loading = true;
         self.loading_path = None;
         self.restoring_roots = Some(session.roots.clone());
@@ -213,8 +212,13 @@ impl Workspace {
                         }
                         reader.set_word_wrap(view.word_wrap, window, cx);
                         reader.report_opened("restore");
-                        view.tabs.push(reader);
-                        view.active = Some(view.tabs.len() - 1);
+                        view.tabs.push(Tab::document(reader));
+                        if view
+                            .active_tab()
+                            .is_none_or(|tab| matches!(tab, Tab::Document(_) | Tab::Start))
+                        {
+                            view.active = Some(view.tabs.len() - 1);
+                        }
                         cx.notify();
                     })
                     .is_err()
@@ -227,10 +231,29 @@ impl Workspace {
                 view.restoring_roots = None;
                 view.sync_workspace(cx);
                 view.load_incoming_file(window, cx);
-                view.active = session
-                    .active
-                    .filter(|&i| i < view.tabs.len())
-                    .or_else(|| (!view.tabs.is_empty()).then_some(0));
+                let preserve_app_tab = view
+                    .active_tab()
+                    .is_some_and(|tab| !matches!(tab, Tab::Document(_) | Tab::Start));
+                if !preserve_app_tab {
+                    view.active = session
+                        .active
+                        .and_then(|target| {
+                            view.tabs
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, tab)| matches!(tab, Tab::Document(_)))
+                                .nth(target)
+                                .map(|(index, _)| index)
+                        })
+                        .or_else(|| {
+                            view.tabs
+                                .iter()
+                                .position(|tab| matches!(tab, Tab::Document(_)))
+                        });
+                    if session.show_home {
+                        view.show_home(cx);
+                    }
+                }
                 view.reveal_active_file(cx);
                 view.observe_autosave(window, cx);
                 if view.root.is_none() {
@@ -305,15 +328,15 @@ mod tests {
         cx.update(|cx| {
             let view = view.read(cx);
             assert_eq!(
-                view.tabs
-                    .iter()
-                    .map(|r| &r.document.path)
-                    .collect::<Vec<_>>(),
+                view.readers().map(|r| &r.document.path).collect::<Vec<_>>(),
                 vec![&incoming, &text, &markdown, &missing]
             );
             assert_eq!(view.active, Some(0));
-            assert_eq!(view.tabs[2].mode(), superfile_core::ReaderMode::Source);
-            assert!(view.tabs[3].is_unavailable());
+            assert_eq!(
+                view.tabs[2].as_reader().unwrap().mode(),
+                superfile_core::ReaderMode::Source
+            );
+            assert!(view.tabs[3].as_reader().unwrap().is_unavailable());
             assert!(!view.loading);
         });
     }

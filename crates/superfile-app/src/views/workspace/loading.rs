@@ -118,18 +118,23 @@ impl Workspace {
                 cx,
             );
             self.select_workspace(self.recent_id.clone(), window, cx);
-            self.page = super::Page::Document;
+            self.empty_home = false;
             self.sidebar_visible = true;
             cx.notify();
             window.activate_window();
             cx.activate(true);
             return true;
         }
-        let index = self.tabs.iter().position(|r| r.document.path == path);
+        let index = self
+            .tabs
+            .iter()
+            .position(|tab| tab.as_reader().is_some_and(|r| r.document.path == path));
         if let Some(index) = index {
             self.select_workspace(self.recent_id.clone(), window, cx);
             self.activate_tab(index, window, cx);
-            self.tabs[index].activate(cx);
+            if let Some(reader) = self.tabs[index].as_reader() {
+                reader.activate(cx);
+            }
             window.activate_window();
             cx.activate(true);
             true
@@ -143,7 +148,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        self.page = super::Page::Document;
+        self.empty_home = false;
         // All Finder file types share one queue. Extension-based routing here
         // would split ordinary text/images and native formats across windows.
         if self.reveal_file_path(&path, window, cx) {
@@ -217,11 +222,10 @@ impl Workspace {
             let _ = view.update_in(cx, |view, window, cx| {
                 let path = view.incoming_files.pop_front();
                 view.incoming_file_task = None;
-                if let Some(index) = view
-                    .tabs
-                    .iter()
-                    .position(|r| Some(&r.document.path) == path.as_ref())
-                {
+                if let Some(index) = view.tabs.iter().position(|tab| {
+                    tab.as_reader()
+                        .is_some_and(|r| Some(&r.document.path) == path.as_ref())
+                }) {
                     view.activate_tab(index, window, cx);
                 } else {
                     match result {
@@ -259,16 +263,22 @@ impl Workspace {
             "INFO",
             &format!("open requested file={}", path.display()),
         );
-        self.page = super::Page::Document;
+        self.empty_home = false;
         if crate::app::updates::busy(cx) {
             return;
         }
         self.results.clear();
         self.search_task = None;
         self.pending_anchor = None;
-        if let Some(index) = self.tabs.iter().position(|t| t.document.path == path) {
+        if let Some(index) = self
+            .tabs
+            .iter()
+            .position(|tab| tab.as_reader().is_some_and(|t| t.document.path == path))
+        {
             self.activate_tab(index, window, cx);
-            self.tabs[index].activate(cx);
+            if let Some(reader) = self.tabs[index].as_reader() {
+                reader.activate(cx);
+            }
             return;
         }
         if crate::app::reveal_existing_file(&path, Some(cx.entity_id()), cx) {
@@ -488,8 +498,7 @@ impl Workspace {
         }
         let roots = self.roots.clone();
         let parents = self
-            .tabs
-            .iter()
+            .readers()
             .filter_map(|r| r.document.path.parent().map(ToOwned::to_owned))
             .collect::<Vec<_>>();
         let (cancel, guard) = superfile_services::work::Cancellation::task();
@@ -537,23 +546,24 @@ impl Workspace {
         reader.report_opened("open");
         reader.set_editing_locked(self.editing_locked, cx);
         reader.set_word_wrap(self.word_wrap, window, cx);
-        if let Some(i) = self
-            .tabs
-            .iter()
-            .position(|t| t.document.path == reader.document.path)
-        {
-            self.tabs[i] = reader;
+        self.empty_home = false;
+        if let Some(i) = self.tabs.iter().position(|tab| {
+            tab.as_reader()
+                .is_some_and(|t| t.document.path == reader.document.path)
+        }) {
+            self.tabs[i] = super::Tab::document(reader);
             self.active = Some(i);
         } else {
-            self.tabs.insert(0, reader);
+            self.tabs.insert(0, super::Tab::document(reader));
             self.active = Some(0);
             self.tab_scroll.scroll_to_item(0);
         }
         if let Some((path, anchor)) = self.pending_anchor.take()
             && let Some(i) = self.active
-            && self.tabs[i].document.path == path
+            && let Some(reader) = self.tabs[i].as_reader_mut()
+            && reader.document.path == path
         {
-            self.tabs[i].reveal_anchor(&anchor, cx);
+            reader.reveal_anchor(&anchor, cx);
         }
         self.reveal_active_file(cx);
         self.observe_autosave(window, cx);
@@ -690,21 +700,30 @@ mod incoming_file_tests {
         });
         cx.update_window(handle, |_, window, cx| {
             view.update(cx, |view, cx| {
-                assert!(matches!(view.page, crate::views::workspace::Page::Start));
+                assert!(view.is_home());
                 view.open_system_file(path.clone(), window, cx);
-                assert!(matches!(view.page, crate::views::workspace::Page::Document));
+                assert!(!view.is_home());
             })
         })
         .unwrap();
         cx.run_until_parked();
         cx.update_window(handle, |_, window, cx| {
             view.update(cx, |view, cx| {
-                let editor = view.tabs[0].editor().unwrap().entity_id();
-                view.page = crate::views::workspace::Page::Start;
+                let editor = view.tabs[0]
+                    .as_reader()
+                    .unwrap()
+                    .editor()
+                    .unwrap()
+                    .entity_id();
+                view.show_home(cx);
+                assert!(view.is_home());
                 view.open_system_file(path, window, cx);
-                assert!(matches!(view.page, crate::views::workspace::Page::Document));
-                assert_eq!(view.tabs.len(), 1);
-                assert_eq!(view.tabs[0].editor().unwrap().entity_id(), editor);
+                assert!(!view.is_home());
+                assert_eq!(view.readers().count(), 1);
+                assert_eq!(
+                    view.active_reader().unwrap().editor().unwrap().entity_id(),
+                    editor
+                );
             })
         })
         .unwrap();
@@ -750,22 +769,35 @@ mod incoming_file_tests {
         let editor = cx.update(|cx| {
             let view = view.read(cx);
             assert_eq!(view.tabs.len(), 4);
-            assert_eq!(view.tabs[3].document.path, first);
-            assert_eq!(view.tabs[2].document.path, second);
-            assert_eq!(view.tabs[1].document.path, image);
-            assert!(!view.tabs[1].is_unavailable());
-            assert_eq!(view.tabs[0].document.path, binary);
-            assert!(!view.tabs[0].is_unavailable());
-            assert!(view.tabs[0].editor().is_none());
+            assert_eq!(view.tabs[3].as_reader().unwrap().document.path, first);
+            assert_eq!(view.tabs[2].as_reader().unwrap().document.path, second);
+            assert_eq!(view.tabs[1].as_reader().unwrap().document.path, image);
+            assert!(!view.tabs[1].as_reader().unwrap().is_unavailable());
+            assert_eq!(view.tabs[0].as_reader().unwrap().document.path, binary);
+            assert!(!view.tabs[0].as_reader().unwrap().is_unavailable());
+            assert!(view.tabs[0].as_reader().unwrap().editor().is_none());
             assert!(view.incoming_files.is_empty());
             assert!(view.incoming_file_task.is_none());
-            view.tabs[3].editor().unwrap().entity_id()
+            view.tabs[3]
+                .as_reader()
+                .unwrap()
+                .editor()
+                .unwrap()
+                .entity_id()
         });
         cx.update_window(handle, |_, window, cx| {
             view.update(cx, |view, cx| {
                 assert!(view.open_system_file(first.clone(), window, cx));
                 assert_eq!(view.active, Some(3));
-                assert_eq!(view.tabs[3].editor().unwrap().entity_id(), editor);
+                assert_eq!(
+                    view.tabs[3]
+                        .as_reader()
+                        .unwrap()
+                        .editor()
+                        .unwrap()
+                        .entity_id(),
+                    editor
+                );
                 assert!(view.incoming_file_task.is_none());
             });
         })
@@ -807,7 +839,10 @@ mod tests {
         cx.update(|cx| {
             let workspace = view.read(cx);
             assert_eq!(workspace.tabs.len(), 2);
-            assert_eq!(workspace.tabs[0].document.path, paths[1]);
+            assert_eq!(
+                workspace.tabs[0].as_reader().unwrap().document.path,
+                paths[1]
+            );
             assert_eq!(workspace.active_reader().unwrap().document.path, paths[1]);
         });
         let editor = cx.update(|cx| view.read(cx).active_reader().unwrap().editor().unwrap());
@@ -840,8 +875,14 @@ mod tests {
         cx.update(|cx| {
             let workspace = view.read(cx);
             assert_eq!(workspace.tabs.len(), 20);
-            assert_eq!(workspace.tabs[0].document.path, paths[19]);
-            assert_eq!(workspace.tabs[19].document.path, paths[0]);
+            assert_eq!(
+                workspace.tabs[0].as_reader().unwrap().document.path,
+                paths[19]
+            );
+            assert_eq!(
+                workspace.tabs[19].as_reader().unwrap().document.path,
+                paths[0]
+            );
             assert!(workspace.tabs[18].is_dirty());
         });
         assert_eq!(std::fs::read_to_string(&paths[1]).unwrap(), "original\n");

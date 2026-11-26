@@ -14,13 +14,27 @@ use std::path::PathBuf;
 use superfile_services::limits as reader_limits;
 
 #[derive(Clone, PartialEq, Eq)]
-pub(super) struct Target {
-    pub path: PathBuf,
+pub(super) enum Target {
+    File(PathBuf),
+    Start,
+    Settings,
+    Themes,
+    Shortcuts,
+    About,
 }
 impl Target {
     pub(super) fn from_reader(reader: &crate::views::reader::Reader) -> Self {
-        Self {
-            path: reader.document.path.clone(),
+        Self::File(reader.document.path.clone())
+    }
+
+    pub(super) fn from_tab(tab: &super::Tab) -> Self {
+        match tab {
+            super::Tab::Document(reader) => Self::from_reader(reader),
+            super::Tab::Start => Self::Start,
+            super::Tab::Settings => Self::Settings,
+            super::Tab::Themes => Self::Themes,
+            super::Tab::Shortcuts(_) => Self::Shortcuts,
+            super::Tab::About(_) => Self::About,
         }
     }
 }
@@ -47,13 +61,16 @@ impl Workspace {
             self.navigating = false;
             return;
         }
-        let Some(r) = self.active_reader() else {
+        let Some(tab) = self.active_tab() else {
             return;
         };
-        if r.document.draft_directory.is_some() {
+        if tab
+            .as_reader()
+            .is_some_and(|r| r.document.draft_directory.is_some())
+        {
             return;
         }
-        let target = Target::from_reader(r);
+        let target = Target::from_tab(tab);
         if self.history_cursor.and_then(|i| self.history.get(i)) == Some(&target) {
             return;
         }
@@ -79,7 +96,14 @@ impl Workspace {
         }
         self.history_cursor = Some(next);
         self.navigating = true;
-        self.open_path(target.path, window, cx);
+        match target {
+            Target::File(path) => self.open_path(path, window, cx),
+            Target::Start => self.show_home(cx),
+            Target::Settings => self.show_settings(window, cx),
+            Target::Themes => self.show_themes(window, cx),
+            Target::Shortcuts => self.show_shortcuts(window, cx),
+            Target::About => self.show_about(window, cx),
+        }
     }
     pub(super) fn search_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.search_offset = 0;
@@ -160,7 +184,7 @@ impl Workspace {
         );
         let enabled = self.word_wrap;
         cx.global_mut::<crate::app::ReaderPreferences>().word_wrap = enabled;
-        for reader in &self.tabs {
+        for reader in self.readers() {
             reader.set_word_wrap(enabled, window, cx);
         }
         let write = cx
@@ -186,22 +210,28 @@ impl Workspace {
         let Some(index) = self.active else {
             return;
         };
-        let preference = self.tabs[index].preview_preference();
-        self.tabs[index].set_preview(preview, cx);
+        let Some(reader) = self.tabs[index].as_reader_mut() else {
+            return;
+        };
+        let preference = reader.preview_preference();
+        reader.set_preview(preview, cx);
         self.remember_session(cx);
-        if (self.tabs[index].mode() == superfile_core::ReaderMode::Preview) != preview {
+        let Some(reader) = self.tabs[index].as_reader() else {
+            return;
+        };
+        if (reader.mode() == superfile_core::ReaderMode::Preview) != preview {
             cx.notify();
             return;
         }
         superfile_services::telemetry::file_event(
             "preview_mode_changed",
-            &self.tabs[index].document.path,
+            &reader.document.path,
             [("preview", superfile_services::telemetry::flag(preview))],
         );
         if preview {
             window.focus(&self.focus, cx);
         } else {
-            self.tabs[index].focus_source(window, cx);
+            reader.focus_source(window, cx);
         }
         if let Some(kind) = preference {
             let prefs = cx.global_mut::<crate::app::ReaderPreferences>();

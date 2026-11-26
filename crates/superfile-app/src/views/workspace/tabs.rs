@@ -1,14 +1,16 @@
-use super::Workspace;
+use super::{Tab, Workspace};
 use crate::views::reader::Reader;
 use gpui_kit::{
+    assets::IconName,
     component::{
-        ActiveTheme, Sizable,
+        ActiveTheme, Icon, Sizable,
         button::{Button, ButtonVariants},
         h_flex,
     },
     prelude::FluentBuilder,
     *,
 };
+use superfile_services::locale::tr;
 
 #[derive(Clone)]
 struct DraggedTab {
@@ -87,10 +89,13 @@ impl Workspace {
         let Some(index) = self
             .tabs
             .iter()
-            .position(|reader| super::header::Target::from_reader(reader) == *target)
+            .position(|tab| super::header::Target::from_tab(tab) == *target)
         else {
             return;
         };
+        if !matches!(self.tabs[index], Tab::Document(_)) {
+            return;
+        }
         if !self.tabs[index].can_move_to_window(cx) {
             self.error =
                 Some("A file operation is in progress. Please retry after it finishes.".into());
@@ -106,7 +111,10 @@ impl Workspace {
                 return;
             }
         };
-        let reader = self.tabs.remove(index);
+        let Tab::Document(reader) = self.tabs.remove(index) else {
+            return;
+        };
+        let reader = *reader;
         reader.deactivate(cx);
         if let Some(editor) = reader.editor() {
             let id = editor.entity_id();
@@ -116,10 +124,15 @@ impl Workspace {
             self.save_queue.retain(|queued| *queued != id);
         }
         self.active = selection_after_close(self.active, index, self.tabs.len() + 1);
+        if self.tabs.is_empty() {
+            self.empty_home = true;
+        }
         self.observe_autosave(window, cx);
         if let Some(active) = self.active {
             self.activate_tab(active, window, cx);
-            self.tabs[active].activate(cx);
+            if let Some(reader) = self.tabs[active].as_reader() {
+                reader.activate(cx);
+            }
         }
         if let Some(session) = self.window_session(cx) {
             crate::app::workspace_sessions::remember(session, cx);
@@ -163,10 +176,13 @@ impl Workspace {
         reader.bind_window(window, cx);
         let editor = reader.editor();
         let autosave = reader.document.draft_directory.is_none() && reader.is_dirty();
-        self.tabs.push(reader);
+        self.empty_home = false;
+        self.tabs.push(Tab::document(reader));
         self.observe_autosave(window, cx);
         self.activate_tab(0, window, cx);
-        self.tabs[0].activate(cx);
+        if let Some(reader) = self.tabs[0].as_reader() {
+            reader.activate(cx);
+        }
         self.watch_file_parent(window, cx);
         if let Some(editor) = editor {
             self.checkpoint_editor(editor.entity_id(), cx);
@@ -178,8 +194,12 @@ impl Workspace {
         self.remember_session(cx);
     }
 
-    pub(super) fn active_reader(&self) -> Option<&Reader> {
+    pub(super) fn active_tab(&self) -> Option<&Tab> {
         self.active.and_then(|index| self.tabs.get(index))
+    }
+
+    pub(super) fn active_reader(&self) -> Option<&Reader> {
+        self.active_tab().and_then(Tab::as_reader)
     }
 
     pub(super) fn reveal_active_file(&self, cx: &mut Context<Self>) {
@@ -198,27 +218,30 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.tabs.get(index).is_some() {
-            superfile_services::telemetry::file_event(
-                "tab_activated",
-                &self.tabs[index].document.path,
-                [],
-            );
-            log::info!(
-                "tab activate file={}",
-                self.tabs[index].document.path.display()
-            );
-            self.page = super::Page::Document;
-            self.load_task = None;
-            self.loading = false;
+        if let Some(tab) = self.tabs.get(index) {
+            self.empty_home = false;
+            if let Some(reader) = tab.as_reader() {
+                superfile_services::telemetry::file_event(
+                    "tab_activated",
+                    &reader.document.path,
+                    [],
+                );
+                log::info!("tab activate file={}", reader.document.path.display());
+            }
+            if self.loading_path.is_some() {
+                self.load_task = None;
+                self.loading = false;
+                self.loading_path = None;
+            }
             self.load_incoming_file(window, cx);
             self.active = Some(index);
             self.reveal_active_file(cx);
             window.focus(&self.focus, cx);
-            if self.tabs[index].editor().is_some()
-                && self.tabs[index].mode() == superfile_core::ReaderMode::Source
+            if let Some(reader) = self.tabs[index].as_reader()
+                && reader.editor().is_some()
+                && reader.mode() == superfile_core::ReaderMode::Source
             {
-                self.tabs[index].focus_source(window, cx);
+                reader.focus_source(window, cx);
             }
             self.tab_scroll.scroll_to_item(index);
             window.set_window_title("Superfile");
@@ -236,11 +259,14 @@ impl Workspace {
         if targets.is_empty() {
             return;
         }
-        if self.is_saving()
+        let closes_document = targets
+            .iter()
+            .any(|target| matches!(target, super::header::Target::File(_)));
+        if (self.is_saving() && closes_document)
             || self
                 .tabs
                 .iter()
-                .any(|r| r.is_dirty() && targets.contains(&super::header::Target::from_reader(r)))
+                .any(|t| t.is_dirty() && targets.contains(&super::header::Target::from_tab(t)))
         {
             self.confirm_discard(
                 super::editing::DiscardAction::CloseTabs(targets),
@@ -257,17 +283,20 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.is_saving() {
+        let closes_document = targets
+            .iter()
+            .any(|target| matches!(target, super::header::Target::File(_)));
+        if self.is_saving() && closes_document {
             self.error =
                 Some("A file operation is in progress. Please retry after it finishes.".into());
             cx.notify();
             return;
         }
-        let active = self.active_reader().map(super::header::Target::from_reader);
+        let active = self.active_tab().map(super::header::Target::from_tab);
         let previous = self.active.unwrap_or(0);
-        self.tabs.retain(|r| {
-            let keep = !targets.contains(&super::header::Target::from_reader(r));
-            if !keep {
+        self.tabs.retain(|tab| {
+            let keep = !targets.contains(&super::header::Target::from_tab(tab));
+            if !keep && let Some(r) = tab.as_reader() {
                 superfile_services::telemetry::file_event(
                     "tab_closed",
                     &r.document.path,
@@ -277,16 +306,22 @@ impl Workspace {
             }
             keep
         });
-        self.load_task = None;
-        self.loading = false;
+        if self.loading_path.is_some() {
+            self.load_task = None;
+            self.loading = false;
+            self.loading_path = None;
+        }
         self.load_incoming_file(window, cx);
         self.active = active
             .and_then(|target| {
                 self.tabs
                     .iter()
-                    .position(|r| super::header::Target::from_reader(r) == target)
+                    .position(|tab| super::header::Target::from_tab(tab) == target)
             })
             .or_else(|| (!self.tabs.is_empty()).then(|| previous.min(self.tabs.len() - 1)));
+        if self.tabs.is_empty() {
+            self.empty_home = true;
+        }
         self.observe_autosave(window, cx);
         if let Some(index) = self.active {
             self.activate_tab(index, window, cx);
@@ -306,51 +341,53 @@ impl Workspace {
         let Some(index) = self
             .tabs
             .iter()
-            .position(|reader| super::header::Target::from_reader(reader) == *target)
+            .position(|tab| super::header::Target::from_tab(tab) == *target)
         else {
             return;
         };
         let mut items = Vec::new();
         let mut actions = Vec::new();
-        items.push((
-            Some(superfile_services::locale::tr("Move Tab to New Window")),
-            !self.is_saving()
-                && !self.loading
-                && self.tabs[index].can_move_to_window(cx)
-                && self.confirm_task.is_none()
-                && !crate::app::updates::busy(cx),
-        ));
-        actions.push(Some(TabMenuAction::Detach(target.clone())));
-        if self.tabs[index].document.draft_directory.is_none() {
-            let path = self.tabs[index].document.path.clone();
-            if self.tabs[index].document.remote.is_none() {
-                items.push((
-                    Some(superfile_services::locale::tr("Reveal in File Manager")),
-                    true,
-                ));
-                actions.push(Some(TabMenuAction::Reveal(path.clone())));
-            }
+        if let Some(reader) = self.tabs[index].as_reader() {
             items.push((
-                Some(superfile_services::locale::tr("Copy Absolute Path")),
-                true,
+                Some(superfile_services::locale::tr("Move Tab to New Window")),
+                !self.is_saving()
+                    && !self.loading
+                    && reader.can_move_to_window(cx)
+                    && self.confirm_task.is_none()
+                    && !crate::app::updates::busy(cx),
             ));
-            let relative = self
-                .roots
-                .iter()
-                .filter_map(|root| path.strip_prefix(root).ok())
-                .min_by_key(|relative| relative.components().count())
-                .map(ToOwned::to_owned);
-            actions.push(Some(TabMenuAction::CopyPath(path)));
-            if let Some(relative) = relative {
+            actions.push(Some(TabMenuAction::Detach(target.clone())));
+            if reader.document.draft_directory.is_none() {
+                let path = reader.document.path.clone();
+                if reader.document.remote.is_none() {
+                    items.push((
+                        Some(superfile_services::locale::tr("Reveal in File Manager")),
+                        true,
+                    ));
+                    actions.push(Some(TabMenuAction::Reveal(path.clone())));
+                }
                 items.push((
-                    Some(superfile_services::locale::tr("Copy Relative Path")),
+                    Some(superfile_services::locale::tr("Copy Absolute Path")),
                     true,
                 ));
-                actions.push(Some(TabMenuAction::CopyPath(relative)));
+                let relative = self
+                    .roots
+                    .iter()
+                    .filter_map(|root| path.strip_prefix(root).ok())
+                    .min_by_key(|relative| relative.components().count())
+                    .map(ToOwned::to_owned);
+                actions.push(Some(TabMenuAction::CopyPath(path)));
+                if let Some(relative) = relative {
+                    items.push((
+                        Some(superfile_services::locale::tr("Copy Relative Path")),
+                        true,
+                    ));
+                    actions.push(Some(TabMenuAction::CopyPath(relative)));
+                }
             }
+            items.push((None, true));
+            actions.push(None);
         }
-        items.push((None, true));
-        actions.push(None);
         for (label, mode) in [
             ("Close", 0),
             ("Close Tabs to the Right", 1),
@@ -367,7 +404,7 @@ impl Workspace {
                     2 => *i != index,
                     _ => true,
                 })
-                .map(|(_, reader)| super::header::Target::from_reader(reader))
+                .map(|(_, tab)| super::header::Target::from_tab(tab))
                 .collect();
             items.push((
                 Some(superfile_services::locale::tr(label)),
@@ -375,8 +412,10 @@ impl Workspace {
             ));
             actions.push(Some(TabMenuAction::Close(targets)));
         }
-        let reader = &self.tabs[index];
-        if reader.document.draft_directory.is_none() && reader.document.remote.is_none() {
+        if let Some(reader) = self.tabs[index].as_reader()
+            && reader.document.draft_directory.is_none()
+            && reader.document.remote.is_none()
+        {
             items.push((None, true));
             actions.push(None);
             items.push((Some(superfile_services::locale::tr("Move to Trash…")), true));
@@ -408,7 +447,11 @@ impl Workspace {
     }
 
     pub(super) fn close_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if self.tabs.get(index).is_some_and(|r| r.is_dirty()) || self.is_saving() {
+        let is_document = self
+            .tabs
+            .get(index)
+            .is_some_and(|tab| matches!(tab, Tab::Document(_)));
+        if self.tabs.get(index).is_some_and(Tab::is_dirty) || (is_document && self.is_saving()) {
             self.confirm_discard(super::editing::DiscardAction::CloseTab(index), window, cx);
         } else {
             self.close_tab_unchecked(index, window, cx);
@@ -424,19 +467,28 @@ impl Workspace {
         if index >= self.tabs.len() {
             return;
         }
-        self.load_task = None;
-        self.loading = false;
+        if self.loading_path.is_some() {
+            self.load_task = None;
+            self.loading = false;
+            self.loading_path = None;
+        }
         self.load_incoming_file(window, cx);
         self.active = selection_after_close(self.active, index, self.tabs.len());
-        superfile_services::telemetry::file_event(
-            "tab_closed",
-            &self.tabs[index].document.path,
-            [(
-                "unsaved",
-                superfile_services::telemetry::flag(self.tabs[index].is_dirty()),
-            )],
-        );
+        if let Some(reader) = self.tabs[index].as_reader() {
+            superfile_services::telemetry::file_event(
+                "tab_closed",
+                &reader.document.path,
+                [(
+                    "unsaved",
+                    superfile_services::telemetry::flag(reader.is_dirty()),
+                )],
+            );
+            reader.deactivate(cx);
+        }
         self.tabs.remove(index);
+        if self.tabs.is_empty() {
+            self.empty_home = true;
+        }
         self.observe_autosave(window, cx);
         if let Some(active) = self.active {
             self.activate_tab(active, window, cx);
@@ -461,14 +513,14 @@ impl Workspace {
         let Some(from) = self
             .tabs
             .iter()
-            .position(|tab| super::header::Target::from_reader(tab) == *source)
+            .position(|tab| super::header::Target::from_tab(tab) == *source)
         else {
             return;
         };
         let Some(target) = self
             .tabs
             .iter()
-            .position(|tab| super::header::Target::from_reader(tab) == *destination)
+            .position(|tab| super::header::Target::from_tab(tab) == *destination)
         else {
             return;
         };
@@ -477,8 +529,8 @@ impl Workspace {
         if from == to {
             return;
         }
-        let reader = self.tabs.remove(from);
-        self.tabs.insert(to, reader);
+        let tab = self.tabs.remove(from);
+        self.tabs.insert(to, tab);
         self.active = self.active.map(|active| {
             if active == from {
                 to
@@ -500,31 +552,46 @@ impl Workspace {
             .tabs
             .iter()
             .enumerate()
-            .map(|(index, reader)| {
+            .map(|(index, tab)| {
                 let active = self.active == Some(index);
-                let target = super::header::Target::from_reader(reader);
-                let label = if reader.document.draft_directory.is_some() {
-                    reader.title.to_string()
-                } else {
-                    reader
-                        .document
-                        .path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .into_owned()
-                };
-                let hint_path = if reader.document.draft_directory.is_some() {
-                    superfile_services::locale::tr("Not saved to disk")
-                } else if let Some(remote) = &reader.document.remote {
-                    format!(
-                        "{} · {}\n{}",
-                        superfile_services::locale::tr("Remote · Read-only"),
-                        remote.connection.label(),
-                        reader.document.path.display()
-                    )
-                } else {
-                    reader.document.path.display().to_string()
+                let target = super::header::Target::from_tab(tab);
+                let label = tab_label(tab);
+                let hint_path = tab_hint(tab);
+                let dirty = tab.is_dirty();
+                let icon = match tab {
+                    Tab::Document(reader) => {
+                        if self.pending_open_path() == Some(&reader.document.path) {
+                            crate::views::loading_icon(
+                                ("file-loading", index),
+                                px(16.),
+                                tr("Loading…"),
+                                cx,
+                            )
+                        } else {
+                            crate::views::file_icons::file_icon(&reader.document.path, cx)
+                                .into_any_element()
+                        }
+                    }
+                    Tab::Start => Icon::new(IconName::House)
+                        .size(px(15.))
+                        .flex_shrink_0()
+                        .into_any_element(),
+                    Tab::Settings => Icon::new(IconName::Settings)
+                        .size(px(15.))
+                        .flex_shrink_0()
+                        .into_any_element(),
+                    Tab::Themes => Icon::new(IconName::Palette)
+                        .size(px(15.))
+                        .flex_shrink_0()
+                        .into_any_element(),
+                    Tab::Shortcuts(_) => Icon::new(IconName::Keyboard)
+                        .size(px(15.))
+                        .flex_shrink_0()
+                        .into_any_element(),
+                    Tab::About(_) => Icon::new(IconName::Info)
+                        .size(px(15.))
+                        .flex_shrink_0()
+                        .into_any_element(),
                 };
                 let hint_bounds = std::rc::Rc::new(std::cell::Cell::new(Bounds::default()));
                 let painted_hint_bounds = hint_bounds.clone();
@@ -539,6 +606,7 @@ impl Workspace {
                 };
                 let workspace_id = cx.entity_id();
                 let drop_color = cx.theme().secondary;
+                let close_label = label.clone();
 
                 h_flex()
                     .id(("document-tab", index))
@@ -551,7 +619,9 @@ impl Workspace {
                     .on_key_down(cx.listener(move |view, event: &KeyDownEvent, window, cx| {
                         if matches!(event.keystroke.key.as_str(), "enter" | "space") {
                             view.activate_tab(index, window, cx);
-                            view.tabs[index].activate(cx);
+                            if let Some(reader) = view.tabs[index].as_reader() {
+                                reader.activate(cx);
+                            }
                             cx.stop_propagation();
                         }
                     }))
@@ -612,7 +682,9 @@ impl Workspace {
                     }))
                     .on_click(cx.listener(move |view, _: &ClickEvent, window, cx| {
                         view.activate_tab(index, window, cx);
-                        view.tabs[index].activate(cx);
+                        if let Some(reader) = view.tabs[index].as_reader() {
+                            reader.activate(cx);
+                        }
                     }))
                     .child(
                         h_flex()
@@ -623,17 +695,7 @@ impl Workspace {
                                 gpui_kit::component::tooltip::Tooltip::new(hint_path.clone())
                                     .build(window, cx)
                             })
-                            .child(if self.pending_open_path() == Some(&reader.document.path) {
-                                crate::views::loading_icon(
-                                    ("file-loading", index),
-                                    px(16.),
-                                    superfile_services::locale::tr("Loading…"),
-                                    cx,
-                                )
-                            } else {
-                                crate::views::file_icons::file_icon(&reader.document.path, cx)
-                                    .into_any_element()
-                            })
+                            .child(icon)
                             .child(div().max_w(px(210.)).truncate().text_xs().child(label)),
                     )
                     .child(
@@ -642,29 +704,26 @@ impl Workspace {
                             .xsmall()
                             .w(px(22.))
                             .h(px(22.))
-                            .when(reader.is_dirty(), |button| {
+                            .when(dirty, |button| {
                                 button.child(div().size(px(9.)).rounded_full().bg(cx.theme().blue))
                             })
-                            .when(!reader.is_dirty(), |button| {
-                                button.icon(
-                                    gpui_kit::component::Icon::new(gpui_kit::assets::IconName::X)
-                                        .size(px(12.)),
-                                )
+                            .when(!dirty, |button| {
+                                button.icon(Icon::new(IconName::X).size(px(12.)))
                             })
                             .text_color(cx.theme().muted_foreground)
-                            .tooltip(superfile_services::locale::tr(if reader.is_dirty() {
+                            .tooltip(tr(if dirty {
                                 "Unsaved changes · Close"
                             } else {
                                 "Close"
                             }))
                             .accessibility_label(format!(
                                 "{} {}",
-                                superfile_services::locale::tr(if reader.is_dirty() {
+                                tr(if dirty {
                                     "Unsaved changes · Close"
                                 } else {
                                     "Close"
                                 }),
-                                reader.title
+                                close_label
                             ))
                             .on_click(cx.listener(move |view, _, window, cx| {
                                 cx.stop_propagation();
@@ -704,7 +763,7 @@ impl Workspace {
 
     fn pending_open_tab(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let path = self.pending_open_path()?;
-        if self.tabs.iter().any(|reader| reader.document.path == *path) {
+        if self.readers().any(|reader| reader.document.path == *path) {
             return None;
         }
         let label = path
@@ -763,6 +822,53 @@ impl Workspace {
                 )
                 .into_any_element(),
         )
+    }
+}
+
+fn tab_label(tab: &Tab) -> String {
+    match tab {
+        Tab::Document(reader) => {
+            if reader.document.draft_directory.is_some() {
+                reader.title.to_string()
+            } else {
+                reader
+                    .document
+                    .path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned()
+            }
+        }
+        Tab::Start => tr("Start"),
+        Tab::Settings => tr("Settings"),
+        Tab::Themes => tr("Community themes"),
+        Tab::Shortcuts(_) => tr("Keyboard shortcuts"),
+        Tab::About(_) => tr("About Superfile"),
+    }
+}
+
+fn tab_hint(tab: &Tab) -> String {
+    match tab {
+        Tab::Document(reader) => {
+            if reader.document.draft_directory.is_some() {
+                tr("Not saved to disk")
+            } else if let Some(remote) = &reader.document.remote {
+                format!(
+                    "{} · {}\n{}",
+                    tr("Remote · Read-only"),
+                    remote.connection.label(),
+                    reader.document.path.display()
+                )
+            } else {
+                reader.document.path.display().to_string()
+            }
+        }
+        Tab::Start => tr("Start"),
+        Tab::Settings => tr("Settings"),
+        Tab::Themes => tr("Community themes"),
+        Tab::Shortcuts(_) => tr("Keyboard shortcuts"),
+        Tab::About(_) => tr("About Superfile"),
     }
 }
 

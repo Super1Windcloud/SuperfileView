@@ -162,8 +162,7 @@ impl super::Workspace {
             return;
         }
         let changed = self
-            .tabs
-            .iter_mut()
+            .readers_mut()
             .find(|reader| {
                 reader
                     .editor()

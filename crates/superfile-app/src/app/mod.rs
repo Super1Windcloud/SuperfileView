@@ -273,11 +273,10 @@ fn apply_appearance(appearance: superfile_services::preferences::Appearance, cx:
     theme::apply(cx);
 }
 
-fn show_settings(cx: &mut App) {
-    show_preferences(false, cx);
-}
-
-fn show_preferences(themes: bool, cx: &mut App) {
+pub(crate) fn open_workspace_tab(
+    cx: &mut App,
+    open: impl FnOnce(&mut Workspace, &mut Window, &mut Context<Workspace>) + 'static,
+) {
     if updates::busy(cx) {
         return;
     }
@@ -287,31 +286,65 @@ fn show_preferences(themes: bool, cx: &mut App) {
         .iter()
         .any(|(view, _)| view.upgrade().is_some())
     {
-        open_workspace(None, cx);
+        if cx.has_global::<workspace_sessions::SavedWorkspaces>() {
+            open_workspace(None, cx);
+        } else if let Err(error) = open_detached_window(cx) {
+            log::error!("Cannot open Superfile window: {error:#}");
+            return;
+        }
     }
+    let active = cx.active_window();
     let target = cx
         .global::<OpenWorkspaces>()
         .0
         .iter()
         .rev()
-        .find(|(view, _)| {
-            view.upgrade()
-                .is_some_and(|view| view.read(cx).is_visible_workspace(cx))
+        .find(|(view, handle)| {
+            Some(*handle) == active
+                && view
+                    .upgrade()
+                    .is_some_and(|view| view.read(cx).is_visible_workspace(cx))
+        })
+        .or_else(|| {
+            cx.global::<OpenWorkspaces>()
+                .0
+                .iter()
+                .rev()
+                .find(|(view, _)| {
+                    view.upgrade()
+                        .is_some_and(|view| view.read(cx).is_visible_workspace(cx))
+                })
         })
         .cloned();
     if let Some((view, handle)) = target {
-        let _ = handle.update(cx, |_, window, cx| {
-            let _ = view.update(cx, |view, cx| {
-                if themes {
-                    view.show_themes(window, cx);
-                } else {
-                    view.show_settings(window, cx);
-                }
-            });
-            window.activate_window();
-        });
-        cx.activate(true);
+        let mut callback = Some(open);
+        let updated = handle
+            .update(cx, |_, window, cx| {
+                let open = callback.take().unwrap();
+                let _ = view.update(cx, |view, cx| open(view, window, cx));
+                window.activate_window();
+            })
+            .is_ok();
+        if updated {
+            cx.activate(true);
+        } else if let Some(open) = callback {
+            cx.defer(move |cx| open_workspace_tab(cx, open));
+        }
     }
+}
+
+fn show_settings(cx: &mut App) {
+    show_preferences(false, cx);
+}
+
+fn show_preferences(themes: bool, cx: &mut App) {
+    open_workspace_tab(cx, move |view, window, cx| {
+        if themes {
+            view.show_themes(window, cx);
+        } else {
+            view.show_settings(window, cx);
+        }
+    });
 }
 
 fn show_about(cx: &mut App) {

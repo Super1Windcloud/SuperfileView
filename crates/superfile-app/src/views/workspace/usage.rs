@@ -1,17 +1,54 @@
 //! Foreground occupancy, not attention: no input contents or local target identity
 //! leave this module. Segments stop at loading, prompts and window deactivation.
-use super::{Page, Workspace, header::Target};
+use super::{Tab, Workspace, header::Target};
 use gpui_kit::*;
 use std::time::{Duration, Instant};
 use superfile_services::telemetry::{self, Property, flag, number, text};
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum UsagePage {
+    Document,
+    Start,
+    Settings,
+    Themes,
+    Shortcuts,
+    About,
+}
+
+impl UsagePage {
+    fn from_workspace(workspace: &Workspace) -> Self {
+        match workspace.active_tab() {
+            Some(Tab::Document(_)) => Self::Document,
+            Some(Tab::Start) => Self::Start,
+            Some(Tab::Settings) => Self::Settings,
+            Some(Tab::Themes) => Self::Themes,
+            Some(Tab::Shortcuts(_)) => Self::Shortcuts,
+            Some(Tab::About(_)) => Self::About,
+            None if workspace.is_home() => Self::Start,
+            None => Self::Document,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Document => "document",
+            Self::Start => "start",
+            Self::Settings => "settings",
+            Self::Themes => "themes",
+            Self::Shortcuts => "shortcuts",
+            Self::About => "about",
+        }
+    }
+}
+
 pub(super) struct Segment {
-    key: (Page, Option<Target>, bool),
+    key: (UsagePage, Option<Target>, bool),
     started: Instant,
     props: Vec<(&'static str, Property)>,
 }
 impl Workspace {
     pub(crate) fn usage_context(&self) -> Vec<(&'static str, Property)> {
+        let page = UsagePage::from_workspace(self);
         let mut props = vec![
             ("file_fullscreen", flag(self.file_fullscreen)),
             (
@@ -22,19 +59,9 @@ impl Workspace {
                     "local"
                 }),
             ),
-            (
-                "page",
-                text(match self.page {
-                    Page::Document => "document",
-                    Page::Start => "start",
-                    Page::Settings => "settings",
-                    Page::Themes => "themes",
-                }),
-            ),
+            ("page", text(page.as_str())),
         ];
-        if self.page == Page::Document
-            && let Some(reader) = self.active_reader()
-        {
+        if let Some(reader) = self.active_reader() {
             props.extend(telemetry::file_properties(&reader.document.path));
             props.push(("reader_kind", text(reader.telemetry_kind())));
             props.push(("untitled", flag(reader.document.draft_directory.is_some())));
@@ -72,13 +99,10 @@ impl Workspace {
             self.flush_usage();
             return;
         }
-        let reader = if self.page == Page::Document {
-            self.active_reader()
-        } else {
-            None
-        };
+        let page = UsagePage::from_workspace(self);
+        let reader = self.active_reader();
         let preview = reader.is_some_and(|r| r.mode() == superfile_core::ReaderMode::Preview);
-        let key = (self.page, reader.map(Target::from_reader), preview);
+        let key = (page, reader.map(Target::from_reader), preview);
         if self.usage.as_ref().is_some_and(|s| s.key == key) {
             return;
         }
@@ -91,15 +115,7 @@ impl Workspace {
                     "local"
                 }),
             ),
-            (
-                "page",
-                text(match self.page {
-                    Page::Document => "document",
-                    Page::Settings => "settings",
-                    Page::Themes => "themes",
-                    Page::Start => "start",
-                }),
-            ),
+            ("page", text(page.as_str())),
             ("preview", flag(preview)),
         ];
         if let Some(reader) = reader {

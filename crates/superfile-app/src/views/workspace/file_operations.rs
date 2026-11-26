@@ -80,18 +80,20 @@ impl Workspace {
         self.load_task = None;
         self.loading = false;
         self.loading_path = None;
-        self.page = super::Page::Document;
+        self.empty_home = false;
         self.error = None;
-        self.tabs.insert(0, reader);
+        self.tabs.insert(0, super::Tab::document(reader));
         self.active = Some(0);
         self.tab_scroll.scroll_to_item(0);
         self.observe_autosave(window, cx);
-        self.tabs[0].focus_source(window, cx);
+        if let Some(reader) = self.tabs[0].as_reader() {
+            reader.focus_source(window, cx);
+        }
         cx.notify();
     }
 
     pub(crate) fn has_unsaved_in(&self, path: &Path) -> bool {
-        self.tabs.iter().any(|reader| {
+        self.readers().any(|reader| {
             reader.document.draft_directory.is_none()
                 && reader.document.path.starts_with(path)
                 && reader.is_dirty()
@@ -200,8 +202,7 @@ impl Workspace {
             .retain(|queued| !queued.starts_with(path));
         self.results.retain(|result| !result.starts_with(path));
         if !self
-            .tabs
-            .iter()
+            .readers()
             .any(|reader| reader.document.path.starts_with(path))
             && !self.roots.iter().any(|root| root.starts_with(path))
         {
@@ -213,8 +214,7 @@ impl Workspace {
         self.loading = false;
         self.search_task = None;
         let targets = self
-            .tabs
-            .iter()
+            .readers()
             .filter(|reader| reader.document.path.starts_with(path))
             .map(super::header::Target::from_reader)
             .collect();

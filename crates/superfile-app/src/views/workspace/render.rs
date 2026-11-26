@@ -1,4 +1,4 @@
-use super::{DEFAULT_SIDEBAR_RATIO, Page, SIDEBAR_COLLAPSE_WIDTH, Workspace};
+use super::{DEFAULT_SIDEBAR_RATIO, SIDEBAR_COLLAPSE_WIDTH, Tab, Workspace};
 use crate::{
     app::actions::{
         AddFolder, CloseWindow, CloseWorkspace, ManageConnections, NavigateBack, NavigateForward,
@@ -24,14 +24,25 @@ use gpui_kit::{
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_usage(window, cx);
-        if self.page != Page::Document || self.active_reader().is_none() {
+        if self.active_reader().is_none() {
             self.set_file_fullscreen(false, window);
         }
-        for (index, reader) in self.tabs.iter().enumerate() {
-            if self.page != Page::Document || self.active != Some(index) {
-                reader.deactivate(cx);
-            } else {
-                reader.activate(cx);
+        for (index, tab) in self.tabs.iter().enumerate() {
+            let active = self.active == Some(index);
+            match tab {
+                Tab::Document(reader) => {
+                    if active {
+                        reader.activate(cx);
+                    } else {
+                        reader.deactivate(cx);
+                    }
+                }
+                Tab::Shortcuts(shortcuts) => {
+                    if !active {
+                        shortcuts.update(cx, |view, cx| view.deactivate(cx));
+                    }
+                }
+                Tab::Start | Tab::Settings | Tab::Themes | Tab::About(_) => {}
             }
         }
         let notice = self
@@ -57,8 +68,13 @@ impl Render for Workspace {
                 let _ = view.update(cx, |v, cx| {
                     v.open_path(path.clone(), window, cx);
                     if let Some(anchor) = anchor {
-                        if let Some(i) = v.active.filter(|i| v.tabs[*i].document.path == path) {
-                            v.tabs[i].reveal_anchor(&anchor, cx);
+                        if let Some(i) = v.active.filter(|i| {
+                            v.tabs[*i]
+                                .as_reader()
+                                .is_some_and(|r| r.document.path == path)
+                        }) && let Some(reader) = v.tabs[i].as_reader_mut()
+                        {
+                            reader.reveal_anchor(&anchor, cx);
                         } else {
                             v.pending_anchor = Some((path, anchor));
                         }
@@ -101,27 +117,25 @@ impl Render for Workspace {
                     v.run_toolbar_action(archive_action_kind, window, cx)
                 });
             });
-        let content = match self.page {
-            Page::Themes => self.community_themes.clone().into_any_element(),
-            Page::Settings => self.settings_page(window, cx),
-            Page::Start => welcome(self, cx.entity_id(), cx).into_any_element(),
-            Page::Document => match self.active.and_then(|i| self.tabs.get_mut(i)) {
-                Some(reader) => {
-                    reader.set_archive_action(archive_label, archive_action, cx);
-                    reader.set_task_toggle_handler(toggle_task, cx);
-                    reader.render(open, cx)
-                }
-                None => welcome(self, cx.entity_id(), cx).into_any_element(),
-            },
+        let content = match self.active.and_then(|i| self.tabs.get_mut(i)) {
+            Some(Tab::Document(reader)) => {
+                reader.set_archive_action(archive_label, archive_action, cx);
+                reader.set_task_toggle_handler(toggle_task, cx);
+                reader.render(open, cx)
+            }
+            Some(Tab::Start) => welcome(self, cx.entity_id(), cx).into_any_element(),
+            Some(Tab::Settings) => self.settings_page(window, cx),
+            Some(Tab::Themes) => self.community_themes.clone().into_any_element(),
+            Some(Tab::Shortcuts(view)) => view.clone().into_any_element(),
+            Some(Tab::About(view)) => view.clone().into_any_element(),
+            None => welcome(self, cx.entity_id(), cx).into_any_element(),
         };
         // Preview actions use the same live capabilities and dispatcher as the
         // toolbar. Text editors keep their selection-aware editing menu.
-        let content = if self.page == Page::Document
-            && self.active_reader().is_some_and(|reader| {
-                reader.is_archive()
-                    || (reader.can_preview()
-                        && reader.mode() == superfile_core::ReaderMode::Preview)
-            }) {
+        let content = if self.active_reader().is_some_and(|reader| {
+            reader.is_archive()
+                || (reader.can_preview() && reader.mode() == superfile_core::ReaderMode::Preview)
+        }) {
             let workspace = cx.entity().downgrade();
             div()
                 .size_full()
@@ -156,9 +170,9 @@ impl Render for Workspace {
         } else {
             content
         };
-        let document_page = self.page == Page::Document;
+        let document_page = self.active_reader().is_some();
         self.file_statistics.update(cx, |view, cx| {
-            view.set_reader(self.active_reader().filter(|_| document_page), cx);
+            view.set_reader(self.active_reader(), cx);
         });
         let zoom_view = cx.entity().downgrade();
         let gesture_view = cx.entity().downgrade();
@@ -168,8 +182,7 @@ impl Render for Workspace {
             .overflow_hidden()
             .bg(cx.theme().background)
             .when(
-                self.page == Page::Document
-                    && (!self.tabs.is_empty() || self.pending_open_path().is_some())
+                (!self.tabs.is_empty() || self.pending_open_path().is_some())
                     && !self.file_fullscreen,
                 |view| view.child(tab_bar),
             )
@@ -275,7 +288,7 @@ impl Render for Workspace {
             "start-navigation",
             gpui_kit::assets::IconName::House,
             "Start",
-            self.page == Page::Start,
+            self.is_home(),
         );
         let sidebar = v_flex()
             .size_full()

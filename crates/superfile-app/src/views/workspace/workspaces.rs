@@ -1,4 +1,4 @@
-use super::{Page, Workspace};
+use super::{Tab, Workspace};
 use gpui_kit::{
     component::{
         ActiveTheme, Icon, Sizable,
@@ -71,14 +71,14 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.page = Page::Document;
+        self.empty_home = false;
         self.open_path(path, window, cx);
     }
 
     pub(crate) fn suspend_workspace(&mut self, window: &Window, cx: &mut Context<Self>) {
         self.set_file_fullscreen(false, window);
         self.flush_usage();
-        for reader in &self.tabs {
+        for reader in self.readers() {
             reader.deactivate(cx);
         }
     }
@@ -93,7 +93,18 @@ impl Workspace {
                 );
             }
         }
-        self.page = Page::Document;
+        self.empty_home = false;
+        if self
+            .active
+            .is_some_and(|i| matches!(self.tabs.get(i), Some(Tab::Start)))
+        {
+            if let Some(other) = self.tabs.iter().position(|tab| !matches!(tab, Tab::Start)) {
+                self.activate_tab(other, window, cx);
+            } else {
+                self.tabs.retain(|tab| !matches!(tab, Tab::Start));
+                self.active = None;
+            }
+        }
         window.focus(&self.focus, cx);
         self.reveal_active_file(cx);
         cx.notify();
@@ -280,7 +291,7 @@ impl Workspace {
                         }))
                         .into_any_element();
                 }
-                let selected = self.page != Page::Start && self.recent_id == workspace.id;
+                let selected = !self.is_home() && self.recent_id == workspace.id;
                 let background = if selected {
                     crate::views::selection_background(cx)
                 } else {

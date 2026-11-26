@@ -28,12 +28,42 @@ use super::{
     reader::{Reader, statistics::FileStatistics},
 };
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Page {
-    Document,
+pub(super) enum Tab {
+    Document(Box<Reader>),
     Start,
     Settings,
     Themes,
+    Shortcuts(Entity<crate::app::shortcuts::Shortcuts>),
+    About(Entity<crate::views::about::About>),
+}
+
+impl Tab {
+    pub(super) fn document(reader: Reader) -> Self {
+        Self::Document(Box::new(reader))
+    }
+
+    pub(super) fn as_reader(&self) -> Option<&Reader> {
+        match self {
+            Self::Document(reader) => Some(reader),
+            _ => None,
+        }
+    }
+
+    pub(super) fn as_reader_mut(&mut self) -> Option<&mut Reader> {
+        match self {
+            Self::Document(reader) => Some(reader),
+            _ => None,
+        }
+    }
+
+    pub(super) fn is_dirty(&self) -> bool {
+        self.as_reader().is_some_and(Reader::is_dirty)
+    }
+
+    pub(super) fn can_move_to_window(&self, cx: &App) -> bool {
+        self.as_reader()
+            .is_some_and(|reader| reader.can_move_to_window(cx))
+    }
 }
 
 const DEFAULT_SIDEBAR_RATIO: f32 = 0.20;
@@ -53,7 +83,7 @@ pub struct Workspace {
     recent_id: String,
     restoring_roots: Option<Vec<PathBuf>>,
     focus: FocusHandle,
-    page: Page,
+    empty_home: bool,
     file_fullscreen: bool,
     file_fullscreen_entered_window: bool,
     file_fullscreen_seen_window: bool,
@@ -90,7 +120,7 @@ pub struct Workspace {
     roots: Vec<PathBuf>,
     explorer: Option<Entity<Explorer>>,
     subscriptions: Vec<Subscription>,
-    tabs: Vec<Reader>,
+    tabs: Vec<Tab>,
     active: Option<usize>,
     file_statistics: Entity<FileStatistics>,
     tab_scroll: ScrollHandle,
@@ -126,20 +156,78 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub(crate) fn show_themes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.page = Page::Themes;
-        self.community_themes.update(cx, |view, cx| view.reload(cx));
+    pub(super) fn readers(&self) -> impl Iterator<Item = &Reader> {
+        self.tabs.iter().filter_map(Tab::as_reader)
+    }
+
+    pub(super) fn readers_mut(&mut self) -> impl Iterator<Item = &mut Reader> {
+        self.tabs.iter_mut().filter_map(Tab::as_reader_mut)
+    }
+
+    fn open_or_activate_tab(
+        &mut self,
+        matches: impl Fn(&Tab) -> bool,
+        create: impl FnOnce(&mut Window, &mut Context<Self>) -> Tab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.empty_home = false;
         self.results.clear();
         self.search_task = None;
-        window.focus(&self.focus, cx);
-        cx.notify();
+        let index = if let Some(index) = self.tabs.iter().position(matches) {
+            index
+        } else {
+            let tab = create(window, cx);
+            self.tabs.insert(0, tab);
+            0
+        };
+        self.activate_tab(index, window, cx);
     }
+
+    pub(crate) fn show_themes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.community_themes.update(cx, |view, cx| view.reload(cx));
+        self.open_or_activate_tab(
+            |tab| matches!(tab, Tab::Themes),
+            |_, _| Tab::Themes,
+            window,
+            cx,
+        );
+    }
+
+    pub(crate) fn show_shortcuts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let already_open = self.tabs.iter().any(|tab| matches!(tab, Tab::Shortcuts(_)));
+        if !already_open {
+            superfile_services::telemetry::track("shortcuts_opened", []);
+        }
+        self.open_or_activate_tab(
+            |tab| matches!(tab, Tab::Shortcuts(_)),
+            |window, cx| {
+                Tab::Shortcuts(cx.new(|cx| crate::app::shortcuts::Shortcuts::new_tab(window, cx)))
+            },
+            window,
+            cx,
+        );
+    }
+
+    pub(crate) fn show_about(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let already_open = self.tabs.iter().any(|tab| matches!(tab, Tab::About(_)));
+        if !already_open {
+            superfile_services::telemetry::track("about_opened", []);
+        }
+        self.open_or_activate_tab(
+            |tab| matches!(tab, Tab::About(_)),
+            |window, cx| Tab::About(cx.new(|cx| crate::views::about::About::new(window, cx))),
+            window,
+            cx,
+        );
+    }
+
     pub(crate) fn set_editing_locked(&mut self, locked: bool, cx: &mut Context<Self>) {
         self.editing_locked = locked;
         if locked {
             self.refresh_task = None;
         }
-        for reader in &mut self.tabs {
+        for reader in self.readers_mut() {
             reader.set_editing_locked(locked, cx);
         }
         cx.notify();
@@ -189,12 +277,13 @@ impl Workspace {
 
     pub(crate) fn show_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         superfile_services::telemetry::track("settings_opened", []);
-        self.page = Page::Settings;
         self.integrations.update(cx, |view, cx| view.reload(cx));
-        self.results.clear();
-        self.search_task = None;
-        window.focus(&self.focus, cx);
-        cx.notify();
+        self.open_or_activate_tab(
+            |tab| matches!(tab, Tab::Settings),
+            |_, _| Tab::Settings,
+            window,
+            cx,
+        );
     }
 
     pub(crate) fn refresh_language(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -300,7 +389,7 @@ impl Workspace {
             sidebar_ratio: DEFAULT_SIDEBAR_RATIO,
             sidebar_window_width: 0.,
             sidebar_layout: cx.new(|_| gpui_kit::component::resizable::ResizableState::default()),
-            page: Page::Start,
+            empty_home: true,
             file_fullscreen: false,
             file_fullscreen_entered_window: false,
             file_fullscreen_seen_window: false,
@@ -383,7 +472,7 @@ impl Workspace {
         workspace.usage_activation =
             Some(cx.observe_window_activation(window, |view, window, cx| {
                 view.update_usage(window, cx);
-                if window.is_window_active() && view.page == Page::Settings {
+                if window.is_window_active() && matches!(view.active_tab(), Some(Tab::Settings)) {
                     view.integrations.update(cx, |view, cx| view.reload(cx));
                 }
                 cx.notify();
@@ -398,11 +487,26 @@ impl Workspace {
 
 impl Workspace {
     pub(crate) fn is_home(&self) -> bool {
-        self.page == Page::Start
+        match self.active_tab() {
+            Some(Tab::Start) => true,
+            Some(_) => false,
+            None => self.empty_home,
+        }
     }
 
     pub(crate) fn show_home(&mut self, cx: &mut Context<Self>) {
-        self.page = Page::Start;
+        self.empty_home = true;
+        if !self.tabs.is_empty() {
+            let index =
+                if let Some(index) = self.tabs.iter().position(|tab| matches!(tab, Tab::Start)) {
+                    index
+                } else {
+                    self.tabs.insert(0, Tab::Start);
+                    0
+                };
+            self.active = Some(index);
+            self.tab_scroll.scroll_to_item(index);
+        }
         if let Some(explorer) = &self.explorer {
             explorer.update(cx, |view, cx| view.clear_clicked_selection(cx));
         }

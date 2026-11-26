@@ -1,4 +1,4 @@
-use super::{Page, Workspace, header::Target};
+use super::{Workspace, header::Target};
 use crate::app::sharing;
 use anyhow::{Context as _, Result};
 use gpui_kit::{
@@ -55,9 +55,6 @@ fn copy_name(path: &Path) -> String {
 
 impl Workspace {
     pub(super) fn share_file_button(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if self.page != Page::Document {
-            return None;
-        }
         let reader = self
             .active_reader()
             .filter(|reader| reader.can_share_file(cx))?;
@@ -107,8 +104,7 @@ impl Workspace {
             return;
         }
         let Some(reader) = self
-            .tabs
-            .iter()
+            .readers()
             .find(|reader| Target::from_reader(reader) == *target && reader.can_share_file(cx))
         else {
             return;

@@ -26,7 +26,7 @@ impl Workspace {
         self.quit_discards.clear();
     }
     pub(crate) fn commit_quit(&mut self, cx: &App) {
-        for reader in &self.tabs {
+        for reader in self.readers() {
             if reader
                 .editor()
                 .is_some_and(|editor| self.quit_discards.contains(&editor.entity_id()))
@@ -37,7 +37,7 @@ impl Workspace {
         }
     }
     fn discard_recovery(&mut self, cx: &App) {
-        for reader in &self.tabs {
+        for reader in self.readers() {
             if let Some(key) = &reader.document.recovery_key {
                 crate::app::recovery::remove(key, cx);
             }
@@ -59,10 +59,10 @@ impl Workspace {
         }
     }
     pub fn has_unsaved(&self) -> bool {
-        self.tabs.iter().any(|r| r.is_dirty())
+        self.readers().any(|r| r.is_dirty())
     }
     pub fn is_saving(&self) -> bool {
-        self.saving.is_some() || self.editing_locked || self.tabs.iter().any(|r| r.is_persisting())
+        self.saving.is_some() || self.editing_locked || self.readers().any(|r| r.is_persisting())
     }
 
     pub(super) fn cancel_save(&mut self, cx: &mut Context<Self>) {
@@ -76,8 +76,7 @@ impl Workspace {
         cx.notify();
     }
     pub(crate) fn open_document_paths(&self) -> Vec<std::path::PathBuf> {
-        self.tabs
-            .iter()
+        self.readers()
             .filter(|reader| reader.document.draft_directory.is_none())
             .map(|reader| reader.document.path.clone())
             .collect()
@@ -99,16 +98,18 @@ impl Workspace {
         reader.restore_draft_text(draft.text, window, cx);
         superfile_services::telemetry::track("draft_recovered", []);
         self.edit_revision = self.edit_revision.wrapping_add(1);
-        self.tabs.insert(0, reader);
+        self.empty_home = false;
+        self.tabs.insert(0, super::Tab::document(reader));
         self.active = Some(0);
-        self.page = super::Page::Document;
         self.observe_autosave(window, cx);
-        self.tabs[0].focus_source(window, cx);
+        if let Some(reader) = self.tabs[0].as_reader() {
+            reader.focus_source(window, cx);
+        }
         self.tab_scroll.scroll_to_item(0);
         cx.notify();
     }
     pub(super) fn checkpoint_editor(&self, id: EntityId, cx: &App) {
-        if let Some(reader) = self.tabs.iter().find(|reader| {
+        if let Some(reader) = self.readers().find(|reader| {
             reader
                 .editor()
                 .is_some_and(|editor| editor.entity_id() == id)
@@ -141,7 +142,7 @@ impl Workspace {
         }
     }
     fn finish_recovery(&mut self, id: EntityId, cx: &App) {
-        if let Some(reader) = self.tabs.iter_mut().find(|reader| {
+        if let Some(reader) = self.readers_mut().find(|reader| {
             reader
                 .editor()
                 .is_some_and(|editor| editor.entity_id() == id)
@@ -180,8 +181,7 @@ impl Workspace {
             return;
         }
         let keys = self
-            .tabs
-            .iter()
+            .readers()
             .filter_map(|reader| {
                 Some((
                     reader.editor()?.entity_id(),
@@ -196,8 +196,7 @@ impl Workspace {
         }
         self.recovery_keys = keys;
         let editors = self
-            .tabs
-            .iter()
+            .readers()
             .filter_map(|r| r.editor())
             .collect::<Vec<_>>();
         self.telemetry_edited
@@ -211,7 +210,7 @@ impl Workspace {
                     cx.subscribe_in(&editor, window, move |view, _, event, window, cx| {
                         if matches!(event, gpui_kit::component::input::InputEvent::Change) {
                             if view.telemetry_edited.insert(id)
-                                && let Some(reader) = view.tabs.iter().find(|reader| {
+                                && let Some(reader) = view.readers().find(|reader| {
                                     reader
                                         .editor()
                                         .is_some_and(|editor| editor.entity_id() == id)
@@ -233,7 +232,7 @@ impl Workspace {
                                 request.discarded.retain(|discarded| *discarded != id);
                             }
                             view.checkpoint_editor(id, cx);
-                            if view.tabs.iter().any(|reader| {
+                            if view.readers().any(|reader| {
                                 reader.document.draft_directory.is_some()
                                     && reader
                                         .editor()
@@ -280,7 +279,7 @@ impl Workspace {
             }
             return;
         }
-        let Some(reader) = self.tabs.iter().find(|r| {
+        let Some(reader) = self.readers().find(|r| {
             (r.is_dirty() || r.document.draft_directory.is_some())
                 && r.editor().is_some_and(|e| e.entity_id() == id)
         }) else {
@@ -332,8 +331,7 @@ impl Workspace {
                 match result {
                     Ok(page) => {
                         if let Some(reader) = v
-                            .tabs
-                            .iter_mut()
+                            .readers_mut()
                             .find(|r| r.editor().is_some_and(|s| s.entity_id() == id))
                         {
                             if let Some(page) = page {
@@ -344,7 +342,7 @@ impl Workspace {
                         }
                         v.finish_recovery(id, cx);
                         v.observe_autosave(window, cx);
-                        if v.tabs.iter().any(|reader| {
+                        if v.readers().any(|reader| {
                             reader.is_dirty()
                                 && reader
                                     .editor()
@@ -358,8 +356,7 @@ impl Workspace {
                     Err(error) => {
                         v.cancel_close_request(cx);
                         if let Some(reader) = v
-                            .tabs
-                            .iter()
+                            .readers()
                             .find(|r| r.editor().is_some_and(|e| e.entity_id() == id))
                         {
                             reader.finish_page_save();
@@ -382,7 +379,7 @@ impl Workspace {
             self.cancel_close_request(cx);
             return;
         }
-        let Some(reader) = self.tabs.iter().find(|reader| {
+        let Some(reader) = self.readers().find(|reader| {
             reader
                 .editor()
                 .is_some_and(|editor| editor.entity_id() == id)
@@ -436,7 +433,7 @@ impl Workspace {
                         let destination = match destination { Ok(destination) => destination, Err(error) => break Some(Err(error)) };
                         let text = view.update(cx, |view, cx| {
                             view.save_cancel.as_ref()?;
-                            view.tabs.iter().find_map(|reader| reader.editor().filter(|editor| editor.entity_id() == id))
+                            view.readers().find_map(|reader| reader.editor().filter(|editor| editor.entity_id() == id))
                                 .map(|editor| editor.read(cx).value().to_string())
                         }).ok().flatten();
                         if let Some(text) = text {
@@ -461,14 +458,16 @@ impl Workspace {
                 view.save_cancel = None;
                 match result {
                     Some(Ok((path, text))) => {
-                        if let Some(reader) = view.tabs.iter_mut().find(|reader| {
+                        let word_wrap = view.word_wrap;
+                        let saved = view.readers_mut().find(|reader| {
                             reader
                                 .editor()
                                 .is_some_and(|editor| editor.entity_id() == id)
-                        }) {
+                        });
+                        if let Some(reader) = saved {
                             let old = super::header::Target::from_reader(reader);
                             reader.bind_saved_draft(path, text, window, cx);
-                            reader.set_word_wrap(view.word_wrap, window, cx);
+                            reader.set_word_wrap(word_wrap, window, cx);
                             let new = super::header::Target::from_reader(reader);
                             if let Some(CloseRequest {
                                 action: DiscardAction::CloseTabs(targets),
@@ -492,7 +491,7 @@ impl Workspace {
                         }
                         view.finish_recovery(id, cx);
                         view.observe_autosave(window, cx);
-                        if view.tabs.iter().any(|reader| reader.is_dirty() && reader.editor().is_some_and(|editor| editor.entity_id() == id))
+                        if view.readers().any(|reader| reader.is_dirty() && reader.editor().is_some_and(|editor| editor.entity_id() == id))
                             && !view.save_queue.contains(&id) { view.save_queue.push_back(id); }
                         view.error = None;
                         if view.root.is_none() {
@@ -504,7 +503,7 @@ impl Workspace {
                         view.cancel_close_request(cx);
                         // Cancel a batch of draft-save dialogs as a unit; ordinary
                         // file autosaves may continue without opening more panels.
-                        let drafts = view.tabs.iter().filter(|reader| reader.document.draft_directory.is_some())
+                        let drafts = view.readers().filter(|reader| reader.document.draft_directory.is_some())
                             .filter_map(|reader| reader.editor().map(|editor| editor.entity_id()))
                             .collect::<Vec<_>>();
                         view.save_queue.retain(|queued| *queued != id && !drafts.contains(queued));
@@ -549,10 +548,10 @@ impl Workspace {
         }
         let action = match action {
             DiscardAction::CloseTab(index) => {
-                let Some(reader) = self.tabs.get(index) else {
+                let Some(tab) = self.tabs.get(index) else {
                     return;
                 };
-                DiscardAction::CloseTabs(vec![super::header::Target::from_reader(reader)])
+                DiscardAction::CloseTabs(vec![super::header::Target::from_tab(tab)])
             }
             other => other,
         };
@@ -570,7 +569,7 @@ impl Workspace {
         let Some(request) = &self.close_request else {
             return;
         };
-        let next = self.tabs.iter().find_map(|reader| {
+        let next = self.readers().find_map(|reader| {
             let editor = reader.editor()?;
             let id = editor.entity_id();
             let selected = match &request.action {
@@ -732,6 +731,7 @@ impl Workspace {
         self.autosave.clear();
         self.save_queue.clear();
         self.active = None;
+        self.empty_home = false;
         self.history.clear();
         self.history_cursor = None;
         self.install_folder(folder, window, cx);

@@ -1,7 +1,5 @@
 use super::Workspace;
-use crate::app::actions::{
-    CheckForUpdates, DefaultApplications, KeyboardShortcuts, SupportedFormats,
-};
+use crate::app::actions::{CheckForUpdates, DefaultApplications, SupportedFormats};
 use gpui_kit::{
     component::{
         ActiveTheme, Disableable, Icon, Sizable,
@@ -170,7 +168,7 @@ impl Workspace {
             .into_any_element();
         let shortcuts = action_button("settings-shortcuts", "Edit…")
             .accessibility_label(superfile_services::locale::tr("Keyboard Shortcuts…"))
-            .on_click(|_, window, cx| window.dispatch_action(Box::new(KeyboardShortcuts), cx))
+            .on_click(cx.listener(|view, _, window, cx| view.show_shortcuts(window, cx)))
             .into_any_element();
         let row = |label: &'static str, detail: &'static str, control: AnyElement| {
             let mut text = v_flex()

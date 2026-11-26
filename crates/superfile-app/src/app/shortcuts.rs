@@ -16,19 +16,25 @@ use superfile_services::locale::tr;
 pub(crate) use bindings::format_shortcut_for_display;
 pub(super) use bindings::{install, take_write};
 
-#[derive(Default)]
-struct ShortcutWindow(Option<AnyWindowHandle>);
-impl Global for ShortcutWindow {}
-
-struct Shortcuts {
+pub(crate) struct Shortcuts {
     focus: FocusHandle,
     recording: Option<&'static str>,
     error: Option<String>,
+    standalone: bool,
     _intercept: Subscription,
 }
 
 impl Shortcuts {
+    #[cfg(test)]
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self::build(true, window, cx)
+    }
+
+    pub(crate) fn new_tab(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self::build(false, window, cx)
+    }
+
+    fn build(standalone: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         let handle = window.window_handle();
@@ -42,8 +48,20 @@ impl Shortcuts {
             focus,
             recording: None,
             error: None,
+            standalone,
             _intercept: intercept,
         }
+    }
+
+    pub(crate) fn deactivate(&mut self, cx: &mut Context<Self>) {
+        if self.recording.take().is_some() || self.error.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn init_test(cx: &mut App) {
+        Bindings::install(Overrides::new(), |_| Ok(()), cx);
     }
 
     fn capture(&mut self, key: &Keystroke, cx: &mut Context<Self>) {
@@ -79,21 +97,25 @@ impl Shortcuts {
 
 impl Render for Shortcuts {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let state = cx.global::<Bindings>();
-        let saving = state.saving;
-        let has_changes = !state.overrides.is_empty();
+        let state = cx.try_global::<Bindings>();
+        let saving = state.is_some_and(|state| state.saving);
+        let has_changes = state.is_some_and(|state| !state.overrides.is_empty());
         let entries = state
-            .commands
-            .iter()
-            .map(|command| {
-                (
-                    command.name,
-                    command.label,
-                    state.display(command.name),
-                    state.overrides.contains_key(command.name),
-                )
+            .map(|state| {
+                state
+                    .commands
+                    .iter()
+                    .map(|command| {
+                        (
+                            command.name,
+                            command.label,
+                            state.display(command.name),
+                            state.overrides.contains_key(command.name),
+                        )
+                    })
+                    .collect::<Vec<_>>()
             })
-            .collect::<Vec<_>>();
+            .unwrap_or_default();
         let recording = self.recording;
         let status = if let Some(error) = &self.error {
             Some((error.clone(), cx.theme().danger))
@@ -108,17 +130,21 @@ impl Render for Shortcuts {
             None
         };
         v_flex()
+            .id("keyboard-shortcuts-page")
             .size_full()
             .track_focus(&self.focus)
-            .on_action(cx.listener(|_, _: &CloseWindow, window, _| window.remove_window()))
-            .on_action(cx.listener(|_, _: &CloseWorkspace, window, _| window.remove_window()))
-            .child(TitleBar::new().child(tr("Keyboard Shortcuts — Superfile")))
+            .when(self.standalone, |view| {
+                view.on_action(cx.listener(|_, _: &CloseWindow, window, _| window.remove_window()))
+                    .on_action(cx.listener(|_, _: &CloseWorkspace, window, _| window.remove_window()))
+                    .child(TitleBar::new().child(tr("Keyboard Shortcuts — Superfile")))
+            })
             .child(
                 h_flex()
                     .w_full()
                     .min_h(px(40.))
                     .gap_2()
                     .px_4()
+                    .when(!self.standalone, |bar| bar.pt_2())
                     .child(div().flex_1().min_w_0().text_sm().when_some(status, |item, (label, color)| {
                         item.text_color(color).child(label)
                     }))
@@ -234,34 +260,7 @@ impl Render for Shortcuts {
 }
 
 pub fn open(cx: &mut App) {
-    if let Some(handle) = cx.try_global::<ShortcutWindow>().and_then(|state| state.0)
-        && cx.windows().contains(&handle)
-    {
-        if cx.active_window() != Some(handle) {
-            let _ = handle.update(cx, |_, window, _| window.activate_window());
-        }
-        cx.activate(true);
-        return;
-    }
-    superfile_services::telemetry::track("shortcuts_opened", []);
-    let options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-            None,
-            size(px(680.), px(700.)),
-            cx,
-        ))),
-        window_min_size: Some(size(px(470.), px(320.))),
-        ..TitleBar::window_options()
-    };
-    match gpui_kit::open_window(options, cx, |window, cx| {
-        cx.new(|cx| Shortcuts::new(window, cx))
-    }) {
-        Ok((handle, _)) => {
-            cx.set_global(ShortcutWindow(Some(handle)));
-            cx.activate(true);
-        }
-        Err(error) => log::error!("Cannot open keyboard shortcuts: {error:#}"),
-    }
+    super::open_workspace_tab(cx, |view, window, cx| view.show_shortcuts(window, cx));
 }
 
 #[cfg(test)]

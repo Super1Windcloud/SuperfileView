@@ -101,7 +101,7 @@ impl Workspace {
 mod tests {
     use super::Workspace;
     use crate::app::text_zoom;
-    use crate::views::{reader::Reader, workspace::Page};
+    use crate::views::{reader::Reader, workspace::Tab};
     use gpui_kit::{
         AppContext, Bounds, InputEvent, Modifiers, Pixels, PlatformInput, Point, ScrollDelta,
         ScrollWheelEvent, TestAppContext, TouchPhase, WindowBounds, WindowOptions, point, px, size,
@@ -150,10 +150,10 @@ mod tests {
                     |window, cx| {
                         cx.new(|cx| {
                             let mut workspace = Workspace::new(None, window, cx);
-                            workspace.page = Page::Document;
+                            workspace.empty_home = false;
                             workspace.active = Some(0);
                             for &(path, text) in files {
-                                workspace.tabs.push(Reader::new(
+                                workspace.tabs.push(Tab::document(Reader::new(
                                     Document {
                                         path: path.into(),
                                         kind: DocumentKind::Text,
@@ -161,7 +161,7 @@ mod tests {
                                     },
                                     window,
                                     cx,
-                                ));
+                                )));
                             }
                             workspace
                         })
@@ -182,13 +182,21 @@ mod tests {
         let other_initial_height = cx
             .update_window(other_handle, |_, window, cx| {
                 window.render_frame(cx);
-                let editor = other_workspace.read(cx).tabs[0].editor().unwrap();
+                let editor = other_workspace.read(cx).tabs[0]
+                    .as_reader()
+                    .unwrap()
+                    .editor()
+                    .unwrap();
                 editor.read(cx).line_height().unwrap()
             })
             .unwrap();
         cx.update_window(handle, |_, window, cx| {
             window.render_frame(cx);
-            let editor = workspace.read(cx).tabs[0].editor().unwrap();
+            let editor = workspace.read(cx).tabs[0]
+                .as_reader()
+                .unwrap()
+                .editor()
+                .unwrap();
             let initial_height = editor.read(cx).line_height().unwrap();
             let viewport = window.find(("input", editor.entity_id())).bounds();
             window.dispatch_event(wheel(viewport.center(), -3., Modifiers::default()), cx);
@@ -229,7 +237,7 @@ mod tests {
             assert_eq!(text_zoom::font_size(px(13.), cx), px(14.));
             workspace.update(cx, |view, cx| {
                 view.active = Some(1);
-                view.tabs[1].set_preview(true, cx);
+                view.tabs[1].as_reader_mut().unwrap().set_preview(true, cx);
                 cx.notify();
             });
         })
@@ -237,7 +245,11 @@ mod tests {
         cx.run_until_parked();
         cx.update_window(other_handle, |_, window, cx| {
             window.render_frame(cx);
-            let editor = other_workspace.read(cx).tabs[0].editor().unwrap();
+            let editor = other_workspace.read(cx).tabs[0]
+                .as_reader()
+                .unwrap()
+                .editor()
+                .unwrap();
             assert!(editor.read(cx).line_height().unwrap() > other_initial_height);
         })
         .unwrap();
@@ -261,7 +273,11 @@ mod tests {
         );
         cx.update_window(other_handle, |_, window, cx| {
             window.render_frame(cx);
-            let editor = other_workspace.read(cx).tabs[0].editor().unwrap();
+            let editor = other_workspace.read(cx).tabs[0]
+                .as_reader()
+                .unwrap()
+                .editor()
+                .unwrap();
             assert_eq!(editor.read(cx).line_height(), Some(other_initial_height));
             assert_eq!(text_zoom::font_size(px(13.), cx), px(13.));
         })

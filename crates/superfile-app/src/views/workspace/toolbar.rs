@@ -1,5 +1,5 @@
+use super::Workspace;
 use super::reader_actions::{ToolbarAction, ToolbarItem, document_items};
-use super::{Page, Workspace};
 use crate::app::actions::{TogglePreview, ToggleWordWrap};
 use gpui_kit::{
     assets::IconName,
@@ -98,13 +98,10 @@ impl Workspace {
     }
 
     pub(super) fn reader_actions(&self, cx: &App) -> Vec<ToolbarItem> {
-        let mut document = if self.page == Page::Document {
-            self.active_reader()
-                .map(|r| document_items(r, self.word_wrap, cx))
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
+        let mut document = self
+            .active_reader()
+            .map(|r| document_items(r, self.word_wrap, cx))
+            .unwrap_or_default();
         if self.picking && self.active_reader().is_some_and(|r| r.is_archive()) {
             for item in &mut document {
                 if matches!(item.action, ToolbarAction::Extract) {
@@ -112,7 +109,7 @@ impl Workspace {
                 }
             }
         }
-        if self.page == Page::Document && self.active_reader().is_some() {
+        if self.active_reader().is_some() {
             let mut fullscreen = ToolbarItem::new(ToolbarAction::FileFullscreen);
             fullscreen.selected = self.file_fullscreen;
             if self.file_fullscreen {
@@ -278,7 +275,7 @@ impl Workspace {
                 }
             }
             ToolbarAction::FileFullscreen => {
-                if self.page == Page::Document && self.active_reader().is_some() {
+                if self.active_reader().is_some() {
                     self.set_file_fullscreen(!self.file_fullscreen, window);
                     self.results.clear();
                     self.search_task = None;
@@ -313,7 +310,7 @@ fn reader_menu_item(item: ToolbarItem, owner: WeakEntity<Workspace>) -> PopupMen
 
 #[cfg(test)]
 mod tests {
-    use super::{Page, Workspace};
+    use super::super::{Tab, Workspace};
     use crate::app::actions::{
         About, CheckForUpdates, DefaultApplications, KeyboardShortcuts, TogglePreview,
         ToggleWordWrap,
@@ -371,9 +368,9 @@ mod tests {
                                 cx,
                             );
                             reader.set_preview(true, cx);
-                            workspace.tabs.push(reader);
+                            workspace.tabs.push(Tab::document(reader));
                         }
-                        workspace.page = Page::Document;
+                        workspace.empty_home = false;
                         workspace.active = Some(0);
                         workspace
                     })
@@ -609,7 +606,7 @@ mod tests {
             view.update(cx, |workspace, cx| {
                 workspace
                     .tabs
-                    .push(Reader::from_content(picture, window, cx));
+                    .push(Tab::document(Reader::from_content(picture, window, cx)));
                 workspace.activate_tab(workspace.tabs.len() - 1, window, cx);
             });
             window.render_frame(cx);
@@ -624,12 +621,12 @@ mod tests {
             );
             view.update(cx, |workspace, cx| {
                 let missing = directory.path().join("missing.pdf");
-                workspace.tabs.push(Reader::unavailable(
+                workspace.tabs.push(Tab::document(Reader::unavailable(
                     missing,
                     "missing".to_owned().into(),
                     window,
                     cx,
-                ));
+                )));
                 workspace.activate_tab(workspace.tabs.len() - 1, window, cx);
             });
             window.render_frame(cx);
@@ -657,7 +654,9 @@ mod tests {
         let (handle, view) = open(cx);
         cx.update_window(handle, |_, window, cx| {
             view.update(cx, |workspace, cx| {
-                workspace.tabs.push(Reader::from_page(first, window, cx));
+                workspace
+                    .tabs
+                    .push(Tab::document(Reader::from_page(first, window, cx)));
                 workspace.activate_tab(workspace.tabs.len() - 1, window, cx);
             });
             window.render_frame(cx);
@@ -720,7 +719,13 @@ mod tests {
         })
         .unwrap();
         cx.update_window(handle, |_, window, cx| {
-            assert!(view.read(cx).page == Page::Settings);
+            assert!(matches!(view.read(cx).active_tab(), Some(Tab::Settings)));
+            assert!(
+                window
+                    .within("document-tabs")
+                    .find(("close-tab", 2usize))
+                    .visible()
+            );
             assert!(window.find("browse-community-themes").visible());
             assert!(!view.read(cx).sidebar_visible);
             window.click("settings-code-theme", cx);
@@ -730,18 +735,31 @@ mod tests {
             click_application_entry("Browse themes…", window, cx);
         })
         .unwrap();
-        cx.update_window(handle, |_, _, cx| {
-            assert!(view.read(cx).page == Page::Themes);
-            assert_eq!(view.read(cx).active, Some(0));
+        cx.update_window(handle, |_, window, cx| {
+            assert!(matches!(view.read(cx).active_tab(), Some(Tab::Themes)));
+            assert!(
+                window
+                    .within("document-tabs")
+                    .find(("close-tab", 3usize))
+                    .visible()
+            );
+            let doc_index = view
+                .read(cx)
+                .tabs
+                .iter()
+                .position(|tab| {
+                    tab.as_reader()
+                        .is_some_and(|r| r.editor() == Some(editor.clone()))
+                })
+                .unwrap();
+            view.update(cx, |workspace, cx| {
+                workspace.activate_tab(doc_index, window, cx)
+            });
             assert_eq!(
                 view.read(cx).active_reader().unwrap().editor(),
                 Some(editor.clone())
             );
             assert_eq!(editor.read(cx).value().as_ref(), "{\"saved\":true}");
-        })
-        .unwrap();
-        cx.update_window(handle, |_, window, cx| {
-            view.update(cx, |workspace, _| workspace.page = Page::Document);
             window.render_frame(cx);
             window.click("application-menu", cx);
             window.within("popup-menu").hover(1usize, cx);
@@ -752,6 +770,94 @@ mod tests {
         })
         .unwrap();
         cx.update(|cx| assert!(view.read(cx).sidebar_visible));
+    }
+
+    #[gpui_kit::test]
+    fn non_dialog_app_views_open_and_switch_as_workspace_tabs(cx: &mut TestAppContext) {
+        use gpui_kit::component::WindowExt as _;
+
+        let (handle, view) = open(cx);
+        cx.update(crate::app::shortcuts::Shortcuts::init_test);
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(view.read(cx).tabs.len(), 2);
+
+            view.update(cx, |workspace, cx| workspace.show_settings(window, cx));
+            window.render_frame(cx);
+            assert!(!window.has_active_dialog(cx));
+            assert!(matches!(view.read(cx).active_tab(), Some(Tab::Settings)));
+            assert!(window.find("browse-community-themes").visible());
+
+            view.update(cx, |workspace, cx| workspace.show_shortcuts(window, cx));
+            window.render_frame(cx);
+            assert!(!window.has_active_dialog(cx));
+            assert!(matches!(
+                view.read(cx).active_tab(),
+                Some(Tab::Shortcuts(_))
+            ));
+            assert!(window.find("restore-all-shortcuts").visible());
+
+            view.update(cx, |workspace, cx| workspace.show_about(window, cx));
+            window.render_frame(cx);
+            assert!(!window.has_active_dialog(cx));
+            assert!(matches!(view.read(cx).active_tab(), Some(Tab::About(_))));
+            assert!(window.within("about-page").find("about-github").visible());
+
+            view.update(cx, |workspace, cx| workspace.show_themes(window, cx));
+            window.render_frame(cx);
+            assert!(!window.has_active_dialog(cx));
+            assert!(matches!(view.read(cx).active_tab(), Some(Tab::Themes)));
+
+            view.update(cx, |workspace, cx| workspace.show_home(cx));
+            window.render_frame(cx);
+            assert!(!window.has_active_dialog(cx));
+            assert!(matches!(view.read(cx).active_tab(), Some(Tab::Start)));
+            assert!(window.find("welcome-new-file").visible());
+
+            // All non-dialog views and the 2 initial documents coexist in the tab bar.
+            assert_eq!(view.read(cx).tabs.len(), 7);
+            for index in 0..7usize {
+                assert!(
+                    window
+                        .within("document-tabs")
+                        .try_find(("close-tab", index))
+                        .is_some()
+                );
+            }
+            assert!(
+                window
+                    .within("document-tabs")
+                    .find(("close-tab", 0usize))
+                    .visible()
+            );
+
+            // Re-opening a singleton non-dialog view focuses its existing tab without duplicating.
+            view.update(cx, |workspace, cx| workspace.show_settings(window, cx));
+            window.render_frame(cx);
+            assert_eq!(view.read(cx).tabs.len(), 7);
+            assert!(matches!(view.read(cx).active_tab(), Some(Tab::Settings)));
+
+            // Closing the active Settings tab leaves the remaining tabs intact.
+            let active = view.read(cx).active.unwrap();
+            assert!(
+                window
+                    .within("document-tabs")
+                    .find(("close-tab", active))
+                    .visible()
+            );
+            window
+                .within("document-tabs")
+                .click(("close-tab", active), cx);
+            assert_eq!(view.read(cx).tabs.len(), 6);
+            assert!(
+                !view
+                    .read(cx)
+                    .tabs
+                    .iter()
+                    .any(|tab| matches!(tab, Tab::Settings))
+            );
+        })
+        .unwrap();
     }
 
     #[gpui_kit::test]
@@ -775,10 +881,19 @@ mod tests {
                 log.borrow_mut().push("Keyboard Shortcuts…")
             });
         });
-        for (page, fullscreen) in [(Page::Start, false), (Page::Document, true)] {
+        for (home, fullscreen) in [(true, false), (false, true)] {
             cx.update_window(handle, |_, window, cx| {
-                view.update(cx, |workspace, _| {
-                    workspace.page = page;
+                view.update(cx, |workspace, cx| {
+                    if home {
+                        workspace.show_home(cx);
+                    } else {
+                        let doc_index = workspace
+                            .tabs
+                            .iter()
+                            .position(|tab| matches!(tab, Tab::Document(_)))
+                            .unwrap();
+                        workspace.activate_tab(doc_index, window, cx);
+                    }
                     workspace.file_fullscreen = fullscreen;
                     workspace.sidebar_visible = false;
                 });

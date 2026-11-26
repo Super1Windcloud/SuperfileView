@@ -39,8 +39,7 @@ impl Workspace {
                         superfile_services::limits::REMOTE_REFRESH_BATCH,
                     );
                     let paths = view
-                        .tabs
-                        .iter()
+                        .readers()
                         .filter(|reader| {
                             reader.document.remote.is_some() && !reader.refresh_busy(cx)
                         })
@@ -51,17 +50,15 @@ impl Workspace {
                         &mut file_cursor,
                         superfile_services::limits::REMOTE_REFRESH_BATCH,
                     );
-                    if let Some(reader) = view.active.and_then(|index| view.tabs.get(index)) {
+                    if let Some(reader) = view.active_reader() {
                         selected.retain(|path| *path != reader.document.path);
                         selected.insert(0, reader.document.path.clone());
                     }
                     let files = selected
                         .into_iter()
                         .filter_map(|path| {
-                            let reader = view
-                                .tabs
-                                .iter()
-                                .find(|reader| reader.document.path == path)?;
+                            let reader =
+                                view.readers().find(|reader| reader.document.path == path)?;
                             Some((
                                 path,
                                 reader.refresh_version(cx),
@@ -93,33 +90,47 @@ impl Workspace {
                     let result = work.await;
                     if view
                         .update_in(cx, |view, window, cx| {
-                            let Some(index) = view.tabs.iter().position(|reader| {
-                                reader.document.path == path
-                                    && reader.refresh_version(cx) == version
+                            let Some(index) = view.tabs.iter().position(|tab| {
+                                tab.as_reader().is_some_and(|reader| {
+                                    reader.document.path == path
+                                        && reader.refresh_version(cx) == version
+                                })
                             }) else {
                                 return;
                             };
-                            if view.loading || view.tabs[index].refresh_busy(cx) {
+                            if view.loading
+                                || view.tabs[index]
+                                    .as_reader()
+                                    .is_none_or(|reader| reader.refresh_busy(cx))
+                            {
                                 return;
                             }
                             match result {
                                 Ok(Some(content)) => {
-                                    if view.tabs[index].refresh_in_place(&content, cx) {
-                                        view.tabs[index].document.remote_version =
-                                            session.loaded_version(&path);
+                                    if view.tabs[index]
+                                        .as_reader_mut()
+                                        .is_some_and(|reader| reader.refresh_in_place(&content, cx))
+                                    {
+                                        if let Some(reader) = view.tabs[index].as_reader_mut() {
+                                            reader.document.remote_version =
+                                                session.loaded_version(&path);
+                                        }
                                         cx.notify();
                                         return;
                                     }
                                     let mut reader = crate::views::reader::Reader::from_content(
                                         content, window, cx,
                                     );
-                                    reader.inherit_view(&view.tabs[index], cx);
+                                    if let Some(current) = view.tabs[index].as_reader() {
+                                        reader.inherit_view(current, cx);
+                                    }
                                     reader.set_remote(session.clone(), path, cx);
                                     reader.set_word_wrap(view.word_wrap, window, cx);
                                     if view.active != Some(index) {
                                         reader.deactivate(cx);
                                     }
-                                    view.tabs[index] = reader;
+                                    view.tabs[index] =
+                                        crate::views::workspace::Tab::document(reader);
                                     cx.notify();
                                 }
                                 Ok(None) => {}

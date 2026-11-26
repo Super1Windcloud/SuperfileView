@@ -699,7 +699,7 @@ impl Workspace {
                     destination.update(cx, |view, cx| {
                         view.recent_id = id;
                         view.remote = Some(session);
-                        view.page = super::Page::Document;
+                        view.empty_home = false;
                         view.add_folder(snapshot, window, cx);
                         view.remember_current_workspace(cx);
                     });
@@ -741,11 +741,10 @@ impl Workspace {
         if self.pending_open_path() == Some(&path) {
             return;
         }
-        if let Some(index) = self
-            .tabs
-            .iter()
-            .position(|reader| reader.document.path == path)
-        {
+        if let Some(index) = self.tabs.iter().position(|tab| {
+            tab.as_reader()
+                .is_some_and(|reader| reader.document.path == path)
+        }) {
             self.activate_tab(index, window, cx);
             return;
         }
@@ -761,14 +760,17 @@ impl Workspace {
         let Some(session) = self.remote.clone() else {
             return;
         };
-        self.page = super::Page::Document;
+        self.empty_home = false;
         self.loading = true;
         self.error = None;
         self.loading_path = Some(path.clone());
         self.tab_scroll.scroll_to_item(
             self.tabs
                 .iter()
-                .position(|reader| reader.document.path == path)
+                .position(|tab| {
+                    tab.as_reader()
+                        .is_some_and(|reader| reader.document.path == path)
+                })
                 .unwrap_or(0),
         );
         session.received.store(0, Ordering::Relaxed);
@@ -828,15 +830,15 @@ impl Workspace {
                         if !refresh {
                             reader.report_opened("open");
                         }
-                        if let Some(index) = view
-                            .tabs
-                            .iter()
-                            .position(|existing| existing.document.path == reader.document.path)
-                        {
-                            view.tabs[index] = reader;
+                        if let Some(index) = view.tabs.iter().position(|tab| {
+                            tab.as_reader().is_some_and(|existing| {
+                                existing.document.path == reader.document.path
+                            })
+                        }) {
+                            view.tabs[index] = super::Tab::document(reader);
                             view.active = Some(index);
                         } else {
-                            view.tabs.insert(0, reader);
+                            view.tabs.insert(0, super::Tab::document(reader));
                             view.active = Some(0);
                         }
                         view.remote_disconnected = false;
@@ -850,12 +852,16 @@ impl Workspace {
                             return;
                         }
                         view.remote_disconnected = !session.is_connected();
-                        let existing = view
-                            .tabs
-                            .iter()
-                            .position(|reader| reader.document.path == path);
+                        let existing = view.tabs.iter().position(|tab| {
+                            tab.as_reader()
+                                .is_some_and(|reader| reader.document.path == path)
+                        });
                         if refresh
-                            && existing.is_some_and(|index| !view.tabs[index].is_unavailable())
+                            && existing.is_some_and(|index| {
+                                view.tabs[index]
+                                    .as_reader()
+                                    .is_some_and(|r| !r.is_unavailable())
+                            })
                         {
                             // Preserve a readable snapshot when refreshing fails.
                             view.error = Some(error.to_string().into());
@@ -871,10 +877,10 @@ impl Workspace {
                                 reader.report_opened("open");
                             }
                             if let Some(index) = existing {
-                                view.tabs[index] = reader;
+                                view.tabs[index] = super::Tab::document(reader);
                                 view.active = Some(index);
                             } else {
-                                view.tabs.insert(0, reader);
+                                view.tabs.insert(0, super::Tab::document(reader));
                                 view.active = Some(0);
                             }
                             view.reveal_active_file(cx);
@@ -907,11 +913,7 @@ impl Workspace {
         self.roots = session.roots.clone();
         self.recent_id = session.workspace_id.clone().unwrap_or_default();
         self.workspace_name = session.name.clone();
-        self.page = if session.show_home {
-            super::Page::Start
-        } else {
-            super::Page::Document
-        };
+        self.empty_home = session.show_home;
         self.remote_disconnected = true;
         self.loading = false;
         self.loading_path = None;
@@ -1030,18 +1032,46 @@ impl Workspace {
             }
             let _ = view.update_in(cx, |view, window, cx| {
                 view.remote_restore = None;
-                view.tabs = restored;
-                view.active = session
-                    .active
-                    .filter(|index| *index < view.tabs.len())
-                    .or_else(|| (!view.tabs.is_empty()).then_some(0));
+                let preserve_app_tab = view
+                    .active_tab()
+                    .is_some_and(|tab| !matches!(tab, super::Tab::Document(_) | super::Tab::Start));
+                let app_tabs = view
+                    .tabs
+                    .drain(..)
+                    .filter(|tab| !matches!(tab, super::Tab::Document(_) | super::Tab::Start))
+                    .collect::<Vec<_>>();
+                view.tabs = app_tabs;
+                view.tabs
+                    .extend(restored.into_iter().map(super::Tab::document));
+                if preserve_app_tab {
+                    view.active = (!view.tabs.is_empty()).then_some(0);
+                } else {
+                    view.active = session
+                        .active
+                        .and_then(|target| {
+                            view.tabs
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, tab)| matches!(tab, super::Tab::Document(_)))
+                                .nth(target)
+                                .map(|(index, _)| index)
+                        })
+                        .or_else(|| {
+                            view.tabs
+                                .iter()
+                                .position(|tab| matches!(tab, super::Tab::Document(_)))
+                        });
+                    if session.show_home {
+                        view.show_home(cx);
+                    }
+                }
                 view.loading = false;
                 cx.refresh_windows();
                 view.sync_workspace(cx);
                 view.remember_session(cx);
                 view.reveal_active_file(cx);
-                if let Some(index) = view.active {
-                    view.tabs[index].focus_source(window, cx);
+                if let Some(reader) = view.active_reader() {
+                    reader.focus_source(window, cx);
                 }
                 view.drain_remote_open_paths(window, cx);
                 cx.notify();
