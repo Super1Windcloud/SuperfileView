@@ -49,6 +49,7 @@ pub struct ReaderPreferences {
     pub html_preview: bool,
     pub markdown_preview: bool,
     pub csv_preview: bool,
+    pub json_preview: bool,
     pub preview_save_task: Option<Task<()>>,
 }
 impl Global for ReaderPreferences {}
@@ -447,6 +448,7 @@ pub fn run() -> Result<()> {
     let html_preview = superfile_services::preferences::preview_mode("html");
     let markdown_preview = superfile_services::preferences::preview_mode("markdown");
     let csv_preview = superfile_services::preferences::preview_mode("csv");
+    let json_preview = superfile_services::preferences::preview_mode("json");
     let telemetry_consent = superfile_services::preferences::telemetry_consent();
     let application = gpui_kit::application().with_assets(assets::Assets);
     let image_client = image_http::ImageHttpClient::new(application.background_executor());
@@ -605,6 +607,7 @@ pub fn run() -> Result<()> {
             html_preview,
             markdown_preview,
             csv_preview,
+            json_preview,
             preview_save_task: None,
         });
         text_zoom::init(reader_font_offset, cx);

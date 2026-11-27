@@ -439,4 +439,53 @@ mod editing_tests {
         })
         .unwrap();
     }
+
+    #[gpui_kit::test]
+    fn all_previewable_formats_default_to_preview(cx: &mut TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, sample) in [
+            ("sample.md", "# Title\n"),
+            ("sample.html", "<h1>Title</h1>"),
+            ("sample.csv", "a,b\n1,2\n"),
+            ("sample.tsv", "a\tb\n1\t2\n"),
+            ("sample.gpx", "<gpx><wpt lat=\"1\" lon=\"2\"/></gpx>"),
+            ("sample.kml", "<kml><Document/></kml>"),
+            ("sample.json", "{\"key\":\"value\"}"),
+            ("sample.jsonc", "{// comment\n\"key\": 1}"),
+            ("sample.ipynb", "{\"cells\":[],\"metadata\":{}}"),
+            ("sample.org", "* Heading\n"),
+            ("sample.adoc", "= Heading\n"),
+            ("sample.rst", "Heading\n=======\n"),
+            ("sample.srt", "1\n00:00:00,000 --> 00:00:01,000\nhi\n"),
+            (
+                "sample.vtt",
+                "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhi\n",
+            ),
+            ("sample.d2", "a -> b"),
+            ("sample.pikchr", "box \"hi\""),
+            ("sample.vega.json", "{\"mark\":\"point\"}"),
+        ] {
+            let path = dir.path().join(name);
+            let (_, view) = open(cx, |window, cx| {
+                Reader::new(
+                    Document {
+                        kind: DocumentKind::from_path(&path),
+                        path: path.clone(),
+                        text: sample.into(),
+                    },
+                    window,
+                    cx,
+                )
+            });
+            cx.update(|cx| {
+                let reader = &view.read(cx).0;
+                assert!(reader.can_preview(), "{name} should support preview");
+                assert_eq!(
+                    reader.mode(),
+                    super::ReaderMode::Preview,
+                    "{name} should default to preview mode"
+                );
+            });
+        }
+    }
 }

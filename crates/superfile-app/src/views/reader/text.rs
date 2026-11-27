@@ -164,24 +164,35 @@ impl Reader {
     pub fn is_openapi(&self) -> bool {
         self.projection.as_ref().is_some_and(Projection::is_openapi)
     }
-    pub(super) fn restore_csv_preview(&mut self, cx: &mut App) {
-        if self.table_format().is_some()
-            && cx
+    pub(super) fn restore_default_preview(&mut self, cx: &mut App) {
+        if self.projection.is_none() {
+            return;
+        }
+        let preview = match self.preview_preference() {
+            Some("html") => cx
                 .try_global::<crate::app::ReaderPreferences>()
-                .is_none_or(|prefs| {
-                    if self.geo_format().is_some() {
-                        prefs.markdown_preview
-                    } else {
-                        prefs.csv_preview
-                    }
-                })
-        {
+                .is_none_or(|prefs| prefs.html_preview),
+            Some("csv") => cx
+                .try_global::<crate::app::ReaderPreferences>()
+                .is_none_or(|prefs| prefs.csv_preview),
+            Some("json") => cx
+                .try_global::<crate::app::ReaderPreferences>()
+                .is_none_or(|prefs| prefs.json_preview),
+            Some("markdown") | None => cx
+                .try_global::<crate::app::ReaderPreferences>()
+                .is_none_or(|prefs| prefs.markdown_preview),
+            _ => true,
+        };
+        if preview {
             self.set_preview(true, cx);
         }
     }
     pub fn preview_preference(&self) -> Option<&'static str> {
         if matches!(&self.renderer, Renderer::Paged { html: Some(_), .. }) {
             return Some("html");
+        }
+        if self.is_json() {
+            return Some("json");
         }
         if self.is_csv() {
             return Some("csv");

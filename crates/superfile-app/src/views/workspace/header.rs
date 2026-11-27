@@ -233,11 +233,14 @@ impl Workspace {
         } else {
             reader.focus_source(window, cx);
         }
-        if let Some(kind) = preference {
+        if let Some(kind) = preference
+            && cx.try_global::<crate::app::ReaderPreferences>().is_some()
+        {
             let prefs = cx.global_mut::<crate::app::ReaderPreferences>();
             match kind {
                 "html" => prefs.html_preview = preview,
                 "csv" => prefs.csv_preview = preview,
+                "json" => prefs.json_preview = preview,
                 _ => prefs.markdown_preview = preview,
             }
             let previous = prefs.preview_save_task.take();

@@ -373,7 +373,7 @@ fn save_accent_color_in(db: &rusqlite::Connection, color: AccentColor) -> Result
 
 fn preview_key(kind: &str) -> Result<String> {
     anyhow::ensure!(
-        matches!(kind, "html" | "markdown" | "csv"),
+        matches!(kind, "html" | "markdown" | "csv" | "json"),
         "Unknown preview preference"
     );
     Ok(format!("{kind}-view"))
@@ -607,10 +607,10 @@ mod preview_mode_tests {
     use super::*;
 
     #[test]
-    fn preview_mode_defaults_to_preview_for_csv_html_and_markdown() {
+    fn preview_mode_defaults_to_preview_for_all_previewable_kinds() {
         let directory = tempfile::tempdir().unwrap();
         let db = storage::open_at(directory.path()).unwrap();
-        for kind in ["html", "markdown", "csv"] {
+        for kind in ["html", "markdown", "csv", "json"] {
             assert!(preview_mode_in(&db, kind).unwrap(), "{kind}");
             set_setting(&db, &preview_key(kind).unwrap(), "source").unwrap();
             assert!(!preview_mode_in(&db, kind).unwrap(), "{kind} source");

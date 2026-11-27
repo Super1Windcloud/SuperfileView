@@ -109,7 +109,7 @@ impl Reader {
             projection,
             renderer,
         };
-        reader.restore_csv_preview(cx);
+        reader.restore_default_preview(cx);
         reader
     }
     pub fn from_archive(document: superfile_services::archive::Archive, cx: &mut App) -> Self {
@@ -197,7 +197,7 @@ impl Reader {
             projection,
             renderer: Renderer::Paged { html, view, saving },
         };
-        reader.restore_csv_preview(cx);
+        reader.restore_default_preview(cx);
         reader
     }
     #[cfg(test)]

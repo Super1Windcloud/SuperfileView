@@ -354,7 +354,7 @@ mod tests {
                             [("menu.json", "{\"saved\":true}"), ("menu.txt", "Text")]
                         {
                             let path = std::env::temp_dir().join(name);
-                            let mut reader = Reader::new(
+                            let reader = Reader::new(
                                 Document {
                                     kind: DocumentKind::from_path(&path),
                                     path,
@@ -363,7 +363,6 @@ mod tests {
                                 window,
                                 cx,
                             );
-                            reader.set_preview(true, cx);
                             workspace.tabs.push(Tab::document(reader));
                         }
                         workspace.empty_home = false;
