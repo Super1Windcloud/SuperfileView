@@ -42,9 +42,16 @@ pub(super) struct SqliteReader {
 }
 impl SqliteReader {
     pub fn new(path: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self::with_images(path, None, window, cx)
+        Self::with_scheduler(
+            path,
+            None,
+            false,
+            crate::app::reader_jobs::shared_scheduler(),
+            window,
+            cx,
+        )
     }
-    pub fn with_images(
+    pub fn for_workbook(
         path: PathBuf,
         images_database: Option<PathBuf>,
         window: &mut Window,
@@ -53,6 +60,7 @@ impl SqliteReader {
         Self::with_scheduler(
             path,
             images_database,
+            true,
             crate::app::reader_jobs::shared_scheduler(),
             window,
             cx,
@@ -61,6 +69,7 @@ impl SqliteReader {
     fn with_scheduler(
         path: PathBuf,
         images_database: Option<PathBuf>,
+        workbook: bool,
         scheduler: Arc<Scheduler>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -73,6 +82,7 @@ impl SqliteReader {
                     column_window: limits::SQLITE_COLUMN_WINDOW,
                     text_page_bytes: limits::TEXT_PAGE_BYTES as usize,
                 },
+                workbook,
                 window,
                 cx,
             )
@@ -907,6 +917,7 @@ mod tests {
                     SqliteReader::with_scheduler(
                         path.to_path_buf(),
                         None,
+                        false,
                         Scheduler::from_policy(),
                         window,
                         cx,
@@ -1133,6 +1144,7 @@ mod tests {
                     SqliteReader::with_scheduler(
                         data_db.clone(),
                         Some(images_db.clone()),
+                        true,
                         Scheduler::from_policy(),
                         window,
                         cx,

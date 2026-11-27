@@ -73,6 +73,7 @@ pub(super) struct Detail {
 struct Grid {
     owner: WeakEntity<SqliteView>,
     columns: Vec<String>,
+    column_label: fn(&str) -> String,
     rows: TextRows,
     start: usize,
     offset: usize,
@@ -134,10 +135,13 @@ impl TableDelegate for Grid {
                 .fixed_left()
                 .movable(false)
         } else {
-            Column::new(index.to_string(), self.columns[index - 1].clone())
-                .width(px(220.))
-                .sortable()
-                .movable(false)
+            Column::new(
+                index.to_string(),
+                (self.column_label)(&self.columns[index - 1]),
+            )
+            .width(px(220.))
+            .sortable()
+            .movable(false)
         }
     }
     fn cell_text(&self, row: usize, col: usize, _: &App) -> String {
@@ -262,6 +266,7 @@ impl SqliteView {
     pub fn new(
         host: ReaderHost,
         policy: Policy,
+        workbook: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -271,6 +276,11 @@ impl SqliteView {
                 Grid {
                     owner,
                     columns: vec![],
+                    column_label: if workbook {
+                        host.translate
+                    } else {
+                        str::to_owned
+                    },
                     rows: Default::default(),
                     start: 0,
                     offset: 0,
@@ -749,6 +759,7 @@ mod tests {
                             column_window: 2,
                             text_page_bytes: 1024,
                         },
+                        false,
                         window,
                         cx,
                     );

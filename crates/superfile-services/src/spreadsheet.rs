@@ -377,16 +377,9 @@ fn worksheet_insert<'a>(
 ) -> Result<rusqlite::Statement<'a>> {
     let table = format!("{id}: {name}");
     let quoted = format!("\"{}\"", table.replace('"', "\"\""));
-    let fields = [
-        crate::locale::tr("Cell"),
-        crate::locale::tr("Value"),
-        crate::locale::tr("Formula"),
-    ]
-    .into_iter()
-    .map(|name| format!("\"{}\" TEXT", name.replace('"', "\"\"")))
-    .collect::<Vec<_>>()
-    .join(",");
-    output.execute_batch(&format!("CREATE TABLE {quoted} ({fields})"))?;
+    output.execute_batch(&format!(
+        "CREATE TABLE {quoted} (Cell TEXT, Value TEXT, Formula TEXT)"
+    ))?;
     Ok(output.prepare(&format!("INSERT INTO {quoted} VALUES (?1,?2,?3)"))?)
 }
 

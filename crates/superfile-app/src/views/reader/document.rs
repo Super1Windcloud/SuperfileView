@@ -287,7 +287,7 @@ impl DocumentReader {
         {
             let images_database = self.images_database.clone();
             self.table = Some(cx.new(|cx| {
-                super::sqlite::SqliteReader::with_images(path, images_database, window, cx)
+                super::sqlite::SqliteReader::for_workbook(path, images_database, window, cx)
             }));
         }
         if let Some(table) = &self.table {
