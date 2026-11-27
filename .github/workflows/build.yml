@@ -40,10 +40,6 @@ jobs:
         id: version
         run: python scripts/package/release.py version "$RELEASE_TAG"
 
-  compatibility:
-    needs: prepare
-    uses: ./.github/workflows/compatibility.yml
-
   build:
     name: Build (${{ matrix.platform_name }})
     needs: prepare
@@ -132,7 +128,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: [prepare, compatibility, build]
+    needs: [prepare, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
