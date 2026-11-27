@@ -12,6 +12,7 @@ use gpui_kit::{
     prelude::FluentBuilder,
     *,
 };
+use std::{ops::Range, sync::Arc};
 use superfile_core::search::SearchMatcher;
 use superfile_services::locale::tr;
 
@@ -21,6 +22,14 @@ actions!(reader_find, [NextMatch, PreviousMatch]);
 pub(super) enum Target {
     Editor(Entity<EditorState>),
     Preview(Entity<TextViewState>),
+    Group(PreviewGroup),
+}
+
+#[derive(Clone)]
+pub(super) struct PreviewGroup {
+    pub paragraphs: Arc<[(usize, Entity<TextViewState>)]>,
+    pub list: ListState,
+    pub focus: FocusHandle,
 }
 
 pub(super) struct FindBar {
@@ -35,6 +44,7 @@ pub(super) struct FindBar {
     error: bool,
     matcher: SearchMatcher,
     rendered: Option<RenderedText>,
+    group_rendered: Vec<(RenderedText, Range<usize>)>,
     pending: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
@@ -71,6 +81,20 @@ impl FindBar {
                     view.schedule(cx);
                 }
             })),
+            Target::Group(group) => {
+                for (index, (_, text)) in group.paragraphs.iter().enumerate() {
+                    subscriptions.push(cx.observe(text, move |view, text, cx| {
+                        if view.open
+                            && view
+                                .group_rendered
+                                .get(index)
+                                .is_none_or(|entry| entry.0 != text.read(cx).rendered_text())
+                        {
+                            view.schedule(cx);
+                        }
+                    }));
+                }
+            }
         }
         Self {
             target,
@@ -84,6 +108,7 @@ impl FindBar {
             error: false,
             matcher: SearchMatcher::new(),
             rendered: None,
+            group_rendered: Vec::new(),
             pending: None,
             _subscriptions: subscriptions,
         }
@@ -93,6 +118,12 @@ impl FindBar {
         let selected = match &self.target {
             Target::Editor(editor) => editor.read(cx).selected_text().to_string(),
             Target::Preview(text) => text.read(cx).selected_text(),
+            Target::Group(group) => group
+                .paragraphs
+                .iter()
+                .map(|(_, text)| text.read(cx).selected_text())
+                .find(|text| !text.is_empty())
+                .unwrap_or_default(),
         };
         self.open = true;
         self.replace = replace && self.replaceable(cx);
@@ -128,6 +159,12 @@ impl FindBar {
                 text.clear_range_highlights(cx);
                 text.focus_handle().focus(window, cx);
             }),
+            Target::Group(group) => {
+                for (_, text) in group.paragraphs.iter() {
+                    text.update(cx, |text, cx| text.clear_range_highlights(cx));
+                }
+                group.focus.focus(window, cx);
+            }
         }
         cx.notify();
     }
@@ -180,6 +217,27 @@ impl FindBar {
                 self.rendered = Some(rendered);
                 self.paint_preview(reveal, cx);
             }
+            Target::Group(group) => {
+                let mut document = String::new();
+                self.group_rendered = group
+                    .paragraphs
+                    .iter()
+                    .map(|(_, text)| {
+                        let rendered = text.read(cx).rendered_text();
+                        let start = document.len();
+                        document.push_str(rendered.as_str());
+                        let span = start..document.len();
+                        document.push('\n');
+                        (rendered, span)
+                    })
+                    .collect();
+                self.matcher.update(&document);
+                self.error = self
+                    .matcher
+                    .update_options(&query, self.case_sensitive, self.whole_word, self.regex)
+                    .is_err();
+                self.paint_group(group, reveal, cx);
+            }
         }
         cx.notify();
     }
@@ -207,6 +265,60 @@ impl FindBar {
         });
     }
 
+    fn paint_group(&self, group: &PreviewGroup, reveal: bool, cx: &mut Context<Self>) {
+        let ranges = self.matcher.matched_ranges();
+        let current = self.matcher.current();
+        let color = cx.theme().primary;
+        let mut revealed = false;
+        for ((item, text), (snapshot, span)) in group.paragraphs.iter().zip(&self.group_rendered) {
+            let first = ranges.partition_point(|range| range.end <= span.start);
+            let last = ranges.partition_point(|range| range.start < span.end);
+            let local_range = |range: &Range<usize>| {
+                range.start.max(span.start) - span.start..range.end.min(span.end) - span.start
+            };
+            text.update(cx, |text, cx| {
+                if &text.rendered_text() != snapshot {
+                    return;
+                }
+                if first >= last {
+                    text.clear_range_highlights(cx);
+                    return;
+                }
+                let _ = text.set_range_highlights(
+                    ranges[first..last]
+                        .iter()
+                        .enumerate()
+                        .map(|(offset, range)| {
+                            RangeHighlight::new(
+                                local_range(range),
+                                color.opacity(if Some(first + offset) == current {
+                                    0.42
+                                } else {
+                                    0.18
+                                }),
+                            )
+                        }),
+                    cx,
+                );
+                if reveal
+                    && !revealed
+                    && let Some(index) = current.filter(|index| (first..last).contains(index))
+                {
+                    revealed = true;
+                    if group.list.bounds_for_item(*item).is_some() {
+                        group.list.scroll_to_reveal_item(*item);
+                    } else {
+                        group.list.scroll_to(ListOffset {
+                            item_ix: *item,
+                            offset_in_item: px(0.),
+                        });
+                    }
+                    let _ = text.reveal_range(local_range(&ranges[index]), cx);
+                }
+            });
+        }
+    }
+
     fn step(&mut self, previous: bool, cx: &mut Context<Self>) {
         // Enter during the debounce searches the new query before navigating.
         if self.pending.is_some() {
@@ -228,13 +340,17 @@ impl FindBar {
                     });
                 }
             }
-            Target::Preview(_) => {
+            Target::Preview(_) | Target::Group(_) => {
                 if previous {
                     self.matcher.next_back();
                 } else {
                     self.matcher.next();
                 }
-                self.paint_preview(true, cx);
+                if let Target::Group(group) = &self.target {
+                    self.paint_group(group, true, cx);
+                } else {
+                    self.paint_preview(true, cx);
+                }
             }
         }
         cx.notify();
@@ -280,7 +396,7 @@ impl FindBar {
         superfile_services::telemetry::reader_feature(
             match &self.target {
                 Target::Editor(_) => "source",
-                Target::Preview(_) => "text_preview",
+                Target::Preview(_) | Target::Group(_) => "text_preview",
             },
             action,
             extra,

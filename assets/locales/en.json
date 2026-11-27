@@ -666,6 +666,8 @@
   "Choose an application for this file. Its default application will not change.": "Choose an application for this file. Its default application will not change.",
   "Open with Another App": "Open with Another App",
   "Reading View": "Reading View",
+  "Word formatting could not be loaded. Showing extracted text.": "Word formatting could not be loaded. Showing extracted text.",
+  "Image unavailable": "Image unavailable",
   "Original Layout": "Original Layout",
   "Reset zoom": "Reset zoom",
   "Reading view is unavailable. Use Original Layout.": "Reading view is unavailable. Use Original Layout.",

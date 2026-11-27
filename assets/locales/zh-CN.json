@@ -666,6 +666,8 @@
   "Choose an application for this file. Its default application will not change.": "选择用于打开此文件的应用，不会更改默认应用。",
   "Open with Another App": "用其他应用打开",
   "Reading View": "阅读模式",
+  "Word formatting could not be loaded. Showing extracted text.": "无法加载 Word 排版，当前显示提取的文本。",
+  "Image unavailable": "无法显示图片",
   "Original Layout": "原始版式",
   "Reset zoom": "重置缩放",
   "Reading view is unavailable. Use Original Layout.": "阅读模式暂不可用，请切换原始版式。",

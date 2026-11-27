@@ -168,13 +168,25 @@ fn office_pages_use_the_pdf_viewport_and_editor_palette() -> Result<()> {
     let mut word = lo_writer::WriterEditor::new("");
     word.push_heading(1, "Sample layout")
         .push_paragraph("Body and page layout");
+    let source = directory.path().join("sample.docx");
+    fs::write(&source, lo_writer::save_as(&word.document, "docx")?)?;
+    let PreparedDocument::Word(document) =
+        rich_documents::prepare(&source, &Cancellation::default())?
+    else {
+        panic!("expected continuous Word layout")
+    };
+    assert!(
+        document
+            .blocks
+            .iter()
+            .any(|block| matches!(block, rich_documents::docx::ir::Element::Heading(_)))
+    );
     let mut slides = lo_impress::ImpressBuilder::new("");
     slides
         .add_title_slide("First", "Opening")
         .add_diagram_slide("Second");
     let cancel = Cancellation::default();
     for (ext, bytes, count) in [
-        ("docx", lo_writer::save_as(&word.document, "docx")?, 1),
         ("odt", lo_writer::save_as(&word.document, "odt")?, 1),
         (
             "pptx",

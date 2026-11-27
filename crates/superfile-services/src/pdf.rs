@@ -5,6 +5,7 @@ use hayro::hayro_syntax::Pdf;
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use pdfcraft_render::{
     PageRenderer, ReadingColors, ReadingParams, RenderConfig, RenderRequest, device_pixels,
+    effective_scale,
 };
 use std::{
     path::Path,
@@ -95,6 +96,27 @@ impl PdfDocument {
         palette: Option<ReaderPalette>,
         cancel: &Cancellation,
     ) -> Result<PdfPage> {
+        self.render_page(index, palette, None, cancel)
+    }
+
+    /// Render the entire page for a viewport whose longer edge is in device pixels.
+    pub fn render_at_edge(
+        &self,
+        index: usize,
+        palette: Option<ReaderPalette>,
+        edge: u32,
+        cancel: &Cancellation,
+    ) -> Result<PdfPage> {
+        self.render_page(index, palette, Some(edge), cancel)
+    }
+
+    fn render_page(
+        &self,
+        index: usize,
+        palette: Option<ReaderPalette>,
+        edge: Option<u32>,
+        cancel: &Cancellation,
+    ) -> Result<PdfPage> {
         let reading = ReadingColors {
             params: palette.map(|colors| ReadingParams {
                 text: colors.ink,
@@ -112,13 +134,29 @@ impl PdfDocument {
             width.is_finite() && height.is_finite() && width > 0. && height > 0.,
             "Invalid PDF page dimensions"
         );
-        let scale = (crate::limits::IMAGE_PREVIEW_EDGE as f32 / width.max(height)).min(2.0);
-        let w = device_pixels(width, scale);
-        let h = device_pixels(height, scale);
-        let required = u64::from(w) * u64::from(h) * 16;
+        let longest = width.max(height);
+        let max_edge = crate::limits::IMAGE_PREVIEW_EDGE;
+        let default_scale = (max_edge as f32 / longest).min(2.0);
+        let scale = edge.map_or(default_scale, |edge| {
+            effective_scale(width, height, edge.clamp(1, max_edge) as f32 / longest)
+        });
+        let fallback = scale.min(default_scale);
+        let working_bytes = |scale| {
+            u64::from(device_pixels(width, scale)) * u64::from(device_pixels(height, scale)) * 16
+        };
+        let required = working_bytes(scale);
+        let minimum = working_bytes(fallback);
         let mut backend = self.backend.lock().unwrap_or_else(|e| e.into_inner());
         cancel.check()?;
-        let _memory = crate::resources::pool().reserve_working(required, required)?;
+        let mut memory = crate::resources::pool().reserve_working(minimum, required)?;
+        let scale = if memory.bytes() < required {
+            memory.shrink_to(minimum);
+            fallback
+        } else {
+            scale
+        };
+        let w = device_pixels(width, scale);
+        let h = device_pixels(height, scale);
         let png = match &mut *backend {
             Backend::Buffered {
                 renderer,
@@ -189,6 +227,29 @@ impl PdfDocument {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn viewport_raster_uses_device_pixels_in_both_backends() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/reader-contracts/reading-colors.pdf");
+        let cancel = Cancellation::default();
+        let doc = PdfDocument::open(&fixture, &cancel).unwrap();
+        let snapshot = Arc::new(MappedSnapshot::open(&fixture, &cancel).unwrap());
+        let mapped = PdfDocument {
+            sizes: doc.sizes.clone(),
+            backend: Mutex::new(Backend::Mapped(Pdf::new(snapshot).unwrap())),
+        };
+        let (width, height) = doc.sizes[0];
+        for edge in [512, 2304] {
+            let scale = edge as f32 / width.max(height);
+            let expected = (device_pixels(width, scale), device_pixels(height, scale));
+            for backend in [&doc, &mapped] {
+                let page = backend.render_at_edge(0, None, edge, &cancel).unwrap();
+                let image = image::load_from_memory(&page.png).unwrap();
+                assert_eq!((image.width(), image.height()), expected);
+            }
+        }
+    }
 
     #[test]
     fn switching_reading_colors_repaints_the_same_page_and_restores_original() {

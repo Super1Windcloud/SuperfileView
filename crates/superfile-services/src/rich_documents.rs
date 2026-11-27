@@ -1,4 +1,5 @@
 //! Portable document preparation. UI consumers receive pages or a retained workbook snapshot.
+pub mod docx;
 mod fixed_layout;
 pub(crate) use fixed_layout::zip_size as package_size;
 mod iwork_reader;
@@ -15,6 +16,7 @@ pub use tempfile::TempPath as DocumentPages;
 
 pub enum PreparedDocument {
     Text { page: paged::TextPage, html: bool },
+    Word(docx::WordDocument),
     Workbook(crate::spreadsheet::Spreadsheet),
     Pages(DocumentPages),
 }
@@ -61,6 +63,22 @@ pub fn prepare(path: &Path, cancel: &Cancellation) -> Result<PreparedDocument> {
             });
         }
         bail!("Workbook has no readable worksheets");
+    }
+    if extension == "docx" {
+        return match docx::prepare(path, cancel) {
+            Ok(document) => Ok(PreparedDocument::Word(document)),
+            Err(error) => {
+                cancel.check()?;
+                if !error.is::<crate::resources::WorkingPressure>()
+                    && let Ok(file) = fixed_layout::convert(path, &extension, cancel)
+                {
+                    return Ok(PreparedDocument::Pages(file));
+                }
+                cancel.check()?;
+                log::warn!("Word preview unavailable, reading document text: {error:#}");
+                extract_text(path, &extension, cancel)
+            }
+        };
     }
     if is_fixed_document_extension(&extension) {
         match fixed_layout::convert(path, &extension, cancel) {

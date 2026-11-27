@@ -1,4 +1,6 @@
 //! Documents rendered with the same GPUI components on every desktop platform.
+mod word;
+
 use crate::app::reader_jobs::{self, JobClass, Priority};
 use gpui_kit::{
     base::{TextView, TextViewState, TextViewStyle},
@@ -18,6 +20,7 @@ pub(super) struct DocumentReader {
     task: Option<Task<()>>,
     prepared: Option<PreparedDocument>,
     state: Option<Entity<TextViewState>>,
+    word: Option<word::WordView>,
     table: Option<Entity<super::sqlite::SqliteReader>>,
     pdf: Option<Entity<super::pdf::PdfReader>>,
     page_file: Option<rich_documents::DocumentPages>,
@@ -39,6 +42,7 @@ impl DocumentReader {
             task: None,
             prepared: None,
             state: None,
+            word: None,
             table: None,
             pdf: None,
             page_file: None,
@@ -118,7 +122,7 @@ impl DocumentReader {
         self.folder.then_some(self.shuffle)
     }
     pub fn can_find(&self) -> bool {
-        self.state.is_some() && (self.pdf.is_none() || self.reading_text)
+        self.word.is_some() || (self.state.is_some() && (self.pdf.is_none() || self.reading_text))
     }
     pub(super) fn can_move_to_window(&self, _cx: &App) -> bool {
         self.task.is_none()
@@ -127,6 +131,12 @@ impl DocumentReader {
         self.task = None;
     }
     pub(super) fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
+        if let Some(word) = &self.word {
+            if !active {
+                word.suspend(cx);
+            }
+            return;
+        }
         if let Some(pdf) = &self.pdf
             && !self.reading_text
         {
@@ -146,6 +156,7 @@ impl DocumentReader {
         if self.task.is_some()
             || self.prepared.is_some()
             || self.state.is_some()
+            || self.word.is_some()
             || self.database.is_some()
         {
             return;
@@ -173,6 +184,9 @@ impl DocumentReader {
             let _ = view.update(cx, |view, cx| {
                 view.task = None;
                 match result {
+                    Ok(PreparedDocument::Word(document)) => {
+                        view.word = Some(word::WordView::new(document, cx));
+                    }
                     Ok(PreparedDocument::Pages(path)) => {
                         view.pdf =
                             Some(cx.new(|cx| super::pdf::PdfReader::new(path.to_path_buf(), cx)));
@@ -234,12 +248,19 @@ impl DocumentReader {
         }));
     }
     pub(super) fn show_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.find.is_none()
-            && let Some(state) = self.state.clone()
-        {
-            self.find = Some(cx.new(|cx| {
-                super::find::FindBar::new(super::find::Target::Preview(state), window, cx)
-            }));
+        if self.find.is_none() {
+            let target = self
+                .word
+                .as_ref()
+                .map(word::WordView::search_target)
+                .or_else(|| self.state.clone().map(super::find::Target::Preview));
+            if let Some(target) = target {
+                let find = cx.new(|cx| super::find::FindBar::new(target, window, cx));
+                if self.word.is_some() {
+                    cx.observe(&find, |_, _, cx| cx.notify()).detach();
+                }
+                self.find = Some(find);
+            }
         }
         if let Some(find) = &self.find {
             find.update(cx, |find, cx| find.show(false, window, cx));
@@ -248,6 +269,14 @@ impl DocumentReader {
 }
 impl DocumentReader {
     fn render_content(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        if let Some(word) = &self.word {
+            return v_flex()
+                .size_full()
+                .min_h_0()
+                .children(self.find.clone())
+                .child(div().flex_1().min_h_0().w_full().child(word.render(cx)))
+                .into_any_element();
+        }
         if let Some(pdf) = &self.pdf
             && !self.reading_text
         {
@@ -347,6 +376,41 @@ impl DocumentReader {
 impl Render for DocumentReader {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let content = self.render_content(window, cx);
+        if matches!(self.prepared, Some(PreparedDocument::Text { .. }))
+            && self
+                .path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("docx"))
+        {
+            return v_flex()
+                .size_full()
+                .min_h_0()
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .px_3()
+                        .py_1()
+                        .text_sm()
+                        .child(superfile_services::locale::tr(
+                            "Word formatting could not be loaded. Showing extracted text.",
+                        ))
+                        .child(
+                            Button::new("retry-word-layout")
+                                .label(superfile_services::locale::tr("Retry"))
+                                .on_click(cx.listener(|view, _, _, cx| {
+                                    view.prepared = None;
+                                    view.state = None;
+                                    view.find = None;
+                                    view.history.clear();
+                                    view._subscription = None;
+                                    view.open(cx);
+                                    cx.notify();
+                                })),
+                        ),
+                )
+                .child(div().flex_1().min_h_0().child(content))
+                .into_any_element();
+        }
         if self.page_file.is_none() || !rich_documents::has_text_view(&self.path) {
             return content;
         }

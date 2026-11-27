@@ -189,7 +189,7 @@ pub fn from_data_uri(value: &str, cancel: &Cancellation) -> Result<crate::media:
     crate::media::decode_png(&png, cancel)
 }
 
-fn thumbnail_png_from_bytes(
+pub(crate) fn thumbnail_png_from_bytes(
     bytes: &[u8],
     max_edge: u32,
     cancel: &Cancellation,

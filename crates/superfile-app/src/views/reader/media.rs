@@ -161,6 +161,7 @@ pub(super) struct PreparedImage {
     scene: Option<Arc<GeneratedScene>>,
     palette: Option<ReaderPalette>,
     encoded: Arc<Image>,
+    embedded: bool,
     encoded_memory: superfile_services::resources::ResourceLease,
     frame: Option<ManagedFrame>,
     task: Option<Task<()>>,
@@ -169,6 +170,11 @@ pub(super) struct PreparedImage {
 impl PreparedImage {
     pub fn new(bytes: Vec<u8>, cx: &mut Context<Self>) -> Self {
         Self::with_scene(bytes, None, cx)
+    }
+    pub(super) fn embedded(bytes: Vec<u8>, cx: &mut Context<Self>) -> Self {
+        let mut image = Self::new(bytes, cx);
+        image.embedded = true;
+        image
     }
     fn with_scene(bytes: Vec<u8>, scene: Option<GeneratedScene>, cx: &mut Context<Self>) -> Self {
         cx.on_release(|view, cx| view.suspend(cx)).detach();
@@ -181,6 +187,7 @@ impl PreparedImage {
             scene: scene.map(Arc::new),
             palette: None,
             encoded: Arc::new(Image::from_bytes(ImageFormat::Png, bytes)),
+            embedded: false,
             frame: None,
             task: None,
             error: None,
@@ -222,6 +229,7 @@ impl PreparedImage {
         }
         let scene = self.scene.clone();
         let encoded = self.encoded.clone();
+        let embedded = self.embedded;
         let input_memory = self.encoded_memory.clone();
         let (cancel, guard) = superfile_services::work::Cancellation::task();
         let work = reader_jobs::run(
@@ -239,6 +247,9 @@ impl PreparedImage {
                         reader_limits::IMAGE_DECODED_BYTES,
                     )?;
                     superfile_services::media::decode_png(&png, cancel).map(ManagedFrame::new)
+                } else if embedded {
+                    superfile_services::rich_documents::docx::image_preview(encoded.bytes(), cancel)
+                        .map(ManagedFrame::new)
                 } else {
                     superfile_services::media::decode_png(encoded.bytes(), cancel)
                         .map(ManagedFrame::new)

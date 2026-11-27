@@ -1,11 +1,15 @@
 use crate::app::reader_jobs::{self, JobClass, Priority};
 use gpui_kit::{
     component::{button::Button, h_flex, scroll::Scrollbar, v_flex},
+    prelude::FluentBuilder,
     *,
 };
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use superfile_core::reader_palette::ReaderPalette;
 use superfile_services::{locale::tr, pdf::PdfDocument, work::Cancellation};
+
+const PAGE_MARGIN_X: Pixels = px(16.);
+const PAGE_MARGIN_Y: Pixels = px(8.);
 
 enum Page {
     Loading { _task: Task<()> },
@@ -19,7 +23,9 @@ pub(super) struct PdfReader {
     opening: Option<Task<()>>,
     error: Option<String>,
     list: ListState,
-    pages: BTreeMap<usize, Page>,
+    pages: BTreeMap<usize, (u32, Page)>,
+    viewport: Size<Pixels>,
+    fit_page: bool,
     active: bool,
     follow_theme: bool,
     palette: Option<ReaderPalette>,
@@ -39,6 +45,8 @@ impl PdfReader {
             error: None,
             list,
             pages: BTreeMap::new(),
+            viewport: size(px(0.), px(0.)),
+            fit_page: false,
             active: true,
             follow_theme: true,
             palette: None,
@@ -76,7 +84,13 @@ impl PdfReader {
         cx.notify();
     }
 
-    fn request(&mut self, index: usize, document: Arc<PdfDocument>, cx: &mut Context<Self>) {
+    fn request(
+        &mut self,
+        index: usize,
+        edge: u32,
+        document: Arc<PdfDocument>,
+        cx: &mut Context<Self>,
+    ) {
         let palette = self.palette;
         let (cancel, guard) = Cancellation::task();
         let work = reader_jobs::run(
@@ -84,13 +98,15 @@ impl PdfReader {
             JobClass::Projection,
             Priority::Viewport,
             cancel,
-            move |cancel| document.render_with_palette(index, palette, cancel),
+            move |cancel| document.render_at_edge(index, palette, edge, cancel),
         );
         let task = cx.spawn(async move |view, cx| {
             let _guard = guard;
             let result = work.await;
             let _ = view.update(cx, |view, cx| {
-                if palette != view.palette {
+                if palette != view.palette
+                    || !matches!(view.pages.get(&index), Some((target, Page::Loading { .. })) if *target == edge)
+                {
                     return;
                 }
                 let page = match result {
@@ -99,27 +115,46 @@ impl PdfReader {
                     }
                     Err(error) => Page::Failed(format!("{error:#}")),
                 };
-                view.pages.insert(index, page);
+                view.pages.insert(index, (edge, page));
                 cx.notify();
             });
         });
-        self.pages.insert(index, Page::Loading { _task: task });
+        self.pages
+            .insert(index, (edge, Page::Loading { _task: task }));
     }
 
-    fn row(&mut self, index: usize, _: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn row(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let Some(doc) = self.document.clone() else {
             return div().into_any_element();
         };
         let ratio = doc.page_ratio(index).unwrap_or(0.75);
-        if self.active && !self.pages.contains_key(&index) {
-            self.request(index, doc, cx);
+        let available_width = (self.viewport.width - PAGE_MARGIN_X * 2.).max(px(1.));
+        let available_height = (self.viewport.height - PAGE_MARGIN_Y * 2.).max(px(1.));
+        let width = if self.fit_page {
+            available_width.min(available_height * ratio)
+        } else {
+            available_width
+        };
+        let height = width / ratio;
+        let device_edge = f32::from(width.max(height)) * window.scale_factor();
+        // Round up by a small step so adjacent sizes share a raster during resize.
+        let edge = ((device_edge / 128.).ceil() * 128.) as u32;
+        let edge = edge.clamp(1, superfile_services::limits::IMAGE_PREVIEW_EDGE);
+        if self.active
+            && self
+                .pages
+                .get(&index)
+                .is_none_or(|(target, _)| *target != edge)
+        {
+            self.request(index, edge, doc, cx);
         }
         let mut paper = div()
             .id(("pdf-page", index))
             .relative()
-            .w_full()
-            .aspect_ratio(ratio);
-        match self.pages.get(&index) {
+            .w(width)
+            .h(height)
+            .flex_none();
+        match self.pages.get(&index).map(|(_, page)| page) {
             Some(Page::Ready(image)) => {
                 let source = super::media::PreparedImage::source(image);
                 let detail = source.clone();
@@ -157,7 +192,13 @@ impl PdfReader {
             }
             _ => paper = paper.child(div().absolute().inset_0().child(super::preview_loading(cx))),
         }
-        div().w_full().px_4().py_2().child(paper).into_any_element()
+        h_flex()
+            .w_full()
+            .py(PAGE_MARGIN_Y)
+            .justify_center()
+            .when(self.fit_page, |row| row.min_h(self.viewport.height))
+            .child(paper)
+            .into_any_element()
     }
 
     fn current(&self) -> usize {
@@ -209,7 +250,7 @@ impl Render for PdfReader {
                             .bounds_for_item(index - 1)
                             .is_some_and(|bounds| bounds.top() <= bottom))
             });
-            let mut toolbar = h_flex().gap_3().p_2();
+            let mut toolbar = h_flex().flex_wrap().gap_3().p_2();
             if current > 0 {
                 toolbar = toolbar.child(
                     Button::new("pdf-previous")
@@ -228,6 +269,20 @@ impl Render for PdfReader {
                 ));
             }
             toolbar = toolbar.child(
+                Button::new("pdf-fit")
+                    .label(if self.fit_page {
+                        tr("Fit width")
+                    } else {
+                        tr("Fit page")
+                    })
+                    .on_click(cx.listener(|view, _, _, cx| {
+                        let current = view.current();
+                        view.fit_page = !view.fit_page;
+                        view.list.remeasure();
+                        view.jump(current, cx);
+                    })),
+            );
+            toolbar = toolbar.child(
                 Button::new("pdf-reading-colors")
                     .label(if self.follow_theme {
                         tr("Show original colors")
@@ -239,6 +294,7 @@ impl Render for PdfReader {
                         cx.notify();
                     })),
             );
+            let reader = cx.entity().downgrade();
             body = body
                 .child(
                     div()
@@ -246,6 +302,27 @@ impl Render for PdfReader {
                         .w_full()
                         .flex_1()
                         .min_h_0()
+                        // Capture the reader pane after layout, before the list measures its pages.
+                        .child(
+                            canvas(
+                                move |bounds, _, cx| {
+                                    let _ = reader.update(cx, |view, _| {
+                                        if view.viewport != bounds.size {
+                                            if view.viewport.width != bounds.size.width
+                                                || view.fit_page
+                                            {
+                                                view.list.remeasure();
+                                            }
+                                            view.viewport = bounds.size;
+                                        }
+                                    });
+                                },
+                                |_, (), _, _| {},
+                            )
+                            .absolute()
+                            .inset_0()
+                            .size_full(),
+                        )
                         .child(list(self.list.clone(), cx.processor(Self::row)).size_full())
                         .child(Scrollbar::vertical(&self.list)),
                 )
@@ -343,7 +420,7 @@ mod tests {
             use gpui_kit::component::{Theme, ThemeMode};
             assert!(matches!(
                 reader.read(cx).pages.get(&0),
-                Some(Page::Ready(_))
+                Some((_, Page::Ready(_)))
             ));
             Theme::change(ThemeMode::Dark, None, cx);
             window.render_frame(cx);
@@ -352,6 +429,7 @@ mod tests {
             window.click("pdf-reading-colors", cx);
             window.render_frame(cx);
             assert!(reader.read(cx).palette.is_none());
+
             window.click("pdf-reading-colors", cx);
             window.render_frame(cx);
             assert!(reader.read(cx).palette.is_some());
@@ -374,6 +452,24 @@ mod tests {
             window.click("pdf-reading-colors", cx);
             window.render_frame(cx);
             assert!(reader.read(cx).palette.is_none());
+
+            let width_edge = reader.read(cx).pages.get(&0).unwrap().0;
+            window.click("pdf-fit", cx);
+            window.render_frame(cx);
+            let view = reader.read(cx);
+            assert_eq!(view.current(), 0);
+            assert!(view.fit_page);
+            assert!(view.pages.get(&0).unwrap().0 < width_edge);
+            for page in 1..view.page_count() {
+                window.click("pdf-next", cx);
+                window.render_frame(cx);
+                let view = reader.read(cx);
+                let viewport = view.list.viewport_bounds();
+                let row = view.list.bounds_for_item(page).unwrap();
+                assert_eq!(view.current(), page);
+                assert!(row.top() >= viewport.top());
+                assert!(row.bottom() <= viewport.bottom());
+            }
         })
         .unwrap();
     }
