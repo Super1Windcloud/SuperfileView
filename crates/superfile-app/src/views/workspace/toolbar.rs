@@ -86,11 +86,7 @@ impl Workspace {
         forward.enabled = self
             .history_cursor
             .is_some_and(|i| i + 1 < self.history.len());
-        h_flex()
-            .h(px(28.))
-            .items_center()
-            .gap_1()
-            .flex_shrink_0()
+        super::header::title_bar_control(h_flex().h(px(28.)).items_center().gap_1().flex_shrink_0())
             .child(self.toolbar_button(ToolbarItem::new(ToolbarAction::Sidebar), cx))
             .child(self.toolbar_button(back, cx))
             .child(self.toolbar_button(forward, cx))
@@ -137,7 +133,7 @@ impl Workspace {
                 toolbar = toolbar.child(self.toolbar_button(item, cx));
             }
         }
-        toolbar
+        super::header::title_bar_control(toolbar)
             .children(self.share_file_button(cx))
             .child(self.application_menu(cx))
             .into_any_element()
@@ -940,5 +936,80 @@ mod tests {
             }
         }
         assert_eq!(calls.borrow().len(), 8);
+    }
+
+    #[gpui_kit::test]
+    fn title_bar_controls_consume_press_and_toggle_sidebar_with_pointer_drift(
+        cx: &mut TestAppContext,
+    ) {
+        let (handle, view) = open(cx);
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            let initial = view.read(cx).sidebar_visible;
+
+            for expected in [!initial, initial] {
+                let bounds = window.find("toggle-sidebar").bounds();
+                let center = bounds.center();
+                let shifted = center + gpui_kit::point(px(2.), px(2.));
+                assert!(bounds.contains(&shifted));
+
+                window.dispatch_event(
+                    gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                        position: center,
+                        pressed_button: None,
+                        modifiers: gpui_kit::Modifiers::default(),
+                    }),
+                    cx,
+                );
+                let down = window.dispatch_event(
+                    gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+                        button: gpui_kit::MouseButton::Left,
+                        position: center,
+                        modifiers: gpui_kit::Modifiers::default(),
+                        click_count: 1,
+                        first_mouse: false,
+                    }),
+                    cx,
+                );
+                // Stopping propagation prevents Windows DefWindowProc(HTCAPTION) and TitleBar
+                // drag tracking from stealing the click.
+                assert!(!down.propagate);
+
+                window.dispatch_event(
+                    gpui_kit::PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                        position: shifted,
+                        pressed_button: Some(gpui_kit::MouseButton::Left),
+                        modifiers: gpui_kit::Modifiers::default(),
+                    }),
+                    cx,
+                );
+                window.dispatch_event(
+                    gpui_kit::PlatformInput::MouseUp(gpui_kit::MouseUpEvent {
+                        button: gpui_kit::MouseButton::Left,
+                        position: shifted,
+                        modifiers: gpui_kit::Modifiers::default(),
+                        click_count: 1,
+                    }),
+                    cx,
+                );
+                window.render_frame(cx);
+                assert_eq!(view.read(cx).sidebar_visible, expected);
+            }
+
+            // Empty title bar space remains draggable.
+            let empty = gpui_kit::point(px(220.), px(20.));
+            let down = window.dispatch_event(
+                gpui_kit::PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+                    button: gpui_kit::MouseButton::Left,
+                    position: empty,
+                    modifiers: gpui_kit::Modifiers::default(),
+                    click_count: 1,
+                    first_mouse: false,
+                }),
+                cx,
+            );
+            assert!(down.propagate);
+        })
+        .unwrap();
     }
 }

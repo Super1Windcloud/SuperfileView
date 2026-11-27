@@ -292,10 +292,7 @@ impl Workspace {
                 cx,
             );
         }
-        let search = h_flex()
-            .relative()
-            .w(relative(0.34))
-            .max_w(px(360.))
+        let search = title_bar_control(h_flex().relative().w(relative(0.34)).max_w(px(360.)))
             .child(
                 Input::new(&self.search)
                     .small()
@@ -479,13 +476,15 @@ impl Workspace {
                             .child(self.workspace_toolbar(cx))
                             .when(self.saving.is_some() && self.save_cancel.is_some(), |row| {
                                 row.child(
-                                    Button::new("cancel-file-save")
-                                        .ghost()
-                                        .small()
-                                        .label(superfile_services::locale::tr("Cancel save"))
-                                        .on_click(
-                                            cx.listener(|view, _, _, cx| view.cancel_save(cx)),
-                                        ),
+                                    title_bar_control(div().flex_shrink_0()).child(
+                                        Button::new("cancel-file-save")
+                                            .ghost()
+                                            .small()
+                                            .label(superfile_services::locale::tr("Cancel save"))
+                                            .on_click(
+                                                cx.listener(|view, _, _, cx| view.cancel_save(cx)),
+                                            ),
+                                    ),
                                 )
                             }),
                     ),
@@ -493,6 +492,14 @@ impl Workspace {
             ))
             .into_any_element()
     }
+}
+
+/// Prevent parent `TitleBar` drag hitboxes (`HTCAPTION` on Windows) and
+/// mouse-move drag initiation from intercepting clicks on interactive controls.
+pub(super) fn title_bar_control(element: Div) -> Div {
+    element
+        .occlude()
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
 
 fn workspace_title_bar(content: impl IntoElement, cx: &App) -> AnyElement {
