@@ -8666,7 +8666,7 @@ dependencies = [
 
 [[package]]
 name = "superfile"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "arboard",
@@ -8699,7 +8699,7 @@ dependencies = [
 
 [[package]]
 name = "superfile-core"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "regex",
  "serde",
@@ -8707,7 +8707,7 @@ dependencies = [
 
 [[package]]
 name = "superfile-services"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "ar",
