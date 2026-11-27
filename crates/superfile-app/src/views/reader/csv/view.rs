@@ -8,6 +8,7 @@ use gpui_kit::{
     component::{ActiveTheme, Disableable, button::Button, h_flex, scroll::Scrollbar, v_flex},
     *,
 };
+use std::collections::HashMap;
 use superfile_core::table::TablePage;
 
 #[derive(Clone, Copy)]
@@ -25,6 +26,8 @@ pub(super) struct TableView {
     columns_limit: usize,
     cell_chars: usize,
     pub(super) page: TablePage,
+    image_urls: HashMap<String, url::Url>,
+    images: HashMap<String, Entity<super::super::media::InlineImageReader>>,
     format: &'static str,
     row_start: usize,
     column_start: usize,
@@ -50,6 +53,8 @@ impl TableView {
             columns_limit,
             cell_chars,
             page: TablePage::default(),
+            image_urls: HashMap::new(),
+            images: HashMap::new(),
             format: "CSV",
             row_start: 0,
             column_start: 0,
@@ -82,11 +87,15 @@ impl TableView {
         self.column_start = column;
         self.has_previous = has_previous;
         self.page = TablePage::default();
+        self.image_urls.clear();
+        self.images.clear();
         self.error = None;
         self.busy = true;
     }
-    pub fn publish(&mut self, page: TablePage) {
+    pub fn publish(&mut self, page: TablePage, image_urls: HashMap<String, url::Url>) {
         self.page = page;
+        self.image_urls = image_urls;
+        self.images.clear();
         self.busy = false;
         self.scroll = UniformListScrollHandle::new();
         if let Some((vertical, horizontal)) = self.resume_scroll.take() {
@@ -95,6 +104,28 @@ impl TableView {
         } else {
             self.horizontal_scroll.set_offset(point(px(0.), px(0.)));
         }
+    }
+    pub fn clear_images(&mut self, cx: &mut App) {
+        for (_, image) in self.images.drain() {
+            image.update(cx, |image, cx| image.set_active(false, cx));
+        }
+    }
+    fn ensure_image(
+        &mut self,
+        url: &url::Url,
+        cx: &mut Context<Self>,
+    ) -> Entity<super::super::media::InlineImageReader> {
+        if let Some(existing) = self.images.get(url.as_str()) {
+            return existing.clone();
+        }
+        let target = url.clone();
+        let entity = cx.new(|cx| {
+            let mut reader = super::super::media::InlineImageReader::new(target, cx);
+            reader.set_active(true, cx);
+            reader
+        });
+        self.images.insert(url.as_str().to_owned(), entity.clone());
+        entity
     }
     pub fn fail(&mut self, error: String) {
         self.busy = false;
@@ -108,6 +139,7 @@ impl TableView {
             ));
         }
         self.page = TablePage::default();
+        self.images.clear();
         self.busy = false;
     }
     fn request(&self, request: TableRequest, cx: &mut Context<Self>) {
@@ -195,11 +227,12 @@ impl Render for TableView {
 
             .child(div().id("csv-horizontal").flex_1().min_h_0().overflow_x_scroll().track_scroll(&self.horizontal_scroll).child(
                 v_flex().w(width).h_full().text_size(font_size)
-                    .child(h_flex().h(row_height).child(div().w(row_width).child((self.host.translate)("Row")))
+                    .child(h_flex().h(row_height).child(div().w(row_width).flex_shrink_0().px_2().child((self.host.translate)("Row")))
                         .children((0..columns).map(|column| div().w(cell_width).px_3().child(if geographic {
                             (self.host.translate)(match column { 0 => "Longitude", 1 => "Latitude", _ => "Altitude" })
                         } else { (self.column_start + column + 1).to_string() }))))
                     .child(uniform_list("csv-rows", self.page.rows.len() + 3, cx.processor(move |view, range: std::ops::Range<usize>, _, cx| {
+                        let thumb_size = (row_height - px(6.)).max(px(16.));
                         range.map(|row| {
                             if row >= view.page.rows.len() { return div().h(row_height).into_any_element(); }
                             h_flex().h(row_height).w_full().overflow_hidden().border_b_1().border_color(cx.theme().border)
@@ -207,15 +240,43 @@ impl Render for TableView {
                                     .child((view.row_start + row + 1).to_string()))
                                 .children((0..columns).map(|column| {
                                     let value = view.page.rows[row].get(column).map(String::as_str).unwrap_or("");
+                                    let preview = value.chars().take(view.cell_chars)
+                                        .map(|ch| if matches!(ch, '\n' | '\r' | '\t' | '\u{0085}' | '\u{2028}' | '\u{2029}') { ' ' } else { ch })
+                                        .collect::<String>();
+                                    let image_url = view.image_urls.get(value).cloned();
+                                    let body = if let Some(url) = image_url {
+                                        let image = view.ensure_image(&url, cx);
+                                        let source = super::super::media::inline_image_source(image);
+                                        let detail = source.clone();
+                                        h_flex()
+                                            .gap_2()
+                                            .w_full()
+                                            .min_w_0()
+                                            .items_center()
+                                            .child(
+                                                div()
+                                                    .id(("csv-cell-image", row * columns + column))
+                                                    .w(thumb_size)
+                                                    .h(thumb_size)
+                                                    .flex_shrink_0()
+                                                    .rounded(px(4.))
+                                                    .overflow_hidden()
+                                                    .bg(cx.theme().muted.opacity(0.35))
+                                                    .cursor_pointer()
+                                                    .on_click(move |_, window, cx| {
+                                                        cx.stop_propagation();
+                                                        super::super::image_detail::show(detail.clone(), window, cx);
+                                                    })
+                                                    .child(img(source).size_full().object_fit(ObjectFit::Contain)),
+                                            )
+                                            .child(div().flex_1().min_w_0().truncate().child(preview))
+                                            .into_any_element()
+                                    } else {
+                                        div().w_full().min_w_0().truncate().child(preview).into_any_element()
+                                    };
                                     let cell = div().id(("csv-cell", row * columns + column)).w(cell_width).h_full().flex_shrink_0().px_3()
                                         .flex().items_center().overflow_hidden()
-                                        .child(div().w_full().min_w_0().truncate().child(
-                                            // Hard line breaks are not suppressed by nowrap.
-                                            // Flatten only the visible excerpt; show_cell keeps the original value.
-                                            value.chars().take(view.cell_chars)
-                                                .map(|ch| if matches!(ch, '\n' | '\r' | '\t' | '\u{0085}' | '\u{2028}' | '\u{2029}') { ' ' } else { ch })
-                                                .collect::<String>()
-                                        ))
+                                        .child(body)
                                         .on_double_click(cx.listener(move |view, _, window, cx| view.show_cell(row, column, window, cx)));
                                     #[cfg(test)]
                                     let cell = cell.test_support();
@@ -291,7 +352,7 @@ mod tests {
         let original = page.rows[1][2].as_ptr();
         let bytes = pool.snapshot().working_bytes;
         view.begin("CSV", 120, 4, true);
-        view.publish(page);
+        view.publish(page, Default::default());
         assert_eq!(view.page.rows[1][2].as_ptr(), original);
         assert_eq!(view.page.rows[1][2], "line 1\nline 2 \"yes\"");
         assert_eq!(view.page.rows[2], ["short"]);
@@ -311,10 +372,59 @@ mod tests {
         view.fail("retry".into());
         assert!(view.page.rows.is_empty());
         view.begin("CSV", 120, 4, true);
-        view.publish(contract_page(&pool));
+        view.publish(contract_page(&pool), Default::default());
         assert_eq!(view.scroll.0.borrow().base_handle.offset(), vertical);
         assert_eq!(view.horizontal_scroll.offset(), horizontal);
         drop(view);
         assert_eq!(pool.snapshot().working_bytes, 0);
+    }
+
+    #[gpui_kit::test]
+    fn table_view_renders_cell_image_thumbnails(cx: &mut gpui_kit::TestAppContext) {
+        use gpui_kit::{AppContext, WindowOptions, test::TestWindowExt};
+        use std::collections::HashMap;
+        use superfile_core::resources::{ResourcePool, TextRowsBuilder};
+
+        cx.update(gpui_kit::init);
+        let data_uri = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+        let image_url = url::Url::parse(data_uri).unwrap();
+        let pool = ResourcePool::with_budgets(0, 16 * 1024);
+        let mut rows = TextRowsBuilder::new(&pool);
+        rows.try_push(["item", data_uri].into_iter()).unwrap();
+        let page = TablePage {
+            rows: rows.finish(),
+            columns: 2,
+            more: false,
+        };
+        let mut image_urls = HashMap::new();
+        image_urls.insert(data_uri.to_owned(), image_url);
+
+        let (handle, view) = cx.update(|cx| {
+            gpui_kit::open_window(WindowOptions::default(), cx, |_, cx| {
+                cx.new(|_| {
+                    let host = ReaderHost {
+                        translate: str::to_owned,
+                        action: |_, _, _| {},
+                        font_size: |size, _| size,
+                        resources: pool.clone(),
+                    };
+                    let mut view = TableView::new(host, 10, 64, |_, _, _, _| {});
+                    view.begin("CSV", 0, 0, false);
+                    view.publish(page, image_urls);
+                    view
+                })
+            })
+            .unwrap()
+        });
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+        })
+        .unwrap();
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert_eq!(view.read(cx).images.len(), 1);
+            view.update(cx, |view, cx| view.clear_images(cx));
+            assert!(view.read(cx).images.is_empty());
+        });
     }
 }

@@ -83,6 +83,9 @@ impl Reader {
             ))
         };
         let projection = Projection::new(&presentation, None, cx);
+        if let Some(projection) = &projection {
+            projection.set_base_dir(document.path.parent(), cx);
+        }
         let structured_controls = presentation.structured.then(|| {
             let editor = match &renderer {
                 Renderer::Source(source) => Some(source.edit.editor().clone()),

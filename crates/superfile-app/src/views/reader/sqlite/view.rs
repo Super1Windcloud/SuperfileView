@@ -15,7 +15,11 @@ use gpui_kit::{
     prelude::FluentBuilder,
     *,
 };
-use std::{ops::Range, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::Range,
+    sync::Arc,
+};
 use superfile_core::{resources::TextRows, table::SqlitePage};
 
 #[derive(Clone, Copy)]
@@ -74,6 +78,47 @@ struct Grid {
     offset: usize,
     busy: bool,
     column_window: usize,
+    cell_images: HashMap<(usize, usize), url::Url>,
+    images: HashMap<String, Entity<super::super::media::InlineImageReader>>,
+}
+impl Grid {
+    fn ensure_image(
+        &mut self,
+        url: &url::Url,
+        cx: &mut Context<TableState<Self>>,
+    ) -> Entity<super::super::media::InlineImageReader> {
+        if let Some(existing) = self.images.get(url.as_str()) {
+            return existing.clone();
+        }
+        let target = url.clone();
+        let entity = cx.new(|cx| {
+            let mut reader = super::super::media::InlineImageReader::new(target, cx);
+            reader.set_active(true, cx);
+            reader
+        });
+        self.images.insert(url.as_str().to_owned(), entity.clone());
+        entity
+    }
+    fn retain_images(
+        &mut self,
+        cell_images: &HashMap<(usize, usize), url::Url>,
+    ) -> Vec<Entity<super::super::media::InlineImageReader>> {
+        let keep: HashSet<&str> = cell_images.values().map(url::Url::as_str).collect();
+        let mut evicted = Vec::new();
+        self.images.retain(|key, image| {
+            if keep.contains(key.as_str()) {
+                true
+            } else {
+                evicted.push(image.clone());
+                false
+            }
+        });
+        evicted
+    }
+    fn take_images(&mut self) -> Vec<Entity<super::super::media::InlineImageReader>> {
+        self.cell_images.clear();
+        self.images.drain().map(|(_, image)| image).collect()
+    }
 }
 impl TableDelegate for Grid {
     fn columns_count(&self, _: &App) -> usize {
@@ -112,7 +157,7 @@ impl TableDelegate for Grid {
         row: usize,
         col: usize,
         _: &mut Window,
-        _: &mut Context<TableState<Self>>,
+        cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
         let value = if col == 0 {
             (self.offset + row + 1).to_string()
@@ -122,9 +167,41 @@ impl TableDelegate for Grid {
                 .cloned()
                 .unwrap_or_else(|| "…".into())
         };
-        div()
-            .truncate()
-            .child(value.replace(['\r', '\n', '\t'], " "))
+        let preview = value.replace(['\r', '\n', '\t'], " ");
+        if let Some(full_col) = col.checked_sub(1)
+            && let Some(url) = self.cell_images.get(&(row, full_col)).cloned()
+        {
+            let image = self.ensure_image(&url, cx);
+            let source = super::super::media::inline_image_source(image);
+            let detail = source.clone();
+            let thumb_id = row
+                .saturating_mul(self.columns.len().max(1))
+                .saturating_add(col);
+            return h_flex()
+                .gap_2()
+                .w_full()
+                .min_w_0()
+                .items_center()
+                .child(
+                    div()
+                        .id(("sqlite-cell-image", thumb_id))
+                        .w(px(26.))
+                        .h(px(26.))
+                        .flex_shrink_0()
+                        .rounded(px(4.))
+                        .overflow_hidden()
+                        .bg(cx.theme().muted.opacity(0.35))
+                        .cursor_pointer()
+                        .on_click(move |_, window, cx| {
+                            cx.stop_propagation();
+                            super::super::image_detail::show(detail.clone(), window, cx);
+                        })
+                        .child(img(source).size_full().object_fit(ObjectFit::Contain)),
+                )
+                .child(div().flex_1().min_w_0().truncate().child(preview))
+                .into_any_element();
+        }
+        div().truncate().child(preview).into_any_element()
     }
     fn perform_sort(
         &mut self,
@@ -199,6 +276,8 @@ impl SqliteView {
                     offset: 0,
                     busy: true,
                     column_window: policy.column_window,
+                    cell_images: HashMap::new(),
+                    images: HashMap::new(),
                 },
                 window,
                 cx,
@@ -283,6 +362,15 @@ impl SqliteView {
     pub(super) fn search_input(&self) -> Entity<InputState> {
         self.search.clone()
     }
+    #[cfg(test)]
+    pub(super) fn cell_image_url(&self, row: usize, full_col: usize, cx: &App) -> Option<url::Url> {
+        self.grid
+            .read(cx)
+            .delegate()
+            .cell_images
+            .get(&(row, full_col))
+            .cloned()
+    }
     pub fn set_loading(&mut self, busy: bool, cx: &mut Context<Self>) {
         self.grid.update(cx, |state, cx| {
             state.delegate_mut().busy = busy;
@@ -300,31 +388,45 @@ impl SqliteView {
     }
     pub fn begin_page(&mut self, cx: &mut Context<Self>) {
         self.grid.update(cx, |state, cx| {
-            let grid = state.delegate_mut();
-            grid.rows = Default::default();
-            grid.busy = true;
+            let old_images = {
+                let grid = state.delegate_mut();
+                grid.rows = Default::default();
+                grid.busy = true;
+                grid.take_images()
+            };
+            for image in old_images {
+                image.update(cx, |image, cx| image.set_active(false, cx));
+            }
             cx.notify();
         });
     }
     pub fn publish(
         &mut self,
         page: SqlitePage,
+        cell_images: HashMap<(usize, usize), url::Url>,
         offset: usize,
         columns: Option<Vec<String>>,
         cx: &mut Context<Self>,
     ) {
         self.grid.update(cx, |state, cx| {
-            let grid = state.delegate_mut();
             let changed = columns
                 .as_ref()
-                .is_some_and(|columns| *columns != grid.columns);
-            if let Some(columns) = columns {
-                grid.columns = columns;
+                .is_some_and(|columns| *columns != state.delegate().columns);
+            let old_images = {
+                let grid = state.delegate_mut();
+                if let Some(columns) = columns {
+                    grid.columns = columns;
+                }
+                grid.rows = page.rows;
+                grid.start = page.start_column;
+                grid.offset = offset;
+                grid.busy = false;
+                grid.retain_images(&cell_images)
+            };
+            for image in old_images {
+                image.update(cx, |image, cx| image.set_active(false, cx));
             }
-            grid.rows = page.rows;
-            grid.start = page.start_column;
-            grid.offset = offset;
-            grid.busy = false;
+            state.delegate_mut().cell_images = cell_images;
             if changed {
                 state.refresh(cx);
             } else {
@@ -352,9 +454,15 @@ impl SqliteView {
             ));
         }
         self.grid.update(cx, |state, cx| {
-            let grid = state.delegate_mut();
-            grid.rows = Default::default();
-            grid.busy = false;
+            let old_images = {
+                let grid = state.delegate_mut();
+                grid.rows = Default::default();
+                grid.busy = false;
+                grid.take_images()
+            };
+            for image in old_images {
+                image.update(cx, |image, cx| image.set_active(false, cx));
+            }
             cx.notify();
         });
     }
@@ -734,6 +842,7 @@ mod tests {
                 view.status.page = 2;
                 view.publish(
                     first,
+                    Default::default(),
                     200,
                     Some((0..8).map(|n| format!("column {n}")).collect()),
                     cx,
@@ -761,7 +870,7 @@ mod tests {
                 view.begin_page(cx);
                 view.set_loading(false, cx);
                 assert_eq!(view.resume_scroll, Some((vertical, horizontal)));
-                view.publish(page(&pool), 200, None, cx);
+                view.publish(page(&pool), Default::default(), 200, None, cx);
                 let grid = view.grid.read(cx);
                 assert_eq!(
                     grid.vertical_scroll_handle.0.borrow().base_handle.offset(),
@@ -803,6 +912,7 @@ mod tests {
                 });
                 view.publish(
                     page(&pool),
+                    Default::default(),
                     200,
                     Some((0..8).map(|n| format!("column {n}")).collect()),
                     cx,

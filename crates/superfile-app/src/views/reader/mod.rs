@@ -378,11 +378,11 @@ impl Reader {
         let _scope =
             superfile_services::diagnostics::FileScope::enter(&self.document.path, "render");
         let content = self.render_content(open, cx);
+        let hide_structured_controls = self.projection.as_ref().is_some_and(|view| {
+            view.visible() && (view.is_openapi() || view.table_format().is_some())
+        });
         let content = if let Some(controls) = &self.structured_controls
-            && !self
-                .projection
-                .as_ref()
-                .is_some_and(|view| view.is_openapi() && view.visible())
+            && !hide_structured_controls
         {
             let blocked = matches!(&self.renderer, Renderer::Paged { .. }) && self.is_dirty();
             controls.update(cx, |controls, _| controls.blocked = blocked);

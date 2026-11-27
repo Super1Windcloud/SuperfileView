@@ -9,7 +9,7 @@ pub(super) struct JsonFormat {
     editor: Option<Entity<EditorState>>,
     path: std::path::PathBuf,
     graph: Option<Entity<super::xmind::GraphReader>>,
-    visible: bool,
+    pub(super) visible: bool,
     focus: Option<FocusHandle>,
     pub(super) blocked: bool,
     graph_task: Option<Task<()>>,
@@ -34,6 +34,12 @@ impl JsonFormat {
     }
     pub(super) fn can_move_to_window(&self) -> bool {
         self.task.is_none()
+    }
+    pub(super) fn close_graph(&mut self) {
+        self.visible = false;
+        self.graph = None;
+        self.cancel = None;
+        self.graph_task = None;
     }
 
     fn format(&mut self, window: &mut Window, cx: &mut Context<Self>) {

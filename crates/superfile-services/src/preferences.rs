@@ -379,10 +379,14 @@ fn preview_key(kind: &str) -> Result<String> {
     Ok(format!("{kind}-view"))
 }
 pub fn preview_mode(kind: &str) -> bool {
-    preview_key(kind)
-        .ok()
-        .and_then(|key| get(&key).ok().flatten())
-        .map_or(kind != "csv", |v| v.trim() != "source")
+    preview_key(kind).is_ok()
+        && storage::open()
+            .and_then(|db| preview_mode_in(&db, kind))
+            .unwrap_or(true)
+}
+fn preview_mode_in(db: &rusqlite::Connection, kind: &str) -> Result<bool> {
+    let key = preview_key(kind)?;
+    Ok(setting(db, &key)?.is_none_or(|v| v.trim() != "source"))
 }
 pub fn save_preview_mode(kind: &str, preview: bool) -> Result<()> {
     set(
@@ -595,5 +599,24 @@ mod accent_tests {
             assert_eq!(AccentColor::parse(value), None, "{value}");
         }
         assert_eq!(AccentColor::parse("  #8B5CF6 "), Some(AccentColor::PURPLE));
+    }
+}
+
+#[cfg(test)]
+mod preview_mode_tests {
+    use super::*;
+
+    #[test]
+    fn preview_mode_defaults_to_preview_for_csv_html_and_markdown() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = storage::open_at(directory.path()).unwrap();
+        for kind in ["html", "markdown", "csv"] {
+            assert!(preview_mode_in(&db, kind).unwrap(), "{kind}");
+            set_setting(&db, &preview_key(kind).unwrap(), "source").unwrap();
+            assert!(!preview_mode_in(&db, kind).unwrap(), "{kind} source");
+            set_setting(&db, &preview_key(kind).unwrap(), "preview").unwrap();
+            assert!(preview_mode_in(&db, kind).unwrap(), "{kind} preview");
+        }
+        assert!(preview_mode_in(&db, "unknown").is_err());
     }
 }

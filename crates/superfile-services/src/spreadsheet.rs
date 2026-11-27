@@ -1,9 +1,11 @@
 //! Stream XLSX/XLSM cells into a disk-backed index.
 //! Stored formula results are displayed without evaluating workbook code.
+mod images;
 mod legacy;
 mod pages;
 use crate::{limits, work::Cancellation};
 use anyhow::{Context, Result, ensure};
+pub use images::cell_images_for_table;
 pub use pages::render_page;
 use quick_xml::{Reader, events::Event};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -28,6 +30,8 @@ pub struct Spreadsheet {
     pub database: PathBuf,
     /// OOXML style/source index for layout export, when supplied by the format.
     pub cache: Option<PathBuf>,
+    /// Extracted embedded worksheet/cell image index, when present.
+    pub images_database: Option<PathBuf>,
     pub information: String,
     pub worksheets: usize,
     _directory: tempfile::TempDir,
@@ -124,7 +128,7 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
     let mut archive = zip::ZipArchive::new(File::open(path)?)?;
     let directory = tempfile::tempdir()?;
     let database = directory.path().join("worksheets.sqlite");
-    let output = connection(&database)?;
+    let mut output = connection(&database)?;
     let cache_path = directory.path().join("strings.sqlite");
     let cache = connection(&cache_path)?;
     cache.execute_batch("CREATE TABLE strings (id INTEGER PRIMARY KEY, value TEXT); CREATE TABLE relationships(id TEXT PRIMARY KEY, target TEXT); CREATE TABLE sheets(id INTEGER PRIMARY KEY, name TEXT, reference TEXT, source TEXT, max_row INTEGER DEFAULT 0, max_column INTEGER DEFAULT 0);")?;
@@ -212,6 +216,7 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
     cache.execute_batch("COMMIT")?;
     let mut count = 0;
     let mut last_sheet = 0_i64;
+    let mut sheet_metas = Vec::new();
     cache.execute_batch("BEGIN")?;
     output.execute_batch("BEGIN")?;
     loop {
@@ -226,9 +231,10 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
         last_sheet = id;
         let member =
             crate::books::resolve("xl/workbook.xml", &target).context("Invalid worksheet path")?;
+        let sheet_member = member.trim_start_matches('/').to_owned();
         let source = pages::index_sheet(
             &mut archive,
-            member.trim_start_matches('/'),
+            &sheet_member,
             id,
             directory.path(),
             &cache,
@@ -242,6 +248,9 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
             String::new(),
             String::new(),
         );
+        let mut vm: Option<usize> = None;
+        let mut dispimg_cells = Vec::new();
+        let mut rich_cells = Vec::new();
         let mut in_cell = false;
         let (mut row_number, mut column_number) = (0_u64, 0_u64);
         let mut phonetic = 0_usize;
@@ -258,12 +267,16 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
                     let a = attributes(tag)?;
                     let address =
                         cell_address(attr(&a, "r"), row_number.max(1), &mut column_number);
+                    if let Ok(vm_idx) = attr(&a, "vm").parse::<usize>() {
+                        rich_cells.push((address.clone(), vm_idx));
+                    }
                     insert.execute(params![address, "", ""])?;
                 }
                 Event::Start(tag) if tag.local_name().as_ref() == "c" => {
                     let a = attributes(tag)?;
                     cell = cell_address(attr(&a, "r"), row_number.max(1), &mut column_number);
                     kind = attr(&a, "t").to_owned();
+                    vm = attr(&a, "vm").parse::<usize>().ok();
                     value.clear();
                     formula.clear();
                     field.clear();
@@ -304,6 +317,14 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
                             |row| row.get(0),
                         )?;
                     }
+                    if let Some(id) = images::parse_dispimg_id(&formula)
+                        .or_else(|| images::parse_dispimg_id(&value))
+                    {
+                        dispimg_cells.push((cell.clone(), id.to_owned()));
+                    }
+                    if let Some(vm_idx) = vm.take() {
+                        rich_cells.push((cell.clone(), vm_idx));
+                    }
                     insert.execute(params![cell, value, formula])?;
                     in_cell = false;
                 }
@@ -311,11 +332,26 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
             }
             Ok(())
         })?;
+        drop(insert);
+        sheet_metas.push(images::SheetMeta {
+            id,
+            name,
+            member: sheet_member,
+            dispimg_cells,
+            rich_cells,
+        });
         count += 1;
     }
     ensure!(count > 0, "Spreadsheet contains no supported worksheets");
     output.execute_batch("COMMIT")?;
     cache.execute_batch("COMMIT")?;
+    let images_database = images::extract(
+        &mut archive,
+        &sheet_metas,
+        directory.path(),
+        &mut output,
+        cancel,
+    )?;
     drop(output);
     let after = std::fs::metadata(path)?;
     ensure!(
@@ -325,6 +361,7 @@ fn prepare_index(path: &Path, cancel: &Cancellation) -> Result<Option<Spreadshee
     Ok(Some(Spreadsheet {
         database,
         cache: Some(cache_path),
+        images_database,
         worksheets: count,
         information: crate::locale::tr(
             "Read-only worksheet cells · Saved formula results · Select a worksheet, page through cells, or double-click a value to read it in full.",

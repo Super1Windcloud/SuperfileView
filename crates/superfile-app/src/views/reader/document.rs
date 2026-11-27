@@ -23,6 +23,7 @@ pub(super) struct DocumentReader {
     page_file: Option<rich_documents::DocumentPages>,
     reading_text: bool,
     database: Option<PathBuf>,
+    images_database: Option<PathBuf>,
     find: Option<Entity<super::find::FindBar>>,
     error: Option<String>,
     history: Vec<u64>,
@@ -43,6 +44,7 @@ impl DocumentReader {
             page_file: None,
             reading_text: false,
             database: None,
+            images_database: None,
             find: None,
             error: None,
             history: Vec::new(),
@@ -182,6 +184,7 @@ impl DocumentReader {
                     }
                     Ok(PreparedDocument::Workbook(book)) => {
                         view.database = Some(book.database.clone());
+                        view.images_database = book.images_database.clone();
                         view.prepared = Some(PreparedDocument::Workbook(book));
                     }
                     Err(error) => view.error = Some(format!("{error:#}")),
@@ -253,7 +256,10 @@ impl DocumentReader {
         if self.table.is_none()
             && let Some(path) = self.database.clone()
         {
-            self.table = Some(cx.new(|cx| super::sqlite::SqliteReader::new(path, window, cx)));
+            let images_database = self.images_database.clone();
+            self.table = Some(cx.new(|cx| {
+                super::sqlite::SqliteReader::with_images(path, images_database, window, cx)
+            }));
         }
         if let Some(table) = &self.table {
             return table.clone().into_any_element();

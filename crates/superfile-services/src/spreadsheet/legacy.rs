@@ -259,6 +259,7 @@ where
     transaction.commit()?;
     Ok(Spreadsheet {
         cache: None,
+        images_database: None,
         database,
         information: crate::locale::tr(
             "Read-only worksheet cells · Saved formula results · Select a worksheet, page through cells, or double-click a value to read it in full.",

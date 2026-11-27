@@ -3,7 +3,7 @@ mod view;
 use self::view::{Detail, Navigation, Policy, Request, SqliteView, Status};
 use crate::app::reader_jobs::{self, JobClass, Priority};
 use gpui_kit::*;
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use superfile_core::table::SqlitePage;
 use superfile_services::{
     limits,
@@ -20,6 +20,7 @@ impl Render for ValueEditor {
 
 pub(super) struct SqliteReader {
     path: PathBuf,
+    images_database: Option<PathBuf>,
     active: bool,
     refresh_pending: bool,
     database: Option<Arc<Database>>,
@@ -41,8 +42,17 @@ pub(super) struct SqliteReader {
 }
 impl SqliteReader {
     pub fn new(path: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self::with_images(path, None, window, cx)
+    }
+    pub fn with_images(
+        path: PathBuf,
+        images_database: Option<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         Self::with_scheduler(
             path,
+            images_database,
             crate::app::reader_jobs::shared_scheduler(),
             window,
             cx,
@@ -50,6 +60,7 @@ impl SqliteReader {
     }
     fn with_scheduler(
         path: PathBuf,
+        images_database: Option<PathBuf>,
         scheduler: Arc<Scheduler>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -68,6 +79,7 @@ impl SqliteReader {
         });
         let mut reader = Self {
             path,
+            images_database,
             active: true,
             refresh_pending: false,
             database: None,
@@ -308,6 +320,7 @@ impl SqliteReader {
         let previous = self.query.clone();
         let mut query = previous.clone();
         let source = path.clone();
+        let images_database = self.images_database.clone();
         let (cancel, guard) = Cancellation::task();
         let work = reader_jobs::run_with_scheduler(
             cx.background_executor().clone(),
@@ -342,7 +355,9 @@ impl SqliteReader {
                         .min(total.saturating_sub(1) as usize / limits::SQLITE_PAGE_ROWS);
                 }
                 let page = database.page(&query, cancel)?;
-                Ok::<_, anyhow::Error>((database, query, Some(page), total))
+                let images =
+                    resolve_page_images(images_database.as_deref(), &query.table, &page, cancel);
+                Ok::<_, anyhow::Error>((database, query, Some((page, images)), total))
             },
         );
         self.refresh_task = Some(cx.spawn(async move |view, cx| {
@@ -366,16 +381,22 @@ impl SqliteReader {
                         view.error = None;
                         view.count_error = total.is_none() && !query.table.is_empty();
                         view.total = total;
-                        view.more = page.as_ref().is_some_and(|p| p.more);
-                        let page = page.unwrap_or(SqlitePage {
-                            rows: Default::default(),
-                            start_column: 0,
-                            more: false,
+                        view.more = page.as_ref().is_some_and(|(p, _)| p.more);
+                        let (page, images) = page.unwrap_or_else(|| {
+                            (
+                                SqlitePage {
+                                    rows: Default::default(),
+                                    start_column: 0,
+                                    more: false,
+                                },
+                                HashMap::new(),
+                            )
                         });
                         view.view.update(cx, |table, cx| {
                             table.set_tables(database.tables.clone());
                             table.publish(
                                 page,
+                                images,
                                 query.page.saturating_mul(limits::SQLITE_PAGE_ROWS),
                                 Some(query.columns.clone()),
                                 cx,
@@ -613,6 +634,7 @@ impl SqliteReader {
         }
         self.view.update(cx, |view, cx| view.begin_page(cx));
         let query = self.query.clone();
+        let images_database = self.images_database.clone();
         let offset = query.page.saturating_mul(limits::SQLITE_PAGE_ROWS);
         let (cancel, guard) = Cancellation::task();
         let telemetry_started = std::time::Instant::now();
@@ -622,7 +644,12 @@ impl SqliteReader {
             JobClass::Projection,
             Priority::Interactive,
             cancel,
-            move |cancel| db.page(&query, cancel),
+            move |cancel| {
+                let page = db.page(&query, cancel)?;
+                let images =
+                    resolve_page_images(images_database.as_deref(), &query.table, &page, cancel);
+                Ok((page, images))
+            },
         );
         self.task = Some(cx.spawn(async move |view, cx| {
             let _guard = guard;
@@ -636,10 +663,11 @@ impl SqliteReader {
             let _ = view.update(cx, |view, cx| {
                 view.task = None;
                 match result {
-                    Ok(page) => {
+                    Ok((page, images)) => {
                         view.more = page.more;
-                        view.view
-                            .update(cx, |table, cx| table.publish(page, offset, None, cx));
+                        view.view.update(cx, |table, cx| {
+                            table.publish(page, images, offset, None, cx)
+                        });
                     }
                     Err(error) => {
                         superfile_services::telemetry::operation_failed(
@@ -732,6 +760,57 @@ impl SqliteReader {
         }));
     }
 }
+
+fn resolve_page_images(
+    images_database: Option<&std::path::Path>,
+    table: &str,
+    page: &SqlitePage,
+    cancel: &Cancellation,
+) -> HashMap<(usize, usize), url::Url> {
+    let mut images = HashMap::new();
+    let mut addresses = Vec::new();
+    let mut row_by_address: HashMap<&str, Vec<usize>> = HashMap::new();
+    if images_database.is_some() && page.start_column == 0 {
+        for (row_idx, row) in page.rows.iter().enumerate() {
+            let Some(address) = row.first().map(|s| s.trim()).filter(|s| !s.is_empty()) else {
+                continue;
+            };
+            addresses.push(address);
+            row_by_address.entry(address).or_default().push(row_idx);
+        }
+    }
+    if let Some(images_db) = images_database
+        && !addresses.is_empty()
+        && let Ok(embedded) = superfile_services::spreadsheet::cell_images_for_table(
+            images_db, table, &addresses, cancel,
+        )
+    {
+        for (address, url) in embedded {
+            if let Some(row_indices) = row_by_address.get(address.as_str()) {
+                for &row_idx in row_indices {
+                    images.insert((row_idx, 1), url.clone());
+                }
+            }
+        }
+    }
+    for (row_idx, row) in page.rows.iter().enumerate() {
+        for (slice_col, cell) in row.iter().enumerate() {
+            if cancel.check().is_err() {
+                return images;
+            }
+            let full_col = page.start_column + slice_col;
+            if images.contains_key(&(row_idx, full_col)) {
+                continue;
+            }
+            if let Some(url) = superfile_services::inline_images::resolve_cell_image_url(cell, None)
+            {
+                images.insert((row_idx, full_col), url);
+            }
+        }
+    }
+    images
+}
+
 impl Render for SqliteReader {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         self.view.clone()
@@ -827,6 +906,7 @@ mod tests {
                 cx.new(|cx| {
                     SqliteReader::with_scheduler(
                         path.to_path_buf(),
+                        None,
                         Scheduler::from_policy(),
                         window,
                         cx,
@@ -1013,6 +1093,61 @@ mod tests {
             assert!(reader.error.is_none());
             assert_eq!(reader.view.entity_id(), presentation);
             assert_eq!(reader.total, Some(520));
+        });
+    }
+
+    #[gpui_kit::test]
+    fn workbook_images_database_populates_value_column_thumbnails(cx: &mut TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let data_db = directory.path().join("workbook.sqlite");
+        let images_db = directory.path().join("images.sqlite");
+        let image_path = directory.path().join("cell.png");
+        std::fs::write(&image_path, b"\x89PNG\r\n\x1a\n").unwrap();
+
+        let conn = rusqlite::Connection::open(&data_db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE \"Sheet1\" (\"Cell\" TEXT, \"Value\" TEXT, \"Formula\" TEXT);
+             INSERT INTO \"Sheet1\" (\"Cell\", \"Value\", \"Formula\") VALUES ('B2', '[image]', '');",
+        )
+        .unwrap();
+        drop(conn);
+
+        let img_conn = rusqlite::Connection::open(&images_db).unwrap();
+        img_conn
+            .execute_batch(
+                "CREATE TABLE cell_images (table_name TEXT NOT NULL, address TEXT NOT NULL, path TEXT NOT NULL, PRIMARY KEY (table_name, address));",
+            )
+            .unwrap();
+        img_conn
+            .execute(
+                "INSERT INTO cell_images (table_name, address, path) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["Sheet1", "B2", image_path.to_string_lossy().as_ref()],
+            )
+            .unwrap();
+        drop(img_conn);
+
+        cx.update(gpui_kit::init);
+        let (_handle, reader) = cx.update(|cx| {
+            gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
+                cx.new(|cx| {
+                    SqliteReader::with_scheduler(
+                        data_db.clone(),
+                        Some(images_db.clone()),
+                        Scheduler::from_policy(),
+                        window,
+                        cx,
+                    )
+                })
+            })
+            .unwrap()
+        });
+        settle(cx, &reader);
+        cx.update(|cx| {
+            let expected = url::Url::from_file_path(&image_path).unwrap();
+            assert_eq!(
+                reader.read(cx).view.read(cx).cell_image_url(0, 1, cx),
+                Some(expected)
+            );
         });
     }
 }

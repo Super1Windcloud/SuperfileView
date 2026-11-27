@@ -166,16 +166,15 @@ impl Reader {
     }
     pub(super) fn restore_csv_preview(&mut self, cx: &mut App) {
         if self.table_format().is_some()
-            && cx.try_global::<crate::app::ReaderPreferences>().map_or(
-                self.geo_format().is_some(),
-                |prefs| {
+            && cx
+                .try_global::<crate::app::ReaderPreferences>()
+                .is_none_or(|prefs| {
                     if self.geo_format().is_some() {
                         prefs.markdown_preview
                     } else {
                         prefs.csv_preview
                     }
-                },
-            )
+                })
         {
             self.set_preview(true, cx);
         }
@@ -235,6 +234,9 @@ impl Reader {
             None
         };
         if let Some(projection) = &mut self.projection {
+            if preview && let Some(controls) = &self.structured_controls {
+                controls.update(cx, |controls, _| controls.close_graph());
+            }
             projection.set_visible(preview, text, cx);
         }
         if let Renderer::Markup(m) = &mut self.renderer {

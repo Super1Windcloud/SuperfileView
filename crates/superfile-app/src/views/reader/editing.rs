@@ -394,4 +394,49 @@ mod editing_tests {
             assert!(!view.read(cx).0.is_dirty());
         });
     }
+
+    #[gpui_kit::test]
+    fn csv_defaults_to_table_preview_and_hides_structured_controls(cx: &mut TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let csv_path = dir.path().join("sample.csv");
+        let (handle, view) = open(cx, |window, cx| {
+            Reader::new(
+                Document {
+                    path: csv_path.clone(),
+                    kind: DocumentKind::Text,
+                    text: "name,image\nrow1,shot.png\n".into(),
+                },
+                window,
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let reader = &view.read(cx).0;
+            assert_eq!(reader.mode(), super::ReaderMode::Preview);
+            assert_eq!(
+                reader
+                    .projection
+                    .as_ref()
+                    .and_then(|projection| projection.table_format()),
+                Some(superfile_services::documents::presentation::TableFormat::Csv)
+            );
+            assert!(reader.structured_controls.is_some());
+        });
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            view.update(cx, |view, cx| {
+                let controls = view.0.structured_controls.as_ref().unwrap().clone();
+                controls.update(cx, |controls, _| controls.visible = true);
+                view.0.set_preview(false, cx);
+                assert_eq!(view.0.mode(), super::ReaderMode::Source);
+                assert!(controls.read(cx).visible);
+                view.0.set_preview(true, cx);
+                assert_eq!(view.0.mode(), super::ReaderMode::Preview);
+                assert!(!controls.read(cx).visible);
+            });
+            window.render_frame(cx);
+        })
+        .unwrap();
+    }
 }

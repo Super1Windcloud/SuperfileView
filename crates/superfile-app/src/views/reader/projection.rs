@@ -69,6 +69,11 @@ impl Projection {
             View::Json(_) | View::OpenApi(_) => None,
         }
     }
+    pub fn set_base_dir(&self, base_dir: Option<&Path>, cx: &mut App) {
+        if let View::Table { view, .. } = &self.view {
+            view.update(cx, |table, _| table.set_base_dir(base_dir));
+        }
+    }
     pub fn is_json(&self) -> bool {
         matches!(self.view, View::Json(_))
     }

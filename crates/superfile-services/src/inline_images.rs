@@ -96,6 +96,73 @@ pub(crate) fn thumbnail_with_dimensions(
     encode_thumbnail(image, width, height, max_edge, cancel)
 }
 
+/// Resolve a table cell value into an image URL when it represents a supported
+/// data URI, HTTP(S) image link, or existing local image file.
+/// Performs filesystem checks and must only run on a background worker.
+pub fn resolve_cell_image_url(value: &str, base_dir: Option<&Path>) -> Option<url::Url> {
+    let candidate = extract_cell_image_target(value)?;
+    let lower = candidate.to_ascii_lowercase();
+    if lower.starts_with("data:image/") {
+        return url::Url::parse(candidate).ok();
+    }
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        let url = url::Url::parse(candidate).ok()?;
+        if !url.username().is_empty() || url.password().is_some() {
+            return None;
+        }
+        return crate::media::supports(Path::new(url.path())).then_some(url);
+    }
+    if lower.starts_with("file://") {
+        let url = url::Url::parse(candidate).ok()?;
+        let path = url.to_file_path().ok()?;
+        return (crate::media::supports(&path) && path.is_file()).then_some(url);
+    }
+    let raw_path = Path::new(candidate);
+    if !crate::media::supports(raw_path) {
+        return None;
+    }
+    let resolved = if raw_path.is_absolute() {
+        raw_path.to_path_buf()
+    } else {
+        base_dir?.join(raw_path)
+    };
+    resolved
+        .is_file()
+        .then(|| url::Url::from_file_path(resolved).ok())
+        .flatten()
+}
+
+fn extract_cell_image_target(value: &str) -> Option<&str> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.contains(['\n', '\r']) {
+        return None;
+    }
+    if let Some(rest) = trimmed.strip_prefix("![")
+        && let Some((_, tail)) = rest.split_once("](")
+        && let Some(inner) = tail.strip_suffix(')')
+    {
+        let target = inner.split_whitespace().next()?.trim();
+        return (!target.is_empty()).then_some(target);
+    }
+    if trimmed
+        .as_bytes()
+        .get(..4)
+        .is_some_and(|head| head.eq_ignore_ascii_case(b"<img"))
+    {
+        for quote in ['"', '\''] {
+            let pattern = format!("src={quote}");
+            if let Some(start) = trimmed.to_ascii_lowercase().find(&pattern)
+                && let Some(after) = trimmed.get(start + pattern.len()..)
+                && let Some(end) = after.find(quote)
+            {
+                let target = after[..end].trim();
+                return (!target.is_empty()).then_some(target);
+            }
+        }
+    }
+    Some(trimmed)
+}
+
 /// Decode only the static raster data URLs emitted by notebook outputs.
 pub fn from_data_uri(value: &str, cancel: &Cancellation) -> Result<crate::media::RasterFrame> {
     use base64::Engine;
@@ -105,6 +172,8 @@ pub fn from_data_uri(value: &str, cancel: &Cancellation) -> Result<crate::media:
     let expected = match mime {
         "data:image/png;base64" => image::ImageFormat::Png,
         "data:image/jpeg;base64" => image::ImageFormat::Jpeg,
+        "data:image/webp;base64" => image::ImageFormat::WebP,
+        "data:image/gif;base64" => image::ImageFormat::Gif,
         _ => anyhow::bail!("Unsupported embedded image encoding"),
     };
     let required = u64::try_from(data.len())?;
@@ -264,6 +333,34 @@ mod tests {
         let bytes = thumbnail_png(&svg, 20)?;
         let image = image::load_from_memory(&bytes)?;
         assert!(image.width() <= 20 && image.height() <= 20);
+        Ok(())
+    }
+
+    #[test]
+    fn resolves_table_cell_image_links_and_local_paths() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let local = dir.path().join("shot.png");
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([0, 0, 0, 255])).save(&local)?;
+        assert_eq!(
+            resolve_cell_image_url("shot.png", Some(dir.path())),
+            url::Url::from_file_path(&local).ok()
+        );
+        assert_eq!(
+            resolve_cell_image_url("![alt](shot.png)", Some(dir.path())),
+            url::Url::from_file_path(&local).ok()
+        );
+        assert_eq!(
+            resolve_cell_image_url("missing.png", Some(dir.path())),
+            None
+        );
+        assert!(resolve_cell_image_url("https://example.com/a/b.png?w=100", None).is_some());
+        assert!(resolve_cell_image_url("https://example.com/page.html", None).is_none());
+        assert!(resolve_cell_image_url("data:image/png;base64,iVBORw0KGgo=", None).is_some());
+        assert_eq!(resolve_cell_image_url("中文标题", Some(dir.path())), None);
+        assert_eq!(
+            resolve_cell_image_url(r#"<IMG SRC="shot.png">"#, Some(dir.path())),
+            url::Url::from_file_path(&local).ok()
+        );
         Ok(())
     }
 }

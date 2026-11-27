@@ -3,7 +3,11 @@ mod view;
 use self::view::{TableRequest, TableView};
 use crate::app::reader_jobs::{self, JobClass, Priority};
 use gpui_kit::*;
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use superfile_core::resources::TextSnapshot;
 use superfile_services::limits as reader_limits;
 
@@ -17,6 +21,7 @@ enum Source {
 pub(super) struct CsvTable {
     suspended: bool,
     source: Option<Source>,
+    base_dir: Option<PathBuf>,
     delimiter: u8,
     format: &'static str,
     row_start: usize,
@@ -40,6 +45,7 @@ impl CsvTable {
         Self {
             suspended: false,
             source: None,
+            base_dir: None,
             delimiter: b',',
             format: "CSV",
             row_start: 0,
@@ -50,12 +56,16 @@ impl CsvTable {
             _subscription: subscription,
         }
     }
+    pub fn set_base_dir(&mut self, dir: Option<&Path>) {
+        self.base_dir = dir.map(Path::to_path_buf);
+    }
     pub fn from_file(
         path: PathBuf,
         format: superfile_services::documents::presentation::TableFormat,
         cx: &mut Context<Self>,
     ) -> Self {
         let mut table = Self::new(cx);
+        table.base_dir = path.parent().map(Path::to_path_buf);
         table.delimiter = format.delimiter();
         if let Some(name) = format.geo_name() {
             table.format = name;
@@ -115,6 +125,7 @@ impl CsvTable {
     }
     pub fn suspend(&mut self, cx: &mut App) {
         self.view.update(cx, |view, cx| {
+            view.clear_images(cx);
             view.suspend(!self.suspended);
             cx.notify();
         });
@@ -190,6 +201,7 @@ impl CsvTable {
         };
         self.task = None;
         self.view.update(cx, |view, cx| {
+            view.clear_images(cx);
             view.begin(
                 self.format,
                 self.row_start,
@@ -199,6 +211,7 @@ impl CsvTable {
             cx.notify();
         });
         let (delimiter, row, column) = (self.delimiter, self.row_start, self.column_start);
+        let base_dir = self.base_dir.clone();
         let (cancel, guard) = superfile_services::work::Cancellation::task();
         let telemetry_started = std::time::Instant::now();
         let work = reader_jobs::run(
@@ -206,27 +219,36 @@ impl CsvTable {
             JobClass::Projection,
             Priority::Interactive,
             cancel,
-            move |cancel| match source {
-                Source::GeoText(text) => {
-                    superfile_services::geo::read_page(text.as_str().as_bytes(), row, cancel)
-                }
-                Source::GeoFile(path) => {
-                    superfile_services::geo::read_page(std::fs::File::open(path)?, row, cancel)
-                }
-                Source::Text(text) => superfile_services::csv::read_page(
-                    text.as_str().as_bytes(),
-                    delimiter,
-                    row,
-                    column,
-                    cancel,
-                ),
-                Source::File(path) => superfile_services::csv::read_page(
-                    std::fs::File::open(path)?,
-                    delimiter,
-                    row,
-                    column,
-                    cancel,
-                ),
+            move |cancel| {
+                let is_geo = matches!(source, Source::GeoText(_) | Source::GeoFile(_));
+                let page = match source {
+                    Source::GeoText(text) => {
+                        superfile_services::geo::read_page(text.as_str().as_bytes(), row, cancel)
+                    }
+                    Source::GeoFile(path) => {
+                        superfile_services::geo::read_page(std::fs::File::open(path)?, row, cancel)
+                    }
+                    Source::Text(text) => superfile_services::csv::read_page(
+                        text.as_str().as_bytes(),
+                        delimiter,
+                        row,
+                        column,
+                        cancel,
+                    ),
+                    Source::File(path) => superfile_services::csv::read_page(
+                        std::fs::File::open(path)?,
+                        delimiter,
+                        row,
+                        column,
+                        cancel,
+                    ),
+                }?;
+                let images = if is_geo {
+                    HashMap::new()
+                } else {
+                    resolve_page_images(&page, base_dir.as_deref(), cancel)?
+                };
+                Ok((page, images))
             },
         );
         self.task = Some(cx.spawn(async move |view, cx| {
@@ -237,7 +259,7 @@ impl CsvTable {
                 view.task = None;
                 view.view.update(cx, |table, cx| {
                     match result {
-                        Ok(page) => table.publish(page),
+                        Ok((page, images)) => table.publish(page, images),
                         Err(error) => {
                             table.fail(format!("Cannot show {} table: {error:#}", view.format))
                         }
@@ -249,6 +271,29 @@ impl CsvTable {
         }));
         cx.notify();
     }
+}
+
+fn resolve_page_images(
+    page: &superfile_core::table::TablePage,
+    base_dir: Option<&Path>,
+    cancel: &superfile_services::work::Cancellation,
+) -> anyhow::Result<HashMap<String, url::Url>> {
+    let mut resolved = HashMap::new();
+    let mut seen = std::collections::HashSet::new();
+    for row in page.rows.iter() {
+        for cell in row.iter() {
+            cancel.check()?;
+            if cell.is_empty() || !seen.insert(cell.as_str()) {
+                continue;
+            }
+            if let Some(url) =
+                superfile_services::inline_images::resolve_cell_image_url(cell, base_dir)
+            {
+                resolved.insert(cell.clone(), url);
+            }
+        }
+    }
+    Ok(resolved)
 }
 impl Render for CsvTable {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {

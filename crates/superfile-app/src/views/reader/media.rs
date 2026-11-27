@@ -260,6 +260,16 @@ impl PreparedImage {
     }
 }
 
+/// Build a lazy GPUI image source backed by an [`InlineImageReader`].
+pub(super) fn inline_image_source(image: Entity<InlineImageReader>) -> ImageSource {
+    ImageSource::from(move |_: &mut Window, cx: &mut App| {
+        image.update(cx, |image, cx| {
+            image.set_active(true, cx);
+            image.image()
+        })
+    })
+}
+
 /// A bounded inline preview that releases pixels and texture when no longer requested.
 pub(super) struct InlineImageReader {
     url: url::Url,
