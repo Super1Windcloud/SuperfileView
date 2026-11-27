@@ -13,7 +13,7 @@ pub struct RasterFrame {
 }
 
 impl RasterFrame {
-    pub(super) fn new(frame: image::Frame, mut memory: WorkingReservation) -> Self {
+    pub(crate) fn new(frame: image::Frame, mut memory: WorkingReservation) -> Self {
         memory.shrink_to(frame.buffer().as_raw().capacity() as u64);
         Self { frame, memory }
     }

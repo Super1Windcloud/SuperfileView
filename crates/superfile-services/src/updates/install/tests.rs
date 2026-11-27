@@ -130,16 +130,17 @@ fn update_backup_survives_replacement_until_new_version_is_running() {
 }
 
 #[test]
-fn failed_swap_restores_original_and_cancel_never_stages() {
+fn failed_swap_keeps_original_in_place_and_cancel_never_stages() {
     let directory = tempfile::tempdir().unwrap();
     let target = old_target(directory.path());
-    let error = swap(
-        &directory.path().join("missing-payload"),
-        &target,
-        &Version::parse("1.2.3").unwrap(),
-    )
-    .unwrap_err();
-    assert!(format!("{error:#}").contains("restored"));
+    assert!(
+        swap(
+            &directory.path().join("missing-payload"),
+            &target,
+            &Version::parse("1.2.3").unwrap(),
+        )
+        .is_err()
+    );
     assert_eq!(
         fs::read(executable(&target)).unwrap(),
         b"original executable"

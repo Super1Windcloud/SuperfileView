@@ -1,5 +1,9 @@
 //! PDFCraft page rendering over an immutable document snapshot.
-use crate::{resources::WorkingReservation, snapshot::MappedSnapshot, work::Cancellation};
+use crate::{
+    resources::{ResourcePool, WorkingReservation, pool},
+    snapshot::MappedSnapshot,
+    work::Cancellation,
+};
 use anyhow::{Result, bail, ensure};
 use hayro::hayro_syntax::Pdf;
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
@@ -110,6 +114,32 @@ impl PdfDocument {
         self.render_page(index, palette, Some(edge), cancel)
     }
 
+    /// Return display pixels with the working memory reservation attached.
+    pub fn display_frame(
+        &self,
+        index: usize,
+        palette: Option<ReaderPalette>,
+        edge: u32,
+        cancel: &Cancellation,
+    ) -> Result<crate::media::RasterFrame> {
+        self.display_frame_in_pool(index, palette, edge, cancel, pool())
+    }
+
+    fn display_frame_in_pool(
+        &self,
+        index: usize,
+        palette: Option<ReaderPalette>,
+        edge: u32,
+        cancel: &Cancellation,
+        pool: &ResourcePool,
+    ) -> Result<crate::media::RasterFrame> {
+        let (pixels, memory) = self.rasterize(index, palette, Some(edge), cancel, pool)?;
+        Ok(crate::media::RasterFrame::new(
+            image::Frame::new(pixels),
+            memory,
+        ))
+    }
+
     fn render_page(
         &self,
         index: usize,
@@ -117,6 +147,29 @@ impl PdfDocument {
         edge: Option<u32>,
         cancel: &Cancellation,
     ) -> Result<PdfPage> {
+        let (pixels, _memory) = self.rasterize(index, palette, edge, cancel, pool())?;
+        let mut png = Vec::new();
+        PngEncoder::new(&mut png).write_image(
+            &pixels,
+            pixels.width(),
+            pixels.height(),
+            ExtendedColorType::Rgba8,
+        )?;
+        cancel.check()?;
+        Ok(PdfPage {
+            png,
+            pages: self.page_count(),
+        })
+    }
+
+    fn rasterize(
+        &self,
+        index: usize,
+        palette: Option<ReaderPalette>,
+        edge: Option<u32>,
+        cancel: &Cancellation,
+        pool: &ResourcePool,
+    ) -> Result<(image::RgbaImage, WorkingReservation)> {
         let reading = ReadingColors {
             params: palette.map(|colors| ReadingParams {
                 text: colors.ink,
@@ -148,7 +201,7 @@ impl PdfDocument {
         let minimum = working_bytes(fallback);
         let mut backend = self.backend.lock().unwrap_or_else(|e| e.into_inner());
         cancel.check()?;
-        let mut memory = crate::resources::pool().reserve_working(minimum, required)?;
+        let mut memory = pool.reserve_working(minimum, required)?;
         let scale = if memory.bytes() < required {
             memory.shrink_to(minimum);
             fallback
@@ -157,7 +210,7 @@ impl PdfDocument {
         };
         let w = device_pixels(width, scale);
         let h = device_pixels(height, scale);
-        let png = match &mut *backend {
+        let (width, height, data) = match &mut *backend {
             Backend::Buffered {
                 renderer,
                 bytes,
@@ -183,14 +236,7 @@ impl PdfDocument {
                 if let Some(message) = result.error {
                     bail!("{message}");
                 }
-                let mut png = Vec::new();
-                PngEncoder::new(&mut png).write_image(
-                    &result.rgba,
-                    result.width,
-                    result.height,
-                    ExtendedColorType::Rgba8,
-                )?;
-                png
+                (result.width, result.height, result.rgba.to_vec())
             }
             Backend::Mapped(pdf) => {
                 let pixmap = hayro::render(
@@ -214,19 +260,42 @@ impl PdfDocument {
                     },
                 );
                 cancel.check()?;
-                pixmap.into_png()?
+                (
+                    u32::from(pixmap.width()),
+                    u32::from(pixmap.height()),
+                    pixmap.data_as_u8_slice().to_vec(),
+                )
             }
         };
-        Ok(PdfPage {
-            png,
-            pages: self.page_count(),
-        })
+        let pixels = image::RgbaImage::from_raw(width, height, data)
+            .ok_or_else(|| anyhow::anyhow!("Invalid PDF raster dimensions"))?;
+        Ok((pixels, memory))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_frame_fits_without_png_decode_headroom() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/reader-contracts/reading-colors.pdf");
+        let cancel = Cancellation::default();
+        let doc = PdfDocument::open(&fixture, &cancel).unwrap();
+        let budget = 20 * 1024 * 1024;
+        let pool = ResourcePool::with_budgets(0, budget);
+        let (frame, memory) = doc
+            .display_frame_in_pool(0, None, 1024, &cancel, &pool)
+            .unwrap()
+            .into_bgra();
+        let (width, height) = frame.buffer().dimensions();
+        assert_eq!(width.max(height), 1024);
+        assert_eq!(memory.bytes(), u64::from(width) * u64::from(height) * 4);
+        assert!(pool.reserve_working(budget, budget).is_err());
+        drop((frame, memory));
+        assert!(pool.reserve_working(budget, budget).is_ok());
+    }
 
     #[test]
     fn viewport_raster_uses_device_pixels_in_both_backends() {

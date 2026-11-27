@@ -79,6 +79,7 @@ jobs:
           python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: '1.99.1'
           targets: ${{ matrix.target }}
       - name: Restore Rust release cache
         uses: Swatinem/rust-cache@v2

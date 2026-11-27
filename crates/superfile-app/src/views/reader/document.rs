@@ -252,7 +252,7 @@ impl DocumentReader {
             let target = self
                 .word
                 .as_ref()
-                .map(word::WordView::search_target)
+                .map(|word| word.search_target(cx))
                 .or_else(|| self.state.clone().map(super::find::Target::Preview));
             if let Some(target) = target {
                 let find = cx.new(|cx| super::find::FindBar::new(target, window, cx));

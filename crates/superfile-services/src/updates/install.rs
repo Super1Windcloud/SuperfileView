@@ -398,21 +398,41 @@ fn swap(payload: &Path, target: &Path, version: &Version) -> Result<Installed> {
         .tempdir_in(parent)?;
     let mut receipt = format!("{version}\n").into_bytes();
     receipt.extend_from_slice(name.as_encoded_bytes());
-    fs::write(backup.path().join(BACKUP_RECEIPT), receipt)?;
+    let mut marker = fs::File::create(backup.path().join(BACKUP_RECEIPT))?;
+    marker.write_all(&receipt)?;
+    marker.sync_all()?;
+    drop(marker);
     let previous = backup.path().join(name);
-    fs::rename(target, &previous).context("Cannot move the running application aside")?;
-    if let Err(error) = fs::rename(payload, target) {
-        return match fs::rename(&previous, target) {
-            Ok(()) => Err(error)
-                .context("Cannot install the update; the original application was restored"),
-            Err(rollback) => {
-                let _ = backup.keep();
-                Err(anyhow::anyhow!(
-                    "Install failed: {error}; rollback failed: {rollback}. Original application is preserved at {}",
-                    previous.display()
-                ))
+    #[cfg(target_os = "macos")]
+    {
+        // Exchanging the bundles leaves a valid .app at the install path even
+        // if the process stops immediately before or after the system call.
+        fs::rename(payload, &previous).context("Cannot stage application bundle for exchange")?;
+        if let Err(error) = crate::platform::replacement::exchange(&previous, target) {
+            if let Err(restore) = fs::rename(&previous, payload) {
+                let retained = backup.keep().join(name);
+                anyhow::bail!(
+                    "Cannot install the update: {error}. Cannot return the staged bundle: {restore}. Bundle retained in {}",
+                    retained.display()
+                );
             }
-        };
+            return Err(error)
+                .context("Cannot install the update; the original application is still in place");
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Preserve a rollback copy before the single same-volume rename that
+        // overwrites the executable. Never first remove the installed name.
+        if fs::hard_link(target, &previous).is_err() {
+            fs::copy(target, &previous).context("Cannot back up the installed application")?;
+            fs::OpenOptions::new()
+                .write(true)
+                .open(&previous)?
+                .sync_all()?;
+        }
+        fs::rename(payload, target)
+            .context("Cannot install the update; the original application is still in place")?;
     }
     let _ = backup.keep();
     let executable = if cfg!(target_os = "macos") {

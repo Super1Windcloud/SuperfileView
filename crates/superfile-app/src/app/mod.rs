@@ -25,6 +25,7 @@ mod remote_open;
 pub(crate) mod sharing;
 pub(crate) mod shortcuts;
 pub(crate) mod spreadsheet_prepare;
+mod startup_recovery;
 pub(crate) mod system_open;
 pub(crate) mod telemetry;
 pub(crate) mod text_zoom;
@@ -408,7 +409,10 @@ pub fn run() -> Result<()> {
         return Ok(());
     };
     superfile_services::diagnostics::initialize()?;
-    superfile_services::storage::initialize()?;
+    if let Err(error) = superfile_services::storage::initialize() {
+        log::error!("Cannot initialize application data: {error:#}");
+        return startup_recovery::run(instance, urls, format!("{error:#}"));
+    }
     let language = superfile_services::preferences::language().unwrap_or_else(|| "system".into());
     superfile_services::locale::set(&language);
     let remote_catalog = superfile_services::remote::load_catalog().unwrap_or_else(|error| {

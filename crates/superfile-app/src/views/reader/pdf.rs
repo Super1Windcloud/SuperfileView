@@ -13,7 +13,7 @@ const PAGE_MARGIN_Y: Pixels = px(8.);
 
 enum Page {
     Loading { _task: Task<()> },
-    Ready(Entity<super::media::PreparedImage>),
+    Ready(Entity<super::media::RasterImage>),
     Failed(String),
 }
 
@@ -98,7 +98,7 @@ impl PdfReader {
             JobClass::Projection,
             Priority::Viewport,
             cancel,
-            move |cancel| document.render_at_edge(index, palette, edge, cancel),
+            move |cancel| document.display_frame(index, palette, edge, cancel),
         );
         let task = cx.spawn(async move |view, cx| {
             let _guard = guard;
@@ -111,7 +111,7 @@ impl PdfReader {
                 }
                 let page = match result {
                     Ok(image) => {
-                        Page::Ready(cx.new(|cx| super::media::PreparedImage::new(image.png, cx)))
+                        Page::Ready(cx.new(|cx| super::media::RasterImage::new(image, cx)))
                     }
                     Err(error) => Page::Failed(format!("{error:#}")),
                 };
@@ -156,7 +156,7 @@ impl PdfReader {
             .flex_none();
         match self.pages.get(&index).map(|(_, page)| page) {
             Some(Page::Ready(image)) => {
-                let source = super::media::PreparedImage::source(image);
+                let source = super::media::RasterImage::source(image);
                 let detail = source.clone();
                 paper = paper
                     .on_click(move |event, window, cx| {

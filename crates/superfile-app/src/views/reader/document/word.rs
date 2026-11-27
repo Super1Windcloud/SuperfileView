@@ -4,14 +4,17 @@ use gpui_kit::{
     prelude::FluentBuilder,
     *,
 };
-use std::{fmt::Write, sync::Arc};
+use std::{cell::RefCell, fmt::Write, rc::Rc, sync::Arc};
 use superfile_services::rich_documents::docx::{WordDocument, ir};
 
 use super::super::{editor_ink, editor_paper, find, media::PreparedImage};
 
 pub(super) struct WordView {
-    blocks: Arc<[Block]>,
-    search: find::PreviewGroup,
+    blocks: Rc<[Block]>,
+    paragraphs: SearchParagraphs,
+    list: ListState,
+    focus: FocusHandle,
+    partial: bool,
     _memory: superfile_services::resources::WorkingReservation,
 }
 
@@ -24,7 +27,7 @@ enum Block {
 }
 
 struct Text {
-    state: Entity<TextViewState>,
+    state: Rc<RefCell<ParagraphState>>,
     size: f32,
     font: Option<SharedString>,
     color: Option<[u8; 3]>,
@@ -34,11 +37,32 @@ struct Text {
     spacing: [f32; 4],
 }
 
+enum ParagraphState {
+    Pending(String),
+    Ready(Entity<TextViewState>),
+}
+
+fn text_entity(state: &RefCell<ParagraphState>, cx: &mut App) -> Entity<TextViewState> {
+    let mut state = state.borrow_mut();
+    match &*state {
+        ParagraphState::Ready(entity) => entity.clone(),
+        ParagraphState::Pending(html) => {
+            let entity = cx.new(|cx| TextViewState::html(html, cx));
+            *state = ParagraphState::Ready(entity.clone());
+            entity
+        }
+    }
+}
+
+const TABLE_ROWS_PER_BLOCK: usize = 32;
+
 struct Table {
-    widths: Vec<f32>,
+    widths: Arc<[f32]>,
     heights: Vec<f32>,
     cells: Vec<Cell>,
     scroll: ScrollHandle,
+    first: bool,
+    last: bool,
 }
 
 struct Cell {
@@ -50,6 +74,7 @@ struct Cell {
     vertical_align: Option<ir::CellVerticalAlign>,
     padding: [f32; 4],
     blocks: Vec<Block>,
+    continues: bool,
 }
 
 impl WordView {
@@ -57,24 +82,41 @@ impl WordView {
         let mut blocks = Vec::new();
         let mut paragraphs = Vec::new();
         for mut element in document.blocks {
-            if let Some(block) = build_block(&mut element, blocks.len(), &mut paragraphs, cx) {
+            if let ir::Element::Table(table) = &mut element {
+                let start = blocks.len();
+                let table = build_table(
+                    table,
+                    |row| start + row / TABLE_ROWS_PER_BLOCK,
+                    &mut paragraphs,
+                    cx,
+                );
+                blocks.extend(table.into_bands().into_iter().map(Block::Table));
+            } else if let Some(block) = build_block(&mut element, blocks.len(), &mut paragraphs, cx)
+            {
                 blocks.push(block);
             }
         }
         let list = ListState::new(blocks.len(), ListAlignment::Top, px(96.));
         Self {
             blocks: blocks.into(),
-            search: find::PreviewGroup {
-                paragraphs: paragraphs.into(),
-                list,
-                focus: cx.focus_handle(),
-            },
+            paragraphs,
+            list,
+            focus: cx.focus_handle(),
+            partial: document.partial,
             _memory: document.memory,
         }
     }
 
-    pub(super) fn search_target(&self) -> find::Target {
-        find::Target::Group(self.search.clone())
+    pub(super) fn search_target(&self, cx: &mut App) -> find::Target {
+        find::Target::Group(find::PreviewGroup {
+            paragraphs: self
+                .paragraphs
+                .iter()
+                .map(|(item, state)| (*item, text_entity(state, cx)))
+                .collect(),
+            list: self.list.clone(),
+            focus: self.focus.clone(),
+        })
     }
 
     pub(super) fn suspend(&self, cx: &mut App) {
@@ -85,30 +127,57 @@ impl WordView {
 
     pub(super) fn render(&self, cx: &App) -> impl IntoElement {
         let blocks = self.blocks.clone();
-        div()
+        v_flex()
             .id("word-continuous")
-            .track_focus(&self.search.focus)
+            .track_focus(&self.focus)
             .size_full()
             .relative()
             .bg(editor_paper(cx))
-            .child(
-                list(self.search.list.clone(), move |index, _, cx| {
-                    let scale = f32::from(crate::app::text_zoom::font_size(px(16.), cx)) / 16.;
+            .when(self.partial, |view| {
+                view.child(
                     div()
-                        .id(("word-block", index))
-                        .w_full()
                         .px_6()
-                        .py_1()
-                        .child(blocks[index].render(scale, editor_paper(cx), cx))
-                        .into_any_element()
-                })
-                .size_full(),
+                        .py_2()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(superfile_services::locale::tr(
+                            "Some Word content could not be read. This preview is incomplete.",
+                        )),
+                )
+            })
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .child(
+                        list(self.list.clone(), move |index, _, cx| {
+                            let scale =
+                                f32::from(crate::app::text_zoom::font_size(px(16.), cx)) / 16.;
+                            let paper = editor_paper(cx);
+                            let block = &blocks[index];
+                            let (top, bottom) = match block {
+                                Block::Table(table) => (table.first, table.last),
+                                _ => (true, true),
+                            };
+                            div()
+                                .id(("word-block", index))
+                                .w_full()
+                                .px_6()
+                                .when(top, |block| block.pt_1())
+                                .when(bottom, |block| block.pb_1())
+                                .child(block.render(scale, paper, cx))
+                                .into_any_element()
+                        })
+                        .size_full(),
+                    )
+                    .child(Scrollbar::vertical(&self.list)),
             )
-            .child(Scrollbar::vertical(&self.search.list))
     }
 }
 
-type SearchParagraphs = Vec<(usize, Entity<TextViewState>)>;
+type SearchParagraphs = Vec<(usize, Rc<RefCell<ParagraphState>>)>;
 
 fn build_blocks(
     elements: &mut [ir::Element],
@@ -130,7 +199,7 @@ fn build_block(
 ) -> Option<Block> {
     use ir::Element::*;
     let block = match element {
-        Paragraph(p) => Block::Text(text(p, None, item, paragraphs, cx)),
+        Paragraph(p) => Block::Text(text(p, None, item, paragraphs)),
         Heading(h) => {
             let level = h.clamped_level();
             let p = ir::Paragraph {
@@ -143,9 +212,9 @@ fn build_block(
                 background_color: h.background_color,
                 ..Default::default()
             };
-            Block::Text(text(&p, Some(level), item, paragraphs, cx))
+            Block::Text(text(&p, Some(level), item, paragraphs))
         }
-        Table(table) => Block::Table(build_table(table, item, paragraphs, cx)),
+        Table(table) => Block::Table(build_table(table, |_| item, paragraphs, cx)),
         Image(image) => {
             let Some(bytes) = image.data.take() else {
                 let label = image
@@ -157,7 +226,7 @@ fn build_block(
                     content: vec![ir::InlineContent::Text(ir::TextSpan::plain(label))],
                     ..Default::default()
                 };
-                return Some(Block::Text(text(&p, None, item, paragraphs, cx)));
+                return Some(Block::Text(text(&p, None, item, paragraphs)));
             };
             let extent = |display: Option<u64>, intrinsic: Option<u32>, fallback| {
                 display
@@ -188,7 +257,7 @@ fn build_block(
                 })],
                 ..Default::default()
             };
-            Block::Text(text(&p, None, item, paragraphs, cx))
+            Block::Text(text(&p, None, item, paragraphs))
         }
         ThematicBreak => Block::Rule,
         _ => return None,
@@ -233,7 +302,6 @@ fn text(
     heading: Option<u8>,
     item: usize,
     paragraphs: &mut SearchParagraphs,
-    cx: &mut App,
 ) -> Text {
     let mut html = String::from("<p>");
     let mut first = None;
@@ -297,7 +365,7 @@ fn text(
         }
     }
     html.push_str("</p>");
-    let state = cx.new(|cx| TextViewState::html(&html, cx));
+    let state = Rc::new(RefCell::new(ParagraphState::Pending(html)));
     paragraphs.push((item, state.clone()));
     let size = first
         .and_then(|span| span.font_size_half_pt)
@@ -356,7 +424,7 @@ fn twips(value: u32) -> f32 {
 
 fn build_table(
     table: &mut ir::Table,
-    item: usize,
+    item: impl Fn(usize) -> usize,
     paragraphs: &mut SearchParagraphs,
     cx: &mut App,
 ) -> Table {
@@ -406,16 +474,19 @@ fn build_table(
                 padding,
                 fill: source.background_color,
                 vertical_align: source.vertical_align.clone(),
-                blocks: build_blocks(&mut source.content, item, paragraphs, cx),
+                blocks: build_blocks(&mut source.content, item(row), paragraphs, cx),
+                continues: false,
             });
             column += columns;
         }
     }
     Table {
-        widths,
+        widths: widths.into(),
         heights,
         cells,
         scroll: ScrollHandle::new(),
+        first: true,
+        last: true,
     }
 }
 
@@ -437,7 +508,7 @@ impl Block {
         }
     }
 
-    fn render(&self, scale: f32, paper: Hsla, cx: &App) -> AnyElement {
+    fn render(&self, scale: f32, paper: Hsla, cx: &mut App) -> AnyElement {
         match self {
             Block::Text(text) => text.render(scale, paper, cx).into_any_element(),
             Block::Table(table) => table.render(scale, paper, cx).into_any_element(),
@@ -469,7 +540,7 @@ impl Block {
 }
 
 impl Text {
-    fn render(&self, scale: f32, paper: Hsla, cx: &App) -> Div {
+    fn render(&self, scale: f32, paper: Hsla, cx: &mut App) -> Div {
         let fill = self.fill.map(color).unwrap_or(paper);
         let ink_background = self.marked_background.map(color).unwrap_or(fill);
         let ink = self
@@ -486,7 +557,8 @@ impl Text {
                     white()
                 }
             });
-        let mut text = TextView::new(&self.state)
+        let state = text_entity(&self.state, cx);
+        let mut text = TextView::new(&state)
             .w_full()
             .selectable(true)
             .text_size(px(self.size * scale))
@@ -523,7 +595,50 @@ impl Text {
 }
 
 impl Table {
-    fn render(&self, scale: f32, paper: Hsla, cx: &App) -> Stateful<Div> {
+    fn into_bands(self) -> Vec<Self> {
+        if self.heights.len() <= TABLE_ROWS_PER_BLOCK {
+            return vec![self];
+        }
+        let count = self.heights.len().div_ceil(TABLE_ROWS_PER_BLOCK);
+        let mut bands: Vec<_> = self
+            .heights
+            .chunks(TABLE_ROWS_PER_BLOCK)
+            .enumerate()
+            .map(|(index, heights)| Self {
+                widths: self.widths.clone(),
+                heights: heights.to_vec(),
+                cells: Vec::new(),
+                scroll: self.scroll.clone(),
+                first: index == 0,
+                last: index + 1 == count,
+            })
+            .collect();
+        for mut cell in self.cells {
+            let end = cell.row + cell.rows;
+            let mut row = cell.row;
+            // Continue the background and outer edge of a merged cell across
+            // bands. Its searchable content lives in the first segment only.
+            while row < end {
+                let band = row / TABLE_ROWS_PER_BLOCK;
+                let next = ((band + 1) * TABLE_ROWS_PER_BLOCK).min(end);
+                bands[band].cells.push(Cell {
+                    column: cell.column,
+                    row: row % TABLE_ROWS_PER_BLOCK,
+                    columns: cell.columns,
+                    rows: next - row,
+                    fill: cell.fill,
+                    vertical_align: cell.vertical_align.clone(),
+                    padding: cell.padding,
+                    blocks: std::mem::take(&mut cell.blocks),
+                    continues: next < end,
+                });
+                row = next;
+            }
+        }
+        bands
+    }
+
+    fn render(&self, scale: f32, paper: Hsla, cx: &mut App) -> Stateful<Div> {
         let end = |index| i16::try_from(index).unwrap_or(i16::MAX);
         let grid = div()
             .grid()
@@ -562,9 +677,9 @@ impl Table {
                     .w(px(width * scale))
                     .min_w_0()
                     .border_r_1()
-                    .border_b_1()
                     .border_color(cx.theme().border)
-                    .when(cell.row == 0, |cell| cell.border_t_1())
+                    .when(!cell.continues, |cell| cell.border_b_1())
+                    .when(cell.row == 0 && self.first, |cell| cell.border_t_1())
                     .when(cell.column == 0, |cell| cell.border_l_1())
                     .bg(fill)
                     .pt(top)
@@ -605,11 +720,64 @@ impl Table {
 
 #[cfg(test)]
 mod tests {
-    use super::{Block, WordDocument, WordView, ir};
+    use super::{Block, ParagraphState, TABLE_ROWS_PER_BLOCK, WordDocument, WordView, ir};
     use gpui_kit::{
         AppContext, Bounds, Context, IntoElement, Render, TestAppContext, Window, WindowBounds,
         WindowOptions, point, px, size, test::TestWindowExt,
     };
+
+    #[gpui_kit::test]
+    fn long_table_bands_keep_merge_edges_and_search_item_positions(cx: &mut TestAppContext) {
+        let rows_per_band = TABLE_ROWS_PER_BLOCK;
+        let mut rows = vec![ir::TableRow::default(); rows_per_band * 2 + 1];
+        let cell = |label, rows| ir::TableCell {
+            row_span: rows,
+            content: vec![ir::Element::Paragraph(ir::Paragraph {
+                content: vec![ir::InlineContent::Text(ir::TextSpan::plain(label))],
+                ..Default::default()
+            })],
+            ..Default::default()
+        };
+        rows[rows_per_band - 1].cells = vec![cell("Merged across bands", 2)];
+        rows[rows_per_band].cells = vec![cell("Beside the merged cell", 1)];
+        rows[rows_per_band * 2].cells = vec![cell("Final row", 1)];
+        cx.update(|cx| {
+            let view = WordView::new(
+                WordDocument {
+                    blocks: vec![ir::Element::Table(ir::Table {
+                        column_widths_twips: vec![3000, 8400],
+                        rows,
+                        ..Default::default()
+                    })],
+                    memory: superfile_services::resources::pool()
+                        .reserve_working(1, 1)
+                        .unwrap(),
+                    partial: true,
+                },
+                cx,
+            );
+            let [
+                Block::Table(first),
+                Block::Table(middle),
+                Block::Table(last),
+            ] = &*view.blocks
+            else {
+                panic!("expected three table bands");
+            };
+            assert_eq!(first.heights.len(), rows_per_band);
+            assert_eq!(middle.heights.len(), rows_per_band);
+            assert_eq!(last.heights.len(), 1);
+            assert!(first.cells[0].continues);
+            assert!(middle.cells[0].blocks.is_empty());
+            assert_eq!(middle.cells[1].column, 1);
+            assert!(view.partial);
+            for ((item, state), expected) in view.paragraphs.iter().zip(0..) {
+                assert_eq!(*item, expected);
+                assert!(matches!(*state.borrow(), ParagraphState::Pending(_)));
+            }
+            assert_eq!(view.paragraphs.len(), 3);
+        });
+    }
 
     #[gpui_kit::test]
     fn merged_cells_keep_their_columns_and_wide_tables_scroll(cx: &mut TestAppContext) {
@@ -660,6 +828,7 @@ mod tests {
                     let document = WordDocument {
                         blocks: vec![ir::Element::Table(source)],
                         memory,
+                        partial: false,
                     };
                     cx.new(|cx| Fixture(WordView::new(document, cx)))
                 },
@@ -674,7 +843,7 @@ mod tests {
             };
             assert_eq!(table.cells[0].rows, 2);
             assert_eq!(table.cells[2].column, 1);
-            assert_eq!(table.widths, [200., 560.]);
+            assert_eq!(table.widths.as_ref(), [200., 560.]);
             let scroll = table.scroll.clone();
             let limit = scroll.max_offset().x;
             assert!(limit > px(0.));

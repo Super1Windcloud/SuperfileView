@@ -156,6 +156,34 @@ fn release_image(frame: ManagedFrame, cx: &mut App) {
     });
 }
 
+pub(super) struct RasterImage(Option<ManagedFrame>);
+
+impl RasterImage {
+    pub(super) fn new(
+        frame: superfile_services::media::RasterFrame,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        cx.on_release(|view, cx| {
+            if let Some(frame) = view.0.take() {
+                release_image(frame, cx);
+            }
+        })
+        .detach();
+        Self(Some(ManagedFrame::new(frame)))
+    }
+
+    pub(super) fn source(entity: &Entity<Self>) -> ImageSource {
+        let entity = entity.clone();
+        ImageSource::Custom(Arc::new(move |_, cx| {
+            entity
+                .read(cx)
+                .0
+                .as_ref()
+                .map(|frame| Ok(frame.image.clone()))
+        }))
+    }
+}
+
 /// Encoded preview data and its on-demand raster have the same reader owner.
 pub(super) struct PreparedImage {
     scene: Option<Arc<GeneratedScene>>,

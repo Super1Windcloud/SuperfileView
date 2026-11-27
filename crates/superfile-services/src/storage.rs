@@ -1,17 +1,69 @@
 //! Application-owned SQLite state. All entry points are blocking services.
 use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 mod migration;
 pub(crate) mod sessions;
 
+const DATABASE_NAME: &str = "superfile.sqlite3";
+const SCHEMA_VERSION: i64 = 3;
+
 pub fn initialize() -> Result<()> {
     let directory = crate::preferences::directory()?;
-    let mut connection = open_at(&directory)?;
+    initialize_at(&directory)
+}
+
+// Called only by the desktop instance owner, before opening any live SQLite
+// connections. Other storage entry points may already have active connections.
+fn initialize_at(directory: &Path) -> Result<()> {
+    preflight(directory)?;
+    let mut connection = open_at(directory)?;
     let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    migration::archive_sources(&tx, &directory)?;
+    migration::archive_sources(&tx, directory)?;
     tx.commit()?;
+    Ok(())
+}
+
+fn preflight(directory: &Path) -> Result<()> {
+    let mut has_sidecars = false;
+    for suffix in ["-wal", "-shm", "-journal"] {
+        has_sidecars |= directory
+            .join(format!("{DATABASE_NAME}{suffix}"))
+            .try_exists()?;
+    }
+    let path = directory.join(DATABASE_NAME);
+    match fs::metadata(&path) {
+        Ok(metadata) if metadata.is_file() && metadata.len() == 0 && !has_sidecars => return Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && !has_sidecars => {
+            return Ok(());
+        }
+        Err(error) => return Err(error).context("Cannot open Superfile application database"),
+        Ok(metadata) => ensure!(
+            metadata.is_file() && crate::sqlite::has_header(&path),
+            "Invalid Superfile application database header"
+        ),
+    }
+    if has_sidecars {
+        // Opening a damaged database can checkpoint or remove its sidecars,
+        // even on error. Let SQLite recover and check the private copy first.
+        let snapshot = crate::sqlite::prepare(&path)?;
+        let db = Connection::open(
+            snapshot
+                .database
+                .as_ref()
+                .context("Missing database snapshot")?,
+        )?;
+        let result: String = db.query_row("PRAGMA quick_check(1)", [], |row| row.get(0))?;
+        ensure!(
+            result == "ok",
+            "Superfile application database is damaged: {result}"
+        );
+        schema_version(&db)?;
+    }
     Ok(())
 }
 pub(crate) fn open() -> Result<Connection> {
@@ -19,7 +71,7 @@ pub(crate) fn open() -> Result<Connection> {
 }
 pub(crate) fn open_at(directory: &Path) -> Result<Connection> {
     std::fs::create_dir_all(directory)?;
-    let path = directory.join("superfile.sqlite3");
+    let path = directory.join(DATABASE_NAME);
     if !path.try_exists()? {
         // Close the private temporary file before publishing it. Opening and
         // closing the live file outside SQLite can release its POSIX locks.
@@ -33,12 +85,7 @@ pub(crate) fn open_at(directory: &Path) -> Result<Connection> {
     let mut db = Connection::open(&path).context("Cannot open Superfile application database")?;
     db.busy_timeout(std::time::Duration::from_secs(10))?;
     db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;")?;
-    let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    ensure!(
-        version <= 3,
-        "Superfile database was created by a newer application version"
-    );
-    if version < 3 {
+    if schema_version(&db)? < SCHEMA_VERSION {
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if version == 0 {
@@ -46,7 +93,7 @@ pub(crate) fn open_at(directory: &Path) -> Result<Connection> {
             migration::import(&tx, directory).context(
                 "Cannot migrate existing Superfile data; original files have been preserved",
             )?;
-        } else if version < 3 {
+        } else if version < SCHEMA_VERSION {
             if version == 1 {
                 tx.execute_batch(
                     "INSERT INTO records(kind,id,payload)
@@ -67,6 +114,15 @@ pub(crate) fn open_at(directory: &Path) -> Result<Connection> {
         db.pragma_update(None, "journal_mode", "WAL")?;
     }
     Ok(db)
+}
+
+fn schema_version(db: &Connection) -> Result<i64> {
+    let version = db.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    ensure!(
+        version <= SCHEMA_VERSION,
+        "Superfile database was created by a newer application version"
+    );
+    Ok(version)
 }
 pub(crate) fn setting(db: &Connection, key: &str) -> Result<Option<String>> {
     Ok(db
@@ -127,6 +183,52 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
     use superfile_core::session::{SessionTab, WorkspaceSession};
+
+    #[test]
+    fn failed_initialization_keeps_corrupt_database_and_sidecars() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let files = [
+            ("superfile.sqlite3", b"not a SQLite database".as_slice()),
+            ("superfile.sqlite3-wal", b"fixture WAL"),
+            ("superfile.sqlite3-shm", b"fixture SHM"),
+        ];
+        for (name, data) in files {
+            fs::write(directory.path().join(name), data)?;
+        }
+        assert!(initialize_at(directory.path()).is_err());
+        for (name, data) in files {
+            assert_eq!(fs::read(directory.path().join(name))?, data);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn startup_preflight_checks_committed_wal_without_modifying_it() -> Result<()> {
+        let writer_directory = tempfile::tempdir()?;
+        let fixture = tempfile::tempdir()?;
+        let writer = open_at(writer_directory.path())?;
+        writer.execute_batch("PRAGMA wal_autocheckpoint=0; PRAGMA user_version=4;")?;
+        let names = [
+            DATABASE_NAME,
+            "superfile.sqlite3-wal",
+            "superfile.sqlite3-shm",
+        ];
+        let copies = names.map(|name| fixture.path().join(name));
+        for (name, copy) in names.into_iter().zip(&copies) {
+            fs::copy(writer_directory.path().join(name), copy)?;
+        }
+        drop(writer);
+        let before = copies
+            .iter()
+            .map(fs::read)
+            .collect::<std::io::Result<Vec<_>>>()?;
+        let error = initialize_at(fixture.path()).unwrap_err();
+        assert!(error.to_string().contains("newer application version"));
+        for (copy, before) in copies.iter().zip(before) {
+            assert_eq!(fs::read(copy)?, before);
+        }
+        Ok(())
+    }
 
     #[test]
     fn opening_another_wal_connection_preserves_the_active_transaction() -> Result<()> {

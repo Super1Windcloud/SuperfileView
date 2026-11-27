@@ -1,4 +1,5 @@
 use crate::limits as reader_limits;
+use crate::platform::{file_identity, replacement};
 use std::{fs::File, io::Read, path::Path};
 
 use anyhow::{Context, Result, ensure};
@@ -207,15 +208,7 @@ pub(crate) fn publish_file(
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
     write(temporary.as_file_mut())?;
     if destination.existing.is_some() {
-        let metadata = std::fs::metadata(&destination.target)?;
-        ensure!(
-            !metadata.permissions().readonly(),
-            "{}",
-            crate::locale::tr("The destination is read-only")
-        );
-        temporary
-            .as_file()
-            .set_permissions(metadata.permissions())?;
+        replacement::copy_metadata(&File::open(&destination.target)?, temporary.as_file())?;
     }
     temporary.as_file().sync_all()?;
     ensure!(
@@ -225,9 +218,8 @@ pub(crate) fn publish_file(
     );
     cancel.check()?;
     if destination.existing.is_some() {
-        temporary
-            .persist(&destination.target)
-            .map_err(|error| error.error)?;
+        replacement::single_link(&File::open(&destination.target)?)?;
+        replacement::publish(temporary, &destination.target)?;
     } else {
         temporary
             .persist_noclobber(&destination.target)
@@ -310,14 +302,17 @@ pub fn save_document_cancellable(
     let target = path
         .canonicalize()
         .context("The file was moved or deleted; your edits have not been saved")?;
-    let metadata = std::fs::metadata(&target)?;
+    let original = File::open(&target)?;
+    let metadata = original.metadata()?;
+    let identity = file_identity(&original)?;
     ensure!(metadata.is_file(), "Not a regular file");
     ensure!(
         !metadata.permissions().readonly(),
         "File is read-only; your edits have not been saved"
     );
+    replacement::single_link(&original)?;
     ensure!(
-        matches_disk(&target, expected, cancel)?,
+        matches_disk(&target, identity, expected, cancel)?,
         "File changed on disk. Save canceled to avoid overwriting external changes; your edits are still open."
     );
     let parent = target.parent().context("File has no parent folder")?;
@@ -327,36 +322,46 @@ pub fn save_document_cancellable(
         std::io::Cursor::new(text.as_bytes()),
         temporary.as_file_mut(),
     )?;
-    temporary
-        .as_file()
-        .set_permissions(metadata.permissions())?;
+    replacement::copy_metadata(&original, temporary.as_file())?;
+    drop(original);
     temporary.as_file().sync_all()?;
     ensure!(
-        matches_disk(&target, expected, cancel)?,
+        path.canonicalize()? == target && matches_disk(&target, identity, expected, cancel)?,
         "File changed while saving; your edits are still open."
     );
     cancel.check()?;
-    temporary
-        .persist(&target)
-        .map_err(|e| e.error)
+    replacement::publish(temporary, &target)
         .context("Cannot replace the file; your edits are still open")?;
     Ok(())
 }
 
 // Compare in fixed-size chunks instead of allocating another complete document
 // for each of the two optimistic concurrency checks during autosave.
-fn matches_disk(path: &Path, expected: &str, cancel: &crate::work::Cancellation) -> Result<bool> {
+fn matches_disk(
+    path: &Path,
+    identity: (u64, u64),
+    expected: &str,
+    cancel: &crate::work::Cancellation,
+) -> Result<bool> {
     let mut file = File::open(path)?;
-    if file.metadata()?.len() != expected.len() as u64 {
+    let initial = file.metadata()?;
+    if file_identity(&file)? != identity || initial.len() != expected.len() as u64 {
         return Ok(false);
     }
+    replacement::single_link(&file)?;
     let mut buffer = vec![0; reader_limits::IO_BUFFER_BYTES];
     let mut offset = 0;
     loop {
         cancel.check()?;
         let count = file.read(&mut buffer)?;
         if count == 0 {
-            return Ok(offset == expected.len());
+            let current = File::open(path)?;
+            let metadata = current.metadata()?;
+            replacement::single_link(&current)?;
+            return Ok(offset == expected.len()
+                && file_identity(&current)? == identity
+                && metadata.len() == initial.len()
+                && metadata.modified().ok() == initial.modified().ok());
         }
         if expected.as_bytes().get(offset..offset + count) != Some(&buffer[..count]) {
             return Ok(false);
@@ -427,6 +432,22 @@ mod tests {
         fs::remove_file(&path)?;
         assert!(save_document(&path, "external", "draft").is_err());
         assert!(!path.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn saving_rejects_hardlinks_without_splitting_them() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("original.txt");
+        let alias = dir.path().join("alias.txt");
+        fs::write(&path, "original")?;
+        fs::hard_link(&path, &alias)?;
+        let identity = file_identity(&File::open(&path)?)?;
+        assert!(save_document(&path, "original", "edited").is_err());
+        for path in [path, alias] {
+            assert_eq!(fs::read_to_string(&path)?, "original");
+            assert_eq!(file_identity(&File::open(path)?)?, identity);
+        }
         Ok(())
     }
 

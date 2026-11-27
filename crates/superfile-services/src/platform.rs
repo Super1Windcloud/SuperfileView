@@ -1,4 +1,5 @@
 //! Host filesystem and desktop operations. SFTP paths use separate protocol encoding.
+pub(crate) mod replacement;
 use anyhow::{Context, Result};
 use std::{
     fs::File,

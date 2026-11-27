@@ -108,7 +108,7 @@ git push origin v0.0.3
 | Linux x64 | `.deb` 安装包、`.tar.gz` 便携包 |
 | macOS Apple Silicon | ARM64 `.dmg` 安装包、`.tar.gz` 应用包 |
 
-`main` 分支上的 Cargo 清单、锁文件、工具链配置或发布工作流变更会预热三个平台的 Release 构建缓存。标签构建恢复这些缓存，不上传标签作用域的副本。标签流水线只执行版本校验、Release 编译、打包校验和发布。工作区测试、Clippy、格式与仓库审查作为发布流程之外的开发检查。三个构建均完成且 6 个包完整后，统一生成 `SHA256SUMS.txt` 和 `latest.json`，共 8 个附件并上传至对应的 GitHub Release，自动生成发布说明；上传后检查附件名称和大小。任一平台失败则不进入发布作业。权限只在发布作业提升至 `contents: write`，使用 GitHub 自动提供的 [`GITHUB_TOKEN`](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token)，不需要额外 PAT。
+标签构建固定使用 Rust 1.99.1，并在 GitHub Actions 存在匹配的缓存时恢复。手动推送标签前请先执行本地检查。标签流水线只执行版本校验、Release 编译、打包校验和发布。工作区测试、Clippy、格式与仓库审查作为发布流程之外的开发检查。三个构建均完成且 6 个包完整后，统一生成 `SHA256SUMS.txt` 和 `latest.json`，共 8 个附件并上传至对应的 GitHub Release，自动生成发布说明；上传后检查附件名称和大小。任一平台失败则不进入发布作业。权限只在发布作业提升至 `contents: write`，使用 GitHub 自动提供的 [`GITHUB_TOKEN`](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token)，不需要额外 PAT。
 
 自动发布提供 macOS Apple Silicon 安装包；Intel macOS 仍可从源码手动构建和打包。此矩阵用于工作流调整后的新标签；v0.0.4 保留其标签提交内的四目标配置。
 

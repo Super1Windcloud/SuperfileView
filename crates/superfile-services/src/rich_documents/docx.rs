@@ -8,6 +8,7 @@ use std::{io::Cursor, path::Path};
 pub struct WordDocument {
     pub blocks: Vec<ir::Element>,
     pub memory: resources::WorkingReservation,
+    pub partial: bool,
 }
 
 pub(super) fn prepare(path: &Path, cancel: &Cancellation) -> Result<WordDocument> {
@@ -27,6 +28,7 @@ pub(super) fn prepare(path: &Path, cancel: &Cancellation) -> Result<WordDocument
     )?;
     cancel.check()?;
     let document = document.to_ir();
+    let partial = document.metadata.text_truncated;
     cancel.check()?;
     let blocks: Vec<_> = document
         .sections
@@ -37,7 +39,11 @@ pub(super) fn prepare(path: &Path, cancel: &Cancellation) -> Result<WordDocument
         !blocks.is_empty(),
         "The Word document has no displayable content"
     );
-    Ok(WordDocument { blocks, memory })
+    Ok(WordDocument {
+        blocks,
+        memory,
+        partial,
+    })
 }
 
 pub fn image_preview(bytes: &[u8], cancel: &Cancellation) -> Result<crate::media::RasterFrame> {

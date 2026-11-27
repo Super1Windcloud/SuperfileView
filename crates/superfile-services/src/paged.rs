@@ -466,6 +466,7 @@ pub fn save_page_cancellable(
     text: &str,
     cancel: &crate::work::Cancellation,
 ) -> Result<PageSaved> {
+    use crate::platform::replacement;
     use anyhow::Context;
     let _lock = crate::files::save_lock(cancel)?;
     ensure!(!text.contains('\0'), "Text contains a null byte");
@@ -479,12 +480,23 @@ pub fn save_page_cancellable(
     );
     let mut output =
         tempfile::NamedTempFile::new_in(target.parent().context("File has no parent folder")?)?;
-    let permissions = copy_page_edit(page, &target, text, output.as_file_mut(), cancel)?;
-    ensure!(!permissions.readonly(), "File is read-only");
-    output.as_file().set_permissions(permissions)?;
+    let source = File::open(&target)?;
+    validate_page_file(page, &source)?;
+    replacement::single_link(&source)?;
+    copy_page_edit(page, &target, text, output.as_file_mut(), cancel)?;
+    replacement::copy_metadata(&source, output.as_file())?;
+    drop(source);
     output.as_file().sync_all()?;
+    ensure!(
+        page.path.canonicalize()? == target,
+        "File changed while saving; your edits are still open."
+    );
+    let check = File::open(&target)?;
+    validate_page_file(page, &check)?;
+    replacement::single_link(&check)?;
+    drop(check);
     cancel.check()?;
-    output.persist(&target).map_err(|error| error.error)?;
+    replacement::publish(output, &target)?;
     let saved = std::fs::metadata(&target)?;
     Ok(PageSaved {
         end: page.start + text.len() as u64,
@@ -500,17 +512,10 @@ pub(crate) fn copy_page_edit(
     text: &str,
     output: &mut File,
     cancel: &crate::work::Cancellation,
-) -> Result<std::fs::Permissions> {
+) -> Result<()> {
     ensure!(!text.contains('\0'), "Text contains a null byte");
     let mut source = File::open(target)?;
-    let before = source.metadata()?;
-    ensure!(
-        before.is_file()
-            && before.len() == page.total
-            && before.modified().ok() == page.modified
-            && crate::platform::file_identity(&source)? == page.identity,
-        "File changed on disk. Save canceled; your edits are still open."
-    );
+    validate_page_file(page, &source)?;
     ensure!(
         page.end >= page.start
             && page.end <= page.total
@@ -537,15 +542,19 @@ pub(crate) fn copy_page_edit(
     source.seek(SeekFrom::Start(page.end))?;
     cancel.copy(&mut source, output)?;
     drop(source);
-    let check = File::open(target)?;
-    let after = check.metadata()?;
+    validate_page_file(page, &File::open(target)?)
+}
+
+fn validate_page_file(page: &PageEdit, file: &File) -> Result<()> {
+    let metadata = file.metadata()?;
     ensure!(
-        after.len() == before.len()
-            && after.modified().ok() == before.modified().ok()
-            && crate::platform::file_identity(&check)? == page.identity,
-        "File changed while saving; your edits are still open."
+        metadata.is_file()
+            && metadata.len() == page.total
+            && metadata.modified().ok() == page.modified
+            && crate::platform::file_identity(file)? == page.identity,
+        "File changed on disk. Save canceled; your edits are still open."
     );
-    Ok(before.permissions())
+    Ok(())
 }
 
 /// Read a text member without extracting its complete uncompressed contents.

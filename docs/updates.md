@@ -22,7 +22,7 @@ Windows x64 的标准 Scoop 便携安装支持“重启并更新”：新归档�
 
 ## 发布契约
 
-`main` 分支负责预热三个平台的 Release 构建缓存。标签构建从 `main` 恢复可用的 Rust 缓存，不上传标签作用域的副本。标签发布不运行工作区测试、Clippy、格式和仓库审查任务；这些检查由开发验证执行。自动发布和更新清单采用三个目标；macOS Intel 仍可手动构建、打包。v0.0.4 已启动的流程保留其原有四目标配置，新的矩阵从后续标签生效。
+标签构建固定使用 Rust 1.99.1，在 GitHub Actions 有匹配条目时恢复构建缓存。标签发布不运行工作区测试、Clippy、格式和仓库审查任务；这些检查由开发验证执行。自动发布和更新清单采用三个目标；macOS Intel 仍可手动构建、打包。v0.0.4 已启动的流程保留其原有四目标配置，新的矩阵从后续标签生效。
 
 推送版本标签后，工作流校验标签后，完成 Windows x64、Linux x64、macOS ARM64 的 Release 编译和打包，校验 6 个安装包/便携归档，再生成 `SHA256SUMS.txt` 和 `latest.json`，共上传 8 个附件。Manifest 含版本、标签、发布时间、发布页面，以及三个更新归档的 OS、架构、格式、字节数和 SHA-256。Windows 更新选择 `.zip`，Linux/macOS 选择 `.tar.gz`；原有 NSIS、DEB、DMG 安装包仍正常发布。
 
@@ -33,7 +33,7 @@ python3 scripts/package/release.py verify v1.2.3 --directory package-dist --chec
 
 预发布标签生成对应 Manifest，但不会移动 GitHub 的 latest 稳定版入口。客户端默认地址是上面的主仓库；工作流通过编译时 `SUPERFILE_UPDATE_MANIFEST_URL` 自动指向当前仓库，Fork 不会检查主仓库的版本。此参数仅配置公开静态地址，不能用于存放凭据。
 
-下载由上游引擎强制 HTTPS、字节数上限和 SHA-256 校验。客户端额外验证仓库、版本、标签、平台、架构与附件名称一致；解包拒绝越界路径、符号/硬链接、特殊文件、重复写入同一目标和超过 4 GiB 的展开内容。macOS 校验 bundle ID、可执行文件名和版本。安装使用纯 Rust 解包与同卷重命名；替换失败会尝试恢复旧版本，并保留备份及错误详情。运行时不依赖 `tar`、`hdiutil`、`ditto`、PowerShell 或 shell 重启脚本。
+下载由上游引擎强制 HTTPS、字节数上限和 SHA-256 校验。客户端额外验证仓库、版本、标签、平台、架构与附件名称一致；解包拒绝越界路径、符号/硬链接、特殊文件、重复写入同一目标和超过 4 GiB 的展开内容。macOS 校验 bundle ID、可执行文件名和版本。常规安装使用纯 Rust 解包，随后在同卷一次完成替换，并保留旧版本以供回退。Scoop 安装由单独的目录切换流程处理。运行时不依赖 `tar`、`hdiutil`、`ditto`、PowerShell 或 shell 重启脚本。
 
 当前校验基于 HTTPS 和发布附件中的 SHA-256，未配置独立签名密钥、Windows Authenticode 或 Apple Developer ID/公证；SHA-256 不等同于发布者签名。CI 的既有 macOS ad-hoc 签名保留。客户端无需 Token，CI 发布仍使用 GitHub 自动提供的 `GITHUB_TOKEN`。
 
