@@ -65,9 +65,15 @@ pub(crate) fn remember_window(group: String, sessions: Vec<WorkspaceSession>, cx
         return;
     }
     let saved = cx.global_mut::<SavedWorkspaces>();
-    if saved.restoring || saved.windows.get(&group) == Some(&sessions) {
+    if saved.restoring {
         return;
     }
+    // A second saved group would restore as another OS window.
+    let current = saved.windows.len() == 1 && saved.windows.get(&group) == Some(&sessions);
+    if current {
+        return;
+    }
+    saved.windows.retain(|key, _| key == &group);
     saved.windows.insert(group, sessions);
     let windows = saved.windows.clone();
     let previous = saved.window_write.take();
@@ -95,40 +101,49 @@ pub(crate) fn restore_windows(cx: &mut App) -> bool {
 }
 
 fn restore_groups(windows: BTreeMap<String, Vec<WorkspaceSession>>, cx: &mut App) -> bool {
-    let restored = !windows.is_empty();
+    if windows.is_empty() {
+        return false;
+    }
     let was_restoring = cx.global::<SavedWorkspaces>().restoring;
     cx.global_mut::<SavedWorkspaces>().restoring = true;
+    let mut merged = Vec::new();
     for (group, mut sessions) in windows {
-        let exists = super::OpenWorkspaces::windows(cx)
-            .into_iter()
-            .any(|(view, _)| {
-                view.upgrade()
-                    .and_then(|view| {
-                        view.read(cx)
-                            .workspace_window
-                            .as_ref()
-                            .and_then(|host| host.upgrade())
-                    })
-                    .is_some_and(|host| host.read(cx).group == group)
-            });
-        if exists {
-            continue;
-        }
         if sessions.is_empty() {
             sessions.push(WorkspaceSession {
                 show_home: true,
+                window_group: Some(group.clone()),
                 ..Default::default()
             });
         }
-        let active = sessions
-            .iter()
-            .position(|session| session.window_active)
-            .unwrap_or(sessions.len() - 1);
-        cx.global_mut::<SavedWorkspaces>()
-            .windows
-            .insert(group.clone(), sessions.clone());
         for mut session in sessions {
-            session.window_group = Some(group.clone());
+            if session.window_group.is_none() {
+                session.window_group = Some(group.clone());
+            }
+            merged.push(session);
+        }
+    }
+    // The later active group stays selected. Both groups share one OS window.
+    let active = merged
+        .iter()
+        .rposition(|session| session.window_active)
+        .unwrap_or(merged.len() - 1);
+    let canonical = merged[active]
+        .window_group
+        .clone()
+        .unwrap_or_else(|| "window".into());
+    for (index, session) in merged.iter_mut().enumerate() {
+        session.window_group = Some(canonical.clone());
+        session.window_active = index == active;
+    }
+    let already_open = super::OpenWorkspaces::windows(cx)
+        .into_iter()
+        .any(|(view, _)| {
+            view.upgrade()
+                .and_then(|view| view.read(cx).workspace_window.as_ref()?.upgrade())
+                .is_some_and(|host| host.read(cx).group == canonical)
+        });
+    if !already_open {
+        for session in merged.clone() {
             super::open_restored_workspace_with_session(session, cx);
         }
         for (view, handle) in super::OpenWorkspaces::windows(cx) {
@@ -136,7 +151,7 @@ fn restore_groups(windows: BTreeMap<String, Vec<WorkspaceSession>>, cx: &mut App
                 .upgrade()
                 .and_then(|view| view.read(cx).workspace_window.as_ref()?.upgrade());
             if let Some(host) = host
-                && host.read(cx).group == group
+                && host.read(cx).group == canonical
             {
                 let _ = handle.update(cx, |_, window, cx| {
                     host.update(cx, |host, cx| host.restore_selection(active, window, cx));
@@ -145,8 +160,11 @@ fn restore_groups(windows: BTreeMap<String, Vec<WorkspaceSession>>, cx: &mut App
             }
         }
     }
-    cx.global_mut::<SavedWorkspaces>().restoring = was_restoring;
-    restored
+    let saved = cx.global_mut::<SavedWorkspaces>();
+    saved.windows.clear();
+    saved.windows.insert(canonical, merged);
+    saved.restoring = was_restoring;
+    true
 }
 
 pub(super) fn checkpoint_windows(cx: &mut App) {
@@ -269,6 +287,79 @@ mod tests {
             let home = host.read(cx).slots[1].view.read(cx).update_session(cx);
             assert!(home.window_active);
             assert!(home.show_home);
+        });
+    }
+
+    #[gpui_kit::test]
+    fn startup_merges_saved_window_groups_into_one_window(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        cx.update(|cx| crate::app::remote::init(Default::default(), cx));
+        let temp = tempfile::tempdir().unwrap();
+        let older = temp.path().join("older");
+        let newer = temp.path().join("newer");
+        std::fs::create_dir(&older).unwrap();
+        std::fs::create_dir(&newer).unwrap();
+        let older_session = WorkspaceSession {
+            roots: vec![older],
+            workspace_id: Some("older".into()),
+            window_group: Some("window-1".into()),
+            window_active: true,
+            ..Default::default()
+        };
+        let newer_session = WorkspaceSession {
+            roots: vec![newer],
+            workspace_id: Some("newer".into()),
+            window_group: Some("window-2".into()),
+            window_active: true,
+            ..Default::default()
+        };
+        cx.update(|cx| {
+            cx.set_global(super::super::OpenWorkspaces::default());
+            cx.set_global(SavedWorkspaces {
+                sessions: BTreeMap::new(),
+                write: None,
+                windows: BTreeMap::from([
+                    ("window-1".into(), vec![older_session]),
+                    ("window-2".into(), vec![newer_session]),
+                ]),
+                window_write: None,
+                restoring: true,
+            });
+            assert!(restore_windows(cx));
+            assert_eq!(cx.windows().len(), 1);
+            assert_eq!(
+                cx.global::<SavedWorkspaces>()
+                    .windows
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                vec!["window-2".to_string()]
+            );
+            let (view, _) = super::super::OpenWorkspaces::windows(cx)
+                .into_iter()
+                .next()
+                .unwrap();
+            let host = view
+                .upgrade()
+                .unwrap()
+                .read(cx)
+                .workspace_window
+                .as_ref()
+                .unwrap()
+                .upgrade()
+                .unwrap();
+            let window = host.read(cx);
+            assert_eq!(window.group, "window-2");
+            assert_eq!(window.active, 1);
+            assert_eq!(
+                window
+                    .slots
+                    .iter()
+                    .map(|slot| slot.workspace.id.as_str())
+                    .collect::<Vec<_>>(),
+                ["older", "newer"]
+            );
+            cx.remove_global::<SavedWorkspaces>();
         });
     }
 }

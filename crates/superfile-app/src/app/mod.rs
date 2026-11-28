@@ -1074,28 +1074,65 @@ fn open_restored_workspace_with_session(
     open_workspace_session(None, Some(session), cx);
 }
 
+fn existing_workspace_host(
+    cx: &App,
+) -> Option<(
+    Entity<crate::views::workspace_window::WorkspaceWindow>,
+    AnyWindowHandle,
+)> {
+    let active = cx.active_window();
+    let mut fallback = None;
+    for (view, handle) in OpenWorkspaces::windows(cx) {
+        let Some(view) = view.upgrade() else {
+            continue;
+        };
+        let Some(host) = view
+            .read(cx)
+            .workspace_window
+            .as_ref()
+            .and_then(|host| host.upgrade())
+        else {
+            continue;
+        };
+        if Some(handle) == active {
+            return Some((host, handle));
+        }
+        if fallback.is_none() {
+            fallback = Some((host, handle));
+        }
+    }
+    fallback
+}
+
+fn append_workspace(
+    path: Option<std::path::PathBuf>,
+    session: Option<superfile_core::session::WorkspaceSession>,
+    cx: &mut App,
+) -> Option<(Entity<Workspace>, AnyWindowHandle)> {
+    let (host, handle) = existing_workspace_host(cx)?;
+    let view = handle
+        .update(cx, |_, window, cx| {
+            let view = host.update(cx, |host, cx| host.append(path, session, window, cx));
+            window.activate_window();
+            view
+        })
+        .ok()?;
+    cx.activate(true);
+    Some((view, handle))
+}
+
 fn open_workspace_session(
     path: Option<std::path::PathBuf>,
     session: Option<superfile_core::session::WorkspaceSession>,
     cx: &mut App,
 ) {
-    if let Some(group) = session
-        .as_ref()
-        .and_then(|session| session.window_group.as_ref())
-    {
-        let existing = OpenWorkspaces::windows(cx)
-            .into_iter()
-            .find_map(|(view, handle)| {
-                let view = view.upgrade()?;
-                let host = view.read(cx).workspace_window.as_ref()?.upgrade()?;
-                (host.read(cx).group == *group).then_some((host, handle))
-            });
-        if let Some((host, handle)) = existing {
-            let _ = handle.update(cx, |_, window, cx| {
-                host.update(cx, |host, cx| host.append(path, session, window, cx));
-            });
-            return;
+    // Keep a single OS window. New Window, CLI --new, and a second saved
+    // window group all become workspace slots in the window already open.
+    if existing_workspace_host(cx).is_some() {
+        if append_workspace(path, session, cx).is_none() {
+            log::error!("Cannot reuse the Superfile window");
         }
+        return;
     }
     let options = workspace_window_options(cx);
     match gpui_kit::open_window(options, cx, |window, cx| {
@@ -1143,6 +1180,9 @@ fn workspace_window_options(cx: &App) -> WindowOptions {
 pub(crate) fn open_detached_window(
     cx: &mut App,
 ) -> anyhow::Result<(Entity<Workspace>, AnyWindowHandle)> {
+    if let Some(reused) = append_workspace(None, None, cx) {
+        return Ok(reused);
+    }
     let (handle, host) = gpui_kit::open_window(workspace_window_options(cx), cx, |window, cx| {
         let host = cx.new(crate::views::workspace_window::WorkspaceWindow::new);
         host.update(cx, |host, cx| host.append(None, None, window, cx));
@@ -1325,8 +1365,19 @@ mod window_tests {
         });
         assert!(active_folders.contains(&add_path));
 
-        // `--new` opens a fresh window instead of reusing the current window.
+        // `--new` adds a workspace slot in the only window.
         let windows_before = cx.update(|cx| cx.windows().len());
+        let slots_before = cx.update(|cx| {
+            view.read(cx)
+                .workspace_window
+                .as_ref()
+                .unwrap()
+                .upgrade()
+                .unwrap()
+                .read(cx)
+                .slots
+                .len()
+        });
         let new_url = superfile_services::cli::encode_open_cli_url(
             &superfile_services::cli::CliOpenRequest {
                 new_window: true,
@@ -1337,7 +1388,21 @@ mod window_tests {
         .unwrap();
         cx.update(|cx| super::open_system_files(vec![new_url], cx));
         cx.run_until_parked();
-        assert_eq!(cx.update(|cx| cx.windows().len()), windows_before + 1);
+        assert_eq!(cx.update(|cx| cx.windows().len()), windows_before);
+        assert_eq!(
+            cx.update(|cx| {
+                view.read(cx)
+                    .workspace_window
+                    .as_ref()
+                    .unwrap()
+                    .upgrade()
+                    .unwrap()
+                    .read(cx)
+                    .slots
+                    .len()
+            }),
+            slots_before + 1
+        );
     }
 
     #[gpui_kit::test]
