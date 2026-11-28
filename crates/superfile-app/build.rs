@@ -11,7 +11,7 @@ fn main() {
         println!("cargo:rustc-link-arg-bin=superfile=/STACK:8388608");
     }
     embed_build_identity();
-    embed_application_icon();
+    embed_windows_resources();
     println!("cargo:rustc-env=SUPERFILE_BUILD_NUMBER=1");
     println!("cargo:rerun-if-changed=../../assets/reader-limits.json");
     println!("cargo:rerun-if-changed=../../scripts/generate-reader-limits.py");
@@ -34,22 +34,53 @@ fn main() {
     );
 }
 
-fn embed_application_icon() {
+fn embed_windows_resources() {
     println!("cargo:rerun-if-changed=../../assets/windows/Superfile.ico");
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }
     let icon = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap())
         .join("../../assets/windows/Superfile.ico");
-    let resource = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("superfile-icon.rc");
+    let icon = icon.to_string_lossy().replace('\\', "/");
+    let version = env!("CARGO_PKG_VERSION");
+    let major = env!("CARGO_PKG_VERSION_MAJOR");
+    let minor = env!("CARGO_PKG_VERSION_MINOR");
+    let patch = env!("CARGO_PKG_VERSION_PATCH");
+    let resource = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("superfile.rc");
     std::fs::write(
         &resource,
-        format!("1 ICON \"{}\"\n", icon.to_string_lossy().replace('\\', "/")),
+        format!(
+            r#"1 ICON "{icon}"
+
+LANGUAGE 0x09, 0x01
+1 VERSIONINFO
+FILEVERSION {major},{minor},{patch},0
+PRODUCTVERSION {major},{minor},{patch},0
+FILEOS 0x40004
+FILETYPE 0x1
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "Superfile\0"
+            VALUE "FileVersion", "{version}\0"
+            VALUE "ProductName", "Superfile\0"
+            VALUE "ProductVersion", "{version}\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END
+"#
+        ),
     )
-    .expect("Write application icon resource");
+    .expect("Write Windows application resources");
     embed_resource::compile(resource, embed_resource::NONE)
         .manifest_required()
-        .expect("Embed Windows application icon");
+        .expect("Embed Windows application resources");
 }
 
 fn embed_build_identity() {

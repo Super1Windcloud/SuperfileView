@@ -127,6 +127,8 @@ Section "Superfile" SecMain
   WriteRegStr HKCU "${CAPABILITIES}" "ApplicationName" "Superfile"
   WriteRegStr HKCU "${CAPABILITIES}" "ApplicationDescription" "Desktop file viewer and editor"
   WriteRegStr HKCU "${CLASSES}\Superfile.Document" "" "Superfile Document"
+  ; Older binaries may have left a cached name for this install path.
+  WriteRegStr HKCU "${CLASSES}\Superfile.Document\shell\open" "FriendlyAppName" "Superfile"
   WriteRegStr HKCU "${CLASSES}\Superfile.Document\shell\open\command" "" '"$INSTDIR\superfile.exe" "%1"'
   ReadRegStr $1 HKCU "${CLASSES}\Superfile.Url\shell\open\command" ""
   WriteRegStr HKCU "${CLASSES}\Superfile.Url" "" "URL:Superfile"
